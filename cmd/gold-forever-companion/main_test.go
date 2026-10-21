@@ -99,8 +99,21 @@ func TestWithoutACommandItShowsTheUsage(t *testing.T) {
 	}
 }
 
+// isolatedHome points every per-user folder the companion uses, on any system, at a new temporary
+// home, so a test never reads or writes the real settings (macOS ignores the XDG variables).
+func isolatedHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	return home
+}
+
 func TestRunWithoutATokenSaysHowToGetOne(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolatedHome(t)
 	var errs bytes.Buffer
 
 	code := run(context.Background(), []string{"run"}, func(string) string { return "" }, io.Discard, &errs)
@@ -111,10 +124,7 @@ func TestRunWithoutATokenSaysHowToGetOne(t *testing.T) {
 }
 
 func TestRunFindsTheSavesInAConfiguredFolderAndUploadsThem(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	home := isolatedHome(t)
 	wow := filepath.Join(home, "elsewhere", "World of Warcraft")
 	dir := filepath.Join(wow, "_forever_", "WTF", "Account", "A", "SavedVariables")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -171,8 +181,7 @@ func TestVersionPrintsTheBuildVersion(t *testing.T) {
 }
 
 func TestLinkShowsTheCodeAndSavesTheApprovedTokenWithoutPrintingIt(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", home)
+	isolatedHome(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		if r.URL.Path == "/api/v1/device/code" {
@@ -200,14 +209,18 @@ func TestLinkShowsTheCodeAndSavesTheApprovedTokenWithoutPrintingIt(t *testing.T)
 	if strings.Contains(out.String(), "gf_new_secret") {
 		t.Errorf("the token was printed: %q", out.String())
 	}
-	cfg, _ := config.Load(filepath.Join(home, "gold-forever-companion", "config.json"))
+	cfgPath, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(cfgPath)
 	if cfg.Token != "gf_new_secret" || cfg.URL != srv.URL {
 		t.Errorf("config = %+v", cfg)
 	}
 }
 
 func TestLinkThatIsDeniedSaysSoAndFails(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolatedHome(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		if r.URL.Path == "/api/v1/device/code" {
