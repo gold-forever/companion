@@ -50,16 +50,21 @@ curl -H "Authorization: Bearer $GF_TOKEN" -H 'Content-Type: application/octet-st
 The game decides which game a save belongs to: WoW: Forever or retail, read from the save's own
 `interface` number. A save from any other game is refused with 400.
 
-## Planned: the latest version
+## The latest version
 
 ```http
 GET /api/v1/companion/latest
 ```
 
-`{"version":"0.1.0","url":"https://github.com/magnusev/gold-forever-companion/releases/tag/v0.1.0"}`
+`{"version":"v0.1.0","url":"https://github.com/magnusev/gold-forever-companion/releases/tag/v0.1.0"}`
 
-Asked once a day, with no token. The app only shows a notice: it never downloads or installs
-anything itself.
+Asked at start and then once a day, with no token, so it says nothing about who asks beyond the
+`User-Agent`. A 404 means the server names no release. When the answer is newer, the settings page
+shows a notice with the link: the app never downloads or installs anything itself.
+
+```sh
+curl https://gold-forever.evensberget.com/api/v1/companion/latest
+```
 
 ## Planned: linking the app (a device code, as in RFC 8628)
 

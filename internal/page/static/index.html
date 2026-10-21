@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gold Forever Companion</title>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>Gold Forever Companion</h1>
+  <p id="status" class="status"></p>
+  <p id="notice" class="notice" hidden></p>
+</header>
+<main>
+  <section id="welcome" hidden>
+    <h2>Installed</h2>
+    <p>The companion installed itself for your user only. This is everything it did:</p>
+    <ul id="installed"></ul>
+    <label><input type="checkbox" id="autostart"> Start with my computer, so new saves are sent without you opening anything</label>
+    <p><button id="welcomed">Got it</button></p>
+  </section>
+
+  <section>
+    <h2>Your account</h2>
+    <div id="unlinked" hidden>
+      <p>Make a token at <a id="tokens" target="_blank" rel="noreferrer">your Gold Forever tokens page</a> and paste it here.</p>
+      <form id="link"><input id="token" placeholder="gf_…" autocomplete="off" required> <button>Link</button></form>
+    </div>
+    <div id="linked" hidden>
+      <p>Linked. Your saves go to <a id="site" target="_blank" rel="noreferrer"></a>.</p>
+      <button id="unlink" class="quiet">Unlink</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Saves found</h2>
+    <p class="hint">Each WoW account folder has its own save. Switch off any you don't want sent.</p>
+    <ul id="saves"></ul>
+    <form id="folder"><input id="path" placeholder="Another World of Warcraft folder" required> <button>Add folder</button></form>
+  </section>
+
+  <section>
+    <h2>What was sent</h2>
+    <p class="hint">Every upload and the server's answer, kept on this computer for 30 days.</p>
+    <table><thead><tr><th>When</th><th>Save</th><th>Size</th><th>Answer</th></tr></thead><tbody id="log"></tbody></table>
+    <h3>Copies kept</h3>
+    <p class="hint">The last 10 copies of each save. View one to see exactly what is sent; restore one if the game lost your save.</p>
+    <ul id="copies"></ul>
+  </section>
+
+  <section>
+    <h2>Uninstall</h2>
+    <label><input type="checkbox" id="keep"> Keep my backups and the upload log</label>
+    <p><button id="uninstall" class="danger">Uninstall the companion</button></p>
+    <p class="hint">Your token is removed from this computer either way; you can also revoke it on the tokens page.</p>
+  </section>
+</main>
+</body>
+</html>

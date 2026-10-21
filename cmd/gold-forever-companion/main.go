@@ -1,5 +1,6 @@
 // Command gold-forever-companion uploads the GoldForever.lua saves World of Warcraft writes to Gold
-// Forever. `run` watches every install it finds; `--once --file` uploads one file and exits.
+// Forever. Double-clicked, it installs itself and runs in the tray with a settings page; `run` watches
+// every install it finds without either; `--once --file` uploads one file and exits.
 package main
 
 import (
@@ -44,7 +45,12 @@ func main() {
 
 // run is the whole program: 0 on success, 1 when uploading failed, 2 for a usage error.
 func run(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "run" {
+	switch {
+	case len(args) == 0:
+		return player(ctx, "")
+	case args[0] == "--autostart" || args[0] == "--installed":
+		return player(ctx, args[0])
+	case args[0] == "run":
 		return watchAndUpload(ctx, args[1:], getenv, stdout, stderr)
 	}
 	flags := flag.NewFlagSet("gold-forever-companion", flag.ContinueOnError)

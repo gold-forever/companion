@@ -21,6 +21,8 @@ The releases published so far (v0.0.x) are for developers: they upload one file 
 
 - **Sent:** the bytes of `GoldForever.lua`, exactly as the game wrote them, with your token. The
   `User-Agent` says the companion's version and your operating system.
+- **Asked once a day, without your token:** whether a newer companion exists, so the settings page
+  can say so. It never downloads one itself.
 - **Never sent:** the file's path, your WoW account folder's name, your computer's name, or anything
   else on your disk.
 
@@ -59,8 +61,24 @@ one. Instead, each release can be checked two ways:
 
 ## For developers
 
-`run` watches every World of Warcraft install it finds and uploads each new save; `--once --file`
-uploads one file and exits.
+Started with no arguments, as a double-click does, the companion is the player's app:
+
+- **From anywhere but its install folder,** it installs itself (Windows: `%LOCALAPPDATA%\Gold Forever`
+  with a Start-menu shortcut and the current user's Run key; Linux: `~/.local/bin` with a `.desktop`
+  launcher and an XDG autostart entry; macOS: the `.app` stays where you put it and gains a LaunchAgent),
+  starts the installed copy and exits. A download newer than the installed copy replaces it; one no
+  newer just shows the running companion.
+- **Installed,** it runs once per user: the tray icon, the uploads, and a settings page on
+  `127.0.0.1` at a random port, which only takes requests for that exact address, from no other site,
+  with a random secret. Autostart starts it with `--autostart`, which stays quiet in the tray.
+- **Uninstall,** on the settings page, removes the binary, the shortcut, autostart and the settings
+  with the token, and the backups and log unless you keep them.
+
+The Windows build is a windowed program, so it opens no console window and prints nothing: use the
+Linux or macOS build for the command line below.
+
+`run` watches every World of Warcraft install it finds and uploads each new save, without the tray or
+the page; `--once --file` uploads one file and exits.
 
 ```sh
 export GF_TOKEN=gf_...        # a token from /me/tokens; PowerShell: $env:GF_TOKEN = "gf_..."
@@ -92,7 +110,7 @@ To build:
 
 ```sh
 make test
-make build          # dist/: Windows and Linux, amd64 and arm64
+make build          # dist/: Windows and Linux, amd64 and arm64 (macOS needs a Mac: the tray uses cgo there)
 ```
 
 ## Licence

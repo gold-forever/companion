@@ -1,0 +1,16 @@
+:root { color-scheme: light dark; --gold: #c9a227; font-family: system-ui, sans-serif; }
+body { max-width: 52rem; margin: 0 auto; padding: 1rem; line-height: 1.5; }
+h1 { color: var(--gold); margin-bottom: 0; }
+section { border-top: 1px solid #8884; padding: 0.5rem 0 1rem; }
+.status { font-weight: 600; }
+.notice { background: #c9a22733; padding: 0.5rem; border-radius: 4px; }
+.hint { opacity: 0.75; font-size: 0.9rem; }
+ul { padding-left: 1.2rem; }
+li { margin: 0.25rem 0; }
+input:not([type=checkbox]) { padding: 0.3rem; min-width: 18rem; max-width: 100%; }
+button { padding: 0.3rem 0.8rem; cursor: pointer; }
+button.quiet { background: none; border: 1px solid #8888; }
+button.danger { border: 1px solid #b33; color: #b33; background: none; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.2rem 0.5rem 0.2rem 0; border-bottom: 1px solid #8882; }
+.game { font-size: 0.8rem; opacity: 0.75; }
