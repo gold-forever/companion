@@ -26,19 +26,42 @@ func Newer(a, b string) bool {
 	return false
 }
 
-// parse reads major.minor.patch, with an optional leading v; anything else is not a release.
-func parse(v string) ([3]int, bool) {
-	var out [3]int
-	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
+// A release ranks above its candidates, which rank rc > beta > alpha (v1.0.0-rc.1 < v1.0.0).
+var stages = map[string]int{"alpha": 0, "beta": 1, "rc": 2}
+
+const release = 3
+
+// parse reads major.minor.patch, with an optional leading v and an optional -alpha.N, -beta.N or -rc.N;
+// anything else (dev, a git describe build like v0.1.0-3-gabc123) is not a release.
+func parse(v string) ([5]int, bool) {
+	var out [5]int
+	core, pre, hasPre := strings.Cut(strings.TrimPrefix(v, "v"), "-")
+	parts := strings.Split(core, ".")
 	if len(parts) != 3 {
 		return out, false
 	}
 	for i, p := range parts {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
+		n, ok := number(p)
+		if !ok {
 			return out, false
 		}
 		out[i] = n
 	}
+	out[3] = release
+	if !hasPre {
+		return out, true
+	}
+	name, num, ok := strings.Cut(pre, ".")
+	stage, known := stages[name]
+	n, isNumber := number(num)
+	if !ok || !known || !isNumber {
+		return out, false
+	}
+	out[3], out[4] = stage, n
 	return out, true
+}
+
+func number(s string) (int, bool) {
+	n, err := strconv.Atoi(s)
+	return n, err == nil && n >= 0
 }

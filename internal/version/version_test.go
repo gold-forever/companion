@@ -17,6 +17,13 @@ func TestNewer(t *testing.T) {
 		{"dev", "v0.1.0", false},              // a local build never replaces a release
 		{"v0.1.0", "dev", true},               // and a release replaces a local build
 		{"v0.1.0-3-gabc123", "v0.1.0", false}, // a build between tags is not a newer release
+		{"v0.1.0-rc.3", "v0.1.0-rc.2", true},  // release candidates update each other
+		{"v0.1.0-rc.10", "v0.1.0-rc.9", true}, // and their numbers compare as numbers
+		{"v0.1.0", "v0.1.0-rc.2", true},       // the release replaces its candidates
+		{"v0.1.0-rc.2", "v0.1.0", false},      // and no candidate replaces the release
+		{"v0.1.0-rc.1", "v0.0.9", true},       // a candidate is still newer than the release before
+		{"v0.1.0-beta.1", "v0.1.0-rc.1", false},
+		{"v0.1.0-rc.3-local", "v0.1.0-rc.2", false}, // anything else after the version is not a release
 	}
 	for _, c := range cases {
 		if got := Newer(c.a, c.b); got != c.want {
