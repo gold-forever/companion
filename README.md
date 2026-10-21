@@ -9,7 +9,8 @@ without copying anything by hand. Later versions will also write market prices b
 **Not ready for players yet.** The first version for players (v0.1) will be one file: download it,
 double-click it, and approve the link in your browser. It installs itself for your user only (no
 admin rights), starts with your computer, finds World of Warcraft, and uploads every new save on its
-own. Uninstall is a button in its settings.
+own. Uninstall is a button in its settings. [INSTALL.md](INSTALL.md) walks through it, warnings
+included.
 
 Until then, upload in the game with `/gf export` and paste the text at
 <https://gold-forever.evensberget.com/me/upload>.
@@ -50,14 +51,9 @@ If PowerShell still refuses ("running scripts is disabled on this system"), run 
 ## Checking that a download matches this source
 
 Releases are not signed with a Windows or Apple certificate, so your system will warn before running
-one. Instead, each release can be checked two ways:
-
-- **Who built it:** `gh attestation verify <file> --repo magnusev/gold-forever-companion` proves the
-  file was built by this repository's release workflow from the tagged commit.
-- **That the source makes exactly these bytes:** check out the tag, download its `SHA256SUMS`, and run
-  `make reproduce TAG=<tag>`. The Windows and Linux binaries match byte for byte. Go's version is
-  pinned in `go.mod`, so `go` fetches the same toolchain. The macOS binary depends on the Xcode
-  version, which the release log prints.
+one. Instead, every file can be checked: `gh attestation verify` shows that this repository's release
+workflow built it, and `make reproduce` rebuilds it from the tag with identical bytes (Windows and
+Linux). [VERIFY.md](VERIFY.md) has the steps, and how to read the companion's own log of what it sent.
 
 ## For developers
 
