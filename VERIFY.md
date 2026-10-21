@@ -11,7 +11,7 @@ which commit, and its SHA-256. To check a file you downloaded, install the [GitH
 and run:
 
 ```sh
-gh attestation verify gold-forever-companion-windows-amd64.exe --repo magnusev/gold-forever-companion
+gh attestation verify GoldForever-Companion.exe --repo magnusev/gold-forever-companion
 ```
 
 Use the name of the file you downloaded. It passes only when GitHub built that exact file from this
@@ -38,7 +38,8 @@ for byte.
    make reproduce TAG=v0.1.0
    ```
 
-   It builds the four Windows and Linux files into `reproduce/`, writes their hashes to
+   It builds the four Windows and Linux files (`GoldForever-Companion.exe`,
+   `GoldForever-Companion-arm64.exe`, `gold-forever-companion-linux-amd64` and `-arm64`) into `reproduce/`, writes their hashes to
    `reproduce/SHA256SUMS.local`, and checks them against the release's `SHA256SUMS`. Each line says
    `OK`. A mismatch says `FAILED`.
 
@@ -56,21 +57,30 @@ podman run --rm -v "$PWD":/src:z -w /src docker.io/library/golang:1.27.3 make re
 
 ### macOS: best effort
 
-The macOS file is one universal binary built on GitHub's Mac runner with cgo, so its bytes also
-depend on the Xcode version. The release log prints it: open the release's workflow run, job
-`macos`, step `xcodebuild -version && go version`. With the same Xcode, on a Mac, at the tag:
+`GoldForever-Companion.dmg` holds `Gold Forever Companion.app`, and the program inside it is one
+universal binary built on GitHub's Mac runner with cgo. The release also publishes that binary on its
+own, as `gold-forever-companion-macos-universal`, so you can check the one you run:
 
 ```sh
-for arch in arm64 amd64; do
-  CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -buildvcs=false \
-    -ldflags "-s -w -buildid= -X main.version=v0.1.0" -o build-$arch ./cmd/gold-forever-companion
-done
-lipo -create -output gold-forever-companion-macos-universal build-arm64 build-amd64
-shasum -a 256 gold-forever-companion-macos-universal
+cmp "/Applications/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion" \
+    gold-forever-companion-macos-universal && echo "the same bytes"
 ```
 
-Compare the hash with the macOS line in `SHA256SUMS`. With a different Xcode it may differ, even though
-the source is the same. For a Mac, the attestation (section 1) is the dependable check.
+Then check that binary's attestation (section 1). The `.dmg` itself is never byte for byte
+reproducible, because macOS writes times into it.
+
+To rebuild the binary, its bytes also depend on the Xcode version. The release log prints it: open the
+release's workflow run, job `macos`, step `xcodebuild -version && go version`. With the same Xcode,
+on a Mac, at the tag:
+
+```sh
+make macos VERSION=v0.1.0
+shasum -a 256 dist/gold-forever-companion-macos-universal
+```
+
+Compare the hash with the `gold-forever-companion-macos-universal` line in `SHA256SUMS`. With a
+different Xcode it may differ, even though the source is the same. For a Mac, the attestation is the
+dependable check.
 
 ## 3. What it sent: the local log
 

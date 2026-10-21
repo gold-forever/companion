@@ -1,5 +1,6 @@
-# A tag (v0.1.0) builds every binary, writes SHA256SUMS, attests each file's build provenance (who
-# built it, from which commit, with which workflow), and publishes a pre-release. VERIFY.md says how to
+# A tag (v0.1.0) builds every file a player downloads (GoldForever-Companion.exe, GoldForever-Companion.dmg,
+# the Linux binaries), writes SHA256SUMS, attests each file's build provenance (who built it, from which
+# commit, with which workflow), and publishes a pre-release. VERIFY.md says how to
 # check all three. Nothing here signs with a certificate: releases are unsigned by choice (design 006).
 name: release
 
@@ -26,8 +27,9 @@ jobs:
           name: portable
           path: dist/*
 
-  # One universal binary for Intel and Apple Silicon. Built with cgo, which the tray will need; the
-  # exact bytes depend on the runner's Xcode, which is printed so a rebuild can match it.
+  # The .dmg holds the .app around one universal binary for Intel and Apple Silicon, built with cgo for
+  # the tray. Its bytes depend on the runner's Xcode, which is printed so a rebuild can match it; the
+  # bare binary is published too, so a Mac can compare it with the one inside the .app (VERIFY.md).
   macos:
     runs-on: macos-latest
     steps:
@@ -37,16 +39,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - run: xcodebuild -version && go version
-      - name: Build both architectures and join them
-        env:
-          CGO_ENABLED: "1"
-          LDFLAGS: -s -w -buildid= -X main.version=${{ github.ref_name }}
-        run: |
-          mkdir -p dist
-          for arch in arm64 amd64; do
-            GOOS=darwin GOARCH=$arch go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o build-$arch ./cmd/gold-forever-companion
-          done
-          lipo -create -output dist/gold-forever-companion-macos-universal build-arm64 build-amd64
+      - run: make macos VERSION=${{ github.ref_name }} DIST=dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos
@@ -64,7 +57,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - run: cd dist && sha256sum gold-forever-companion-* | tee SHA256SUMS
+      - run: cd dist && sha256sum -- * | tee SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/*

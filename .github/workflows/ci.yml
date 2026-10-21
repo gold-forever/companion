@@ -52,7 +52,18 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test ./...
-      - run: CGO_ENABLED=1 go build -trimpath -buildvcs=false -o /dev/null ./cmd/gold-forever-companion
+      # The release's .app and .dmg, built on every push so a tag is never their first build.
+      - run: make macos VERSION=v0.0.0-ci DIST=out
+      - name: The .dmg holds the .app with its menu-bar-only Info.plist
+        run: |
+          mount=$(hdiutil attach -nobrowse -readonly out/GoldForever-Companion.dmg | awk -F'\t' '/\/Volumes\//{print $NF}')
+          app="$mount/Gold Forever Companion.app"
+          plutil -lint "$app/Contents/Info.plist"
+          test "$(plutil -extract LSUIElement raw "$app/Contents/Info.plist")" = true
+          test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = com.evensberget.gold-forever-companion
+          cmp "$app/Contents/MacOS/gold-forever-companion" out/gold-forever-companion-macos-universal
+          lipo -archs "$app/Contents/MacOS/gold-forever-companion"
+          hdiutil detach "$mount"
 
   reproducible:
     needs: build
