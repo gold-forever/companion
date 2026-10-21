@@ -45,6 +45,7 @@ function showState(s) {
   $("welcome").hidden = !s.firstRun;
   $("installed").replaceChildren(...(s.installed || []).map((line) => li(line)));
   $("autostart").checked = s.autostart;
+  showLinking(s.linking, s.linked);
   $("unlinked").hidden = s.linked;
   $("linked").hidden = !s.linked;
   $("tokens").href = s.site + "/me/tokens";
@@ -60,6 +61,28 @@ function showState(s) {
     return li(label);
   }));
   if (!(s.saves || []).length) $("saves").replaceChildren(li("None yet. Log in to World of Warcraft once with the Gold Forever addon, or add your WoW folder below."));
+}
+
+// A link by code: the code to approve while it waits, or why it ended.
+function showLinking(l, linked) {
+  const p = $("linking");
+  const waiting = !!l && (l.state === "starting" || l.state === "waiting");
+  $("device").disabled = waiting;
+  p.hidden = !l || linked;
+  if (!l) return;
+  if (l.state === "starting") {
+    p.replaceChildren("Asking Gold Forever for a code…");
+  } else if (l.state === "waiting") {
+    const code = document.createElement("strong");
+    code.textContent = l.userCode;
+    const a = document.createElement("a");
+    a.href = l.url; a.textContent = "open it here"; a.target = "_blank"; a.rel = "noreferrer";
+    p.replaceChildren("Approve the code ", code, " in your browser. If no page opened, ", a, ".");
+  } else {
+    const why = { denied: "The link was denied.", expired: "The code expired before it was approved.", failed: "Linking failed: " + (l.error || "unknown error") + "." };
+    p.replaceChildren((why[l.state] || "") + " Press the button to try again.");
+  }
+  schedule(waiting ? 1500 : 5000);
 }
 
 function showHistory(h) {
@@ -90,6 +113,7 @@ async function refresh() {
 
 $("autostart").onchange = () => act(call("/api/autostart", { on: $("autostart").checked }));
 $("welcomed").onclick = () => act(call("/api/welcomed", {}));
+$("device").onclick = () => act(call("/api/link/device", {}));
 $("link").onsubmit = (e) => { e.preventDefault(); act(call("/api/link", { token: $("token").value.trim() })); $("token").value = ""; };
 $("unlink").onclick = () => act(call("/api/unlink", {}));
 $("folder").onsubmit = (e) => { e.preventDefault(); act(call("/api/folder", { path: $("path").value.trim() })); $("path").value = ""; };
@@ -100,5 +124,11 @@ $("uninstall").onclick = () => {
     (e) => alert(e.message));
 };
 
-refresh().catch((e) => { $("status").textContent = e.message; });
-setInterval(() => refresh().catch(() => {}), 5000);
+// Refreshes every 5 s, and faster while a link waits for its approval.
+let timer;
+function schedule(ms) {
+  clearTimeout(timer);
+  timer = setTimeout(() => refresh().catch(() => schedule(5000)), ms);
+}
+
+refresh().catch((e) => { $("status").textContent = e.message; schedule(5000); });

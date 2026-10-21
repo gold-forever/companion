@@ -14,3 +14,5 @@ button.danger { border: 1px solid #b33; color: #b33; background: none; }
 table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 th, td { text-align: left; padding: 0.2rem 0.5rem 0.2rem 0; border-bottom: 1px solid #8882; }
 .game { font-size: 0.8rem; opacity: 0.75; }
+.linking { background: #c9a22722; padding: 0.5rem; border-radius: 4px; }
+summary { cursor: pointer; opacity: 0.85; }

@@ -70,8 +70,10 @@ own computer.
 1. **It says what it installed, and where** (see the table below).
 2. **"Start with my computer"** is ticked. Leave it ticked, so new saves upload without you
    remembering to start it. Untick it if you'd rather start it yourself.
-3. **Link your account:** the page shows a code and opens <https://gold-forever.evensberget.com/link>.
-   Sign in with Battle.net, check that the code matches, and click **Approve**.
+3. **Link your account:** press **Link this computer** and approve the link in your browser. The
+   page shows a code and opens <https://gold-forever.evensberget.com/link>: sign in with Battle.net,
+   check that the code matches, and click **Approve**. (If you'd rather, **Or paste a token** takes a
+   token from your tokens page instead.)
 4. **It finds World of Warcraft** and lists every account folder it found. Each has a switch. If your
    game is somewhere unusual, use **Add folder**.
 

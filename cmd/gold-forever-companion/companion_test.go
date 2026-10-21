@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/magnusev/gold-forever-companion/internal/api"
 	"github.com/magnusev/gold-forever-companion/internal/install"
 )
 
@@ -176,5 +178,88 @@ func TestTheStatusIsTheLatestLineTheLoopWrote(t *testing.T) {
 	c.status.Write([]byte("12:00:00 sent _forever_: imported\n"))
 	if got := c.State().Status; got != "12:00:00 sent _forever_: imported" {
 		t.Errorf("status %q", got)
+	}
+}
+
+// linkingState waits until the page would show want for the link in progress.
+func linkingState(t *testing.T, c *companion, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if l := c.State().Linking; l != nil && l.State == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("the link never reached %q: %+v", want, c.State().Linking)
+}
+
+var testCode = api.DeviceCode{UserCode: "BCDF-2345", VerificationURI: "https://gold-forever.example/link",
+	VerificationURIComplete: "https://gold-forever.example/link?code=BCDF2345", ExpiresIn: 600, Interval: 5}
+
+func TestLinkingByCodeShowsTheCodeOpensTheSiteAndSavesTheToken(t *testing.T) {
+	c, _ := fixture(t)
+	approved := make(chan struct{})
+	var opened []string
+	c.openURL = func(u string) { opened = append(opened, u) }
+	c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
+		show(testCode)
+		<-approved
+		return save(validToken)
+	}
+
+	if err := c.StartDeviceLink(); err != nil {
+		t.Fatal(err)
+	}
+	linkingState(t, c, "waiting")
+	if l := c.State().Linking; l.UserCode != "BCDF-2345" || l.URL != testCode.VerificationURIComplete {
+		t.Errorf("the page must show the code and its link: %+v", l)
+	}
+	if len(opened) != 1 || opened[0] != testCode.VerificationURIComplete {
+		t.Errorf("the browser must open the approval page once: %v", opened)
+	}
+	close(approved)
+	linkingState(t, c, "linked")
+	if !c.State().Linked || c.settings().Token != validToken {
+		t.Error("an approved link must leave the companion linked")
+	}
+}
+
+func TestLinkingByCodeThatIsDeniedOrExpiresSavesNothing(t *testing.T) {
+	for want, err := range map[string]error{"denied": api.ErrLinkDenied, "expired": api.ErrLinkExpired} {
+		c, _ := fixture(t)
+		c.openURL = func(string) {}
+		c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
+			show(testCode)
+			return err
+		}
+		if err := c.StartDeviceLink(); err != nil {
+			t.Fatal(err)
+		}
+		linkingState(t, c, want)
+		if c.State().Linked {
+			t.Errorf("%s: a link that was not approved linked the companion", want)
+		}
+	}
+}
+
+func TestASecondLinkWhileOneWaitsStartsNone(t *testing.T) {
+	c, _ := fixture(t)
+	release := make(chan struct{})
+	defer close(release)
+	starts := 0
+	c.openURL = func(string) {}
+	c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
+		starts++
+		show(testCode)
+		<-release
+		return ctx.Err()
+	}
+	c.StartDeviceLink()
+	linkingState(t, c, "waiting")
+	c.StartDeviceLink()
+	time.Sleep(20 * time.Millisecond)
+	if starts != 1 {
+		t.Errorf("a second press started %d links in all, want 1", starts)
 	}
 }

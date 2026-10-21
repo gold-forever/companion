@@ -16,6 +16,7 @@
 <main>
   <section id="welcome" hidden>
     <h2>Installed</h2>
+    <p><strong>Next: press "Link this computer" below and approve the link in your browser.</strong> Then play as usual; new saves are sent by themselves.</p>
     <p>The companion installed itself for your user only. This is everything it did:</p>
     <ul id="installed"></ul>
     <label><input type="checkbox" id="autostart"> Start with my computer, so new saves are sent without you opening anything</label>
@@ -25,8 +26,13 @@
   <section>
     <h2>Your account</h2>
     <div id="unlinked" hidden>
-      <p>Make a token at <a id="tokens" target="_blank" rel="noreferrer">your Gold Forever tokens page</a> and paste it here.</p>
-      <form id="link"><input id="token" placeholder="gf_…" autocomplete="off" required> <button>Link</button></form>
+      <p><button id="device">Link this computer</button></p>
+      <p id="linking" class="linking" hidden></p>
+      <details>
+        <summary>Or paste a token</summary>
+        <p>Make a token at <a id="tokens" target="_blank" rel="noreferrer">your Gold Forever tokens page</a> and paste it here.</p>
+        <form id="link"><input id="token" placeholder="gf_…" autocomplete="off" required> <button>Link</button></form>
+      </details>
     </div>
     <div id="linked" hidden>
       <p>Linked. Your saves go to <a id="site" target="_blank" rel="noreferrer"></a>.</p>

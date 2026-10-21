@@ -36,6 +36,16 @@ type State struct {
 	Saves     []Save   `json:"saves"`
 	Folders   []string `json:"folders"`
 	Notice    *Notice  `json:"notice,omitempty"`
+	Linking   *Linking `json:"linking,omitempty"`
+}
+
+// Linking is a link by code in progress or just ended: waiting (the player approves UserCode at URL),
+// linked, denied, expired, or failed with Error.
+type Linking struct {
+	State    string `json:"state"`
+	UserCode string `json:"userCode,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // Save is one GoldForever.lua the companion found.
@@ -70,6 +80,7 @@ type Copy struct {
 type App interface {
 	State() State
 	Link(token string) error
+	StartDeviceLink() error
 	Unlink() error
 	SetSaveOn(path string, on bool) error
 	AddFolder(path string) error
@@ -176,6 +187,7 @@ func (h *handler) routes() {
 		w.Write(data)
 	})
 	post(m, "/api/link", func(b struct{ Token string }) error { return h.app.Link(b.Token) })
+	post(m, "/api/link/device", func(struct{}) error { return h.app.StartDeviceLink() })
 	post(m, "/api/unlink", func(struct{}) error { return h.app.Unlink() })
 	post(m, "/api/save", func(b struct {
 		Path string

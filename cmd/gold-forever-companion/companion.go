@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/magnusev/gold-forever-companion/internal/core"
 	"github.com/magnusev/gold-forever-companion/internal/find"
 	"github.com/magnusev/gold-forever-companion/internal/install"
+	"github.com/magnusev/gold-forever-companion/internal/link"
 	"github.com/magnusev/gold-forever-companion/internal/page"
 	"github.com/magnusev/gold-forever-companion/internal/sendlog"
 	release "github.com/magnusev/gold-forever-companion/internal/version"
@@ -46,10 +48,15 @@ type companion struct {
 	log        *sendlog.Log
 	quit       func()
 	status     *lastLine
+	// linker links by code: it shows the code, waits for the approval and saves the token with save.
+	linker func(ctx context.Context, show func(api.DeviceCode), save func(token string) error) error
+	// openURL opens a page in the player's browser.
+	openURL func(url string)
 
 	mu      sync.Mutex
 	cfg     config.Config
 	notice  *page.Notice
+	linking *page.Linking
 	changed chan struct{} // closed and replaced on every change the loop must see
 	games   map[string]gameSeen
 }
@@ -69,7 +76,7 @@ type companionOptions struct {
 
 func newCompanion(o companionOptions) *companion {
 	cfg, _ := config.Load(o.cfgPath) // an unreadable file is an unlinked companion, which the page shows
-	return &companion{
+	c := &companion{
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
 		cfgPath: o.cfgPath, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
 		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: keepCopies, Now: time.Now},
@@ -78,7 +85,14 @@ func newCompanion(o companionOptions) *companion {
 		cfg:     cfg,
 		changed: make(chan struct{}),
 		games:   map[string]gameSeen{},
+		openURL: func(string) {},
 	}
+	c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
+		hostname, _ := os.Hostname()
+		client := &api.Client{BaseURL: c.url(), Version: c.version, OS: goos, Sleep: pollSleep}
+		return link.Run(ctx, client, hostname, show, save)
+	}
+	return c
 }
 
 // changes is closed at the next change the upload loop must see.
@@ -144,6 +158,10 @@ func (c *companion) State() page.State {
 	}
 	c.mu.Lock()
 	s.Notice = c.notice
+	if c.linking != nil {
+		l := *c.linking
+		s.Linking = &l
+	}
 	c.mu.Unlock()
 	return s
 }
@@ -191,6 +209,50 @@ func (c *companion) Link(token string) error {
 		return page.BadRequest("that is not a token: a token starts with gf_ and is 46 letters and digits, from your tokens page")
 	}
 	return c.update(func(cfg *config.Config) error { cfg.Token = token; return nil })
+}
+
+// linkTimeout outlasts a code's ten minutes, so the server's expiry is what ends a link.
+const linkTimeout = 15 * time.Minute
+
+// StartDeviceLink starts linking by code in the background, opening the approval page in the browser;
+// the page follows it in State. A press while one waits starts nothing new.
+func (c *companion) StartDeviceLink() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.linking != nil && (c.linking.State == "starting" || c.linking.State == "waiting") {
+		return nil
+	}
+	c.linking = &page.Linking{State: "starting"}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), linkTimeout)
+		defer cancel()
+		show := func(code api.DeviceCode) {
+			// The browser first, so a page that sees "waiting" knows the approval page was opened.
+			c.openURL(code.VerificationURIComplete)
+			c.setLinking(page.Linking{State: "waiting", UserCode: code.UserCode, URL: code.VerificationURIComplete})
+		}
+		save := func(token string) error {
+			return c.update(func(cfg *config.Config) error { cfg.Token = token; return nil })
+		}
+		err := c.linker(ctx, show, save)
+		switch {
+		case err == nil:
+			c.setLinking(page.Linking{State: "linked"})
+		case errors.Is(err, api.ErrLinkDenied):
+			c.setLinking(page.Linking{State: "denied"})
+		case errors.Is(err, api.ErrLinkExpired), errors.Is(err, context.DeadlineExceeded):
+			c.setLinking(page.Linking{State: "expired"})
+		default:
+			c.setLinking(page.Linking{State: "failed", Error: err.Error()})
+		}
+	}()
+	return nil
+}
+
+func (c *companion) setLinking(l page.Linking) {
+	c.mu.Lock()
+	c.linking = &l
+	c.mu.Unlock()
 }
 
 func (c *companion) Unlink() error {
@@ -315,7 +377,7 @@ func (c *companion) loop(ctx context.Context) {
 		changed := c.changes()
 		token := c.settings().Token
 		if token == "" {
-			c.status.Set("Not linked yet: open Settings and paste a token.")
+			c.status.Set("Not linked yet: open Settings and press \"Link this computer\".")
 		} else {
 			run, stop := context.WithCancel(ctx)
 			go func() {

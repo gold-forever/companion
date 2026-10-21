@@ -129,6 +129,7 @@ func serve(ctx context.Context, layout install.Layout, exe, home, dataDir, insta
 		candidates: find.Candidates(goos, home, os.Getenv, find.RegistryInstall), quit: stop,
 	})
 	c.status.out = os.Stdout
+	c.openURL = func(url string) { _ = openBrowser(url) }
 	_ = c.log.Prune(time.Now())
 	// macOS has no install step: autostart is turned on at the first run, as installing does elsewhere.
 	if layout.Exe == "" && !c.settings().Welcomed && !layout.Autostart.Enabled() {

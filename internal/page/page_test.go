@@ -17,14 +17,16 @@ const (
 )
 
 type fakeApp struct {
-	restored   string
-	uninstalls int
-	linked     string
+	restored    string
+	uninstalls  int
+	linked      string
+	deviceLinks int
 }
 
 func (a *fakeApp) State() State                  { return State{Version: "v0.1.0", Linked: a.linked != ""} }
 func (a *fakeApp) Link(token string) error       { a.linked = token; return nil }
 func (a *fakeApp) Unlink() error                 { a.linked = ""; return nil }
+func (a *fakeApp) StartDeviceLink() error        { a.deviceLinks++; return nil }
 func (a *fakeApp) SetSaveOn(string, bool) error  { return nil }
 func (a *fakeApp) AddFolder(string) error        { return nil }
 func (a *fakeApp) SetAutostart(bool) error       { return nil }
@@ -175,5 +177,28 @@ func TestThePageItselfIsServed(t *testing.T) {
 	rec := serve(&fakeApp{}, "GET", "/", "", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<title>Gold Forever Companion</title>") {
 		t.Errorf("%d: %.200s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLinkingByCodeStartsInTheApp(t *testing.T) {
+	app := &fakeApp{}
+	if rec := serve(app, "POST", "/api/link/device", "{}", nil); rec.Code != http.StatusOK {
+		t.Fatalf("starting a link: %d %s", rec.Code, rec.Body)
+	}
+	if app.deviceLinks != 1 {
+		t.Errorf("the app started %d links, want 1", app.deviceLinks)
+	}
+}
+
+func TestLinkingByCodeKeepsThePageRules(t *testing.T) {
+	app := &fakeApp{}
+	noSecret := serve(app, "POST", "/api/link/device", "{}", func(r *http.Request) { r.Header.Del("Cookie") })
+	notJSON := serve(app, "POST", "/api/link/device", "{}", func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") })
+	otherSite := serve(app, "POST", "/api/link/device", "{}", func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") })
+	if noSecret.Code != http.StatusForbidden || notJSON.Code != http.StatusUnsupportedMediaType || otherSite.Code != http.StatusForbidden {
+		t.Fatalf("no secret %d, not JSON %d, another site %d", noSecret.Code, notJSON.Code, otherSite.Code)
+	}
+	if app.deviceLinks != 0 {
+		t.Errorf("a refused request started %d links", app.deviceLinks)
 	}
 }
