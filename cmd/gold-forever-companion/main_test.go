@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -129,11 +130,15 @@ func TestRunFindsTheSavesInAConfiguredFolderAndUploadsThem(t *testing.T) {
 		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
 	}))
 	t.Cleanup(srv.Close)
-	cfgPath := filepath.Join(home, "config", "gold-forever-companion", "config.json")
+	// The app's own answers, so the test holds on every system (macOS ignores XDG_CONFIG_HOME).
+	cfgPath, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := config.Save(cfgPath, config.Config{Token: "gf_t", URL: srv.URL, Folders: []string{wow}}); err != nil {
 		t.Fatal(err)
 	}
-	logPath := filepath.Join(home, "data", "gold-forever-companion", "sent.jsonl")
+	logPath := filepath.Join(config.DataDir(runtime.GOOS, home, os.Getenv), "sent.jsonl")
 	go func() {
 		// Stop once the answer is in the log, as a player would close the companion.
 		for ctx.Err() == nil {
