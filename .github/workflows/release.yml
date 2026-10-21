@@ -1,0 +1,77 @@
+# A tag (v0.1.0) builds every binary, writes SHA256SUMS, attests each file's build provenance (who
+# built it, from which commit, with which workflow), and publishes a pre-release. VERIFY.md says how to
+# check all three. Nothing here signs with a certificate: releases are unsigned by choice (design 006).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: go test ./...
+      - run: make build VERSION=${{ github.ref_name }} DIST=dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: portable
+          path: dist/*
+
+  # One universal binary for Intel and Apple Silicon. Built with cgo, which the tray will need; the
+  # exact bytes depend on the runner's Xcode, which is printed so a rebuild can match it.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: xcodebuild -version && go version
+      - name: Build both architectures and join them
+        env:
+          CGO_ENABLED: "1"
+          LDFLAGS: -s -w -buildid= -X main.version=${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          for arch in arm64 amd64; do
+            GOOS=darwin GOARCH=$arch go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o build-$arch ./cmd/gold-forever-companion
+          done
+          lipo -create -output dist/gold-forever-companion-macos-universal build-arm64 build-amd64
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos
+          path: dist/*
+
+  publish:
+    needs: [portable, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - run: cd dist && sha256sum gold-forever-companion-* | tee SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Publish a pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}" dist/*
+          --repo "${{ github.repository }}" --prerelease --generate-notes
+          --title "${{ github.ref_name }}"
