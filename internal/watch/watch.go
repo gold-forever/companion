@@ -72,7 +72,8 @@ var (
 // line closes it. Every nested table closes with "},", so a file cut off mid-write never ends in a
 // bare "}".
 func Complete(data []byte) bool {
-	data = bytes.TrimPrefix(data, byteOrderMark)
+	// The game starts the file with a blank line (CRLF under Wine and on Windows).
+	data = bytes.TrimLeft(bytes.TrimPrefix(data, byteOrderMark), " \t\r\n")
 	if !bytes.HasPrefix(data, opening) {
 		return false
 	}

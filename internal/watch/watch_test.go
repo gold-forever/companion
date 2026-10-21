@@ -113,3 +113,15 @@ func TestComplete(t *testing.T) {
 		}
 	}
 }
+
+// The game under Wine writes a blank first line and Windows line endings (seen in the owner's real
+// GoldForever.lua with v0.1.0-rc.2, which therefore never uploaded anything).
+func TestASaveWithALeadingBlankLineAndWindowsLineEndingsIsComplete(t *testing.T) {
+	save := []byte("\r\nGoldForeverDB = {\r\n[\"errors\"] = {\r\n},\r\n}\r\n")
+	if !Complete(save) {
+		t.Error("the game's own save, with a leading CRLF, must count as complete")
+	}
+	if Complete([]byte("\r\nGoldForeverDB = {\r\n[\"errors\"] = {\r\n")) {
+		t.Error("a save cut off mid-write must still not count")
+	}
+}
