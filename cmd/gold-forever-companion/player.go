@@ -47,7 +47,9 @@ func player(ctx context.Context, mode string) int {
 	other, err := instance.Read(instancePath)
 	alive := err == nil && instance.Alive(other)
 	switch {
-	case layout.NeedsInstall(exe):
+	// Only a double-click installs: a copy started --installed or --autostart is the installed one, so it
+	// never hands off again, whatever a path comparison says (a symlinked home once made that a loop).
+	case mode == "" && layout.NeedsInstall(exe):
 		err = installFromDownload(layout, exe, other, alive)
 	case alive:
 		err = openBrowser(instance.PageURL(other))

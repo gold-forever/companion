@@ -250,3 +250,24 @@ func TestUninstallLeavesSharedFoldersAndRemovesOnlyItsOwn(t *testing.T) {
 		t.Error("the Gold Forever folder in LocalAppData is the companion's own: it goes")
 	}
 }
+
+// Fedora Atomic and Bazzite reach /home through a symlink to /var/home: $HOME says one, the running
+// binary's resolved path says the other. Taken for a download, the installed copy started itself again
+// and again (found on the owner's machine with v0.1.0-rc.2).
+func TestTheInstalledCopyIsRecognisedThroughASymlinkedHome(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := env(t, "linux")
+	e.Home = link
+	l := For(e)
+	if err := l.Install(downloaded(t)); err != nil {
+		t.Fatal(err)
+	}
+	resolved := filepath.Join(real, ".local", "bin", "gold-forever-companion")
+	if l.NeedsInstall(resolved) {
+		t.Error("the installed copy, seen through the symlink's target, must not install itself again")
+	}
+}

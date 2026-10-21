@@ -109,7 +109,17 @@ func (l Layout) NeedsInstall(running string) bool {
 	if l.GOOS == "windows" {
 		return !strings.EqualFold(l.Exe, running)
 	}
-	return filepath.Clean(l.Exe) != filepath.Clean(running)
+	return resolved(l.Exe) != resolved(running)
+}
+
+// resolved is path with its symlinks followed, as os.Executable's caller resolves the running binary:
+// on Fedora Atomic $HOME (/home/…) is a symlink to /var/home/…. A path that does not exist yet is
+// only cleaned.
+func resolved(path string) string {
+	if p, err := filepath.EvalSymlinks(path); err == nil {
+		return p
+	}
+	return filepath.Clean(path)
 }
 
 // Target is the binary that runs once installed.
