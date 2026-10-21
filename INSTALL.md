@@ -84,7 +84,7 @@ The icon in the tray or menu bar shows when it last uploaded.
 |---|---|---|---|
 | The program | `%LOCALAPPDATA%\Gold Forever\` | `/Applications/Gold Forever Companion.app` (you put it there) | `~/.local/bin/` |
 | Start menu / launcher | a Start-menu shortcut | — | `~/.local/share/applications/` |
-| Start with my computer | the Startup folder | a LaunchAgent in `~/Library/LaunchAgents/` | `~/.config/autostart/` |
+| Start with my computer | a "Gold Forever" entry in Settings → Apps → Startup (the Run key) | a LaunchAgent in `~/Library/LaunchAgents/` | `~/.config/autostart/` |
 | Settings and token | `%APPDATA%\gold-forever-companion\config.json` | `~/Library/Application Support/gold-forever-companion/config.json` | `~/.config/gold-forever-companion/config.json` |
 | Backups and log | `%LOCALAPPDATA%\gold-forever-companion\` | `~/Library/Application Support/gold-forever-companion/` | `~/.local/share/gold-forever-companion/` |
 
