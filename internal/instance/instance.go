@@ -6,9 +6,11 @@ package instance
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -79,7 +81,12 @@ func PageURL(i Info) string {
 }
 
 func call(i Info, method, path string) (*http.Response, error) {
-	req, err := http.NewRequest(method, fmt.Sprintf("http://127.0.0.1:%d%s", i.Port, path), nil)
+	// The page takes JSON bodies only, so a POST carries an empty object rather than nothing.
+	var body io.Reader
+	if method == http.MethodPost {
+		body = strings.NewReader("{}")
+	}
+	req, err := http.NewRequest(method, fmt.Sprintf("http://127.0.0.1:%d%s", i.Port, path), body)
 	if err != nil {
 		return nil, err
 	}

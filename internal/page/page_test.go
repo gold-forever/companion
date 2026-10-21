@@ -1,6 +1,7 @@
 package page
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -200,5 +201,23 @@ func TestLinkingByCodeKeepsThePageRules(t *testing.T) {
 	}
 	if app.deviceLinks != 0 {
 		t.Errorf("a refused request started %d links", app.deviceLinks)
+	}
+}
+
+// A newer download asks the running copy to quit with instance.Quit before replacing it: the real
+// client against the real page. In v0.1.0-rc.2 the client sent no body, the page wanted JSON, and so
+// every update failed with "the running companion answered 400".
+func TestANewerDownloadCanAskTheRunningCopyToQuit(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := ln.Addr().(*net.TCPAddr).Port
+	srv := &http.Server{Handler: New(&fakeApp{}, secret, live)}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+
+	if err := instance.Quit(instance.Info{Port: live, Secret: secret}); err != nil {
+		t.Errorf("the running copy refused to quit: %v", err)
 	}
 }
