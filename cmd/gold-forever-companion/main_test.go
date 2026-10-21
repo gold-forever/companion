@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/magnusev/gold-forever-companion/internal/config"
+	"github.com/gold-forever/companion/internal/config"
 )
 
 func save(t *testing.T) string {

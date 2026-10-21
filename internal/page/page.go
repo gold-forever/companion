@@ -15,8 +15,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/magnusev/gold-forever-companion/internal/instance"
-	"github.com/magnusev/gold-forever-companion/internal/sendlog"
+	"github.com/gold-forever/companion/internal/instance"
+	"github.com/gold-forever/companion/internal/sendlog"
 )
 
 const maxBody = 4 << 10

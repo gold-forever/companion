@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magnusev/gold-forever-companion/internal/config"
-	"github.com/magnusev/gold-forever-companion/internal/find"
-	"github.com/magnusev/gold-forever-companion/internal/install"
-	"github.com/magnusev/gold-forever-companion/internal/instance"
-	"github.com/magnusev/gold-forever-companion/internal/page"
-	"github.com/magnusev/gold-forever-companion/internal/tray"
-	release "github.com/magnusev/gold-forever-companion/internal/version"
+	"github.com/gold-forever/companion/internal/config"
+	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/install"
+	"github.com/gold-forever/companion/internal/instance"
+	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/tray"
+	release "github.com/gold-forever/companion/internal/version"
 )
 
 const instanceFile = "instance.json"

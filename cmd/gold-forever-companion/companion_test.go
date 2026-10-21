@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/magnusev/gold-forever-companion/internal/api"
-	"github.com/magnusev/gold-forever-companion/internal/install"
+	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/install"
 )
 
 const validToken = "gf_0123456789abcdefghijABCDEFGHIJklmnopqrstuvw"

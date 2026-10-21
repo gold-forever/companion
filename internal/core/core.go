@@ -12,11 +12,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/magnusev/gold-forever-companion/internal/api"
-	"github.com/magnusev/gold-forever-companion/internal/backup"
-	"github.com/magnusev/gold-forever-companion/internal/find"
-	"github.com/magnusev/gold-forever-companion/internal/sendlog"
-	"github.com/magnusev/gold-forever-companion/internal/watch"
+	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/backup"
+	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/sendlog"
+	"github.com/gold-forever/companion/internal/watch"
 )
 
 const (

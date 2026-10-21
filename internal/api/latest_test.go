@@ -7,7 +7,7 @@ import (
 )
 
 func TestLatestReadsTheServersNewestRelease(t *testing.T) {
-	c, seen, _ := server(t, http.StatusOK, `{"version":"v0.2.0","url":"https://github.com/magnusev/gold-forever-companion/releases/tag/v0.2.0"}`, nil)
+	c, seen, _ := server(t, http.StatusOK, `{"version":"v0.2.0","url":"https://github.com/gold-forever/companion/releases/tag/v0.2.0"}`, nil)
 	got, err := c.Latest(context.Background())
 	if err != nil || got.Version != "v0.2.0" || got.URL == "" {
 		t.Fatalf("Latest = %+v, %v", got, err)

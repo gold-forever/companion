@@ -10,7 +10,7 @@ installs itself for your user only. It never asks for admin rights.
 ## Windows
 
 1. Download `GoldForever-Companion.exe` from the
-   [latest release](https://github.com/magnusev/gold-forever-companion/releases/latest).
+   [latest release](https://github.com/gold-forever/companion/releases/latest).
 2. Double-click it. Windows shows a blue box: **"Windows protected your PC"**.
 
    ![SmartScreen's first box](docs/img/smartscreen.png)
@@ -30,7 +30,7 @@ exactly what it did and where.
 ## macOS
 
 1. Download `GoldForever-Companion.dmg` from the
-   [latest release](https://github.com/magnusev/gold-forever-companion/releases/latest).
+   [latest release](https://github.com/gold-forever/companion/releases/latest).
 2. Open it and drag **Gold Forever Companion** to **Applications**.
 3. Open it from Applications. macOS says it **cannot be opened because Apple cannot check it**.
    Click **Done**.
@@ -50,7 +50,7 @@ Newer macOS versions no longer offer right-click → Open for this, so step 4 is
 ## Linux
 
 1. Download `gold-forever-companion-linux-amd64` (or `-arm64`) from the
-   [latest release](https://github.com/magnusev/gold-forever-companion/releases/latest).
+   [latest release](https://github.com/gold-forever/companion/releases/latest).
 2. Make it runnable and run it once:
 
    ```sh

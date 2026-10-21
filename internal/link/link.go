@@ -6,8 +6,8 @@ package link
 import (
 	"context"
 
-	"github.com/magnusev/gold-forever-companion/internal/api"
-	"github.com/magnusev/gold-forever-companion/internal/config"
+	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/config"
 )
 
 // Link asks the site for a code naming hostname, hands it to show for the player to approve, waits

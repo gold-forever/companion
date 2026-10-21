@@ -1,4 +1,4 @@
-module github.com/magnusev/gold-forever-companion
+module github.com/gold-forever/companion
 
 go 1.27
 

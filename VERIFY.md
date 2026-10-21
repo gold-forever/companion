@@ -11,12 +11,21 @@ which commit, and its SHA-256. To check a file you downloaded, install the [GitH
 and run:
 
 ```sh
-gh attestation verify GoldForever-Companion.exe --repo magnusev/gold-forever-companion
+gh attestation verify GoldForever-Companion.exe --repo gold-forever/companion
 ```
 
 Use the name of the file you downloaded. It passes only when GitHub built that exact file from this
 repository's release workflow (`.github/workflows/release.yml`). The output names the commit and the
 tag. If you changed even one byte, it fails.
+
+**Releases up to v0.1.0-rc.6** were built before the repository moved from `magnusev/gold-forever-companion`
+to `gold-forever/companion` (2026-10-22), and their attestations name the old repository. Verify those with:
+
+```sh
+gh attestation verify GoldForever-Companion.exe --owner magnusev --signer-repo magnusev/gold-forever-companion
+```
+
+`--signer-repo` pins the exact repository that built it; the same check with any other repository fails.
 
 ## 2. That the source makes these bytes: rebuild it
 
@@ -26,7 +35,7 @@ for byte.
 1. Get the source at the tag, and the release's `SHA256SUMS`:
 
    ```sh
-   git clone https://github.com/magnusev/gold-forever-companion
+   git clone https://github.com/gold-forever/companion
    cd gold-forever-companion
    git checkout v0.1.0
    gh release download v0.1.0 --pattern SHA256SUMS

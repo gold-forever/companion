@@ -62,7 +62,7 @@ The game decides which game a save belongs to: WoW: Forever or retail, read from
 GET /api/v1/companion/latest
 ```
 
-`{"version":"v0.1.0","url":"https://github.com/magnusev/gold-forever-companion/releases/tag/v0.1.0"}`
+`{"version":"v0.1.0","url":"https://github.com/gold-forever/companion/releases/tag/v0.1.0"}`
 
 Asked at start and then once a day, with no token, so it says nothing about who asks beyond the
 `User-Agent`. A 404 means the server names no release. When the answer is newer, the settings page

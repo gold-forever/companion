@@ -16,17 +16,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/magnusev/gold-forever-companion/internal/api"
-	"github.com/magnusev/gold-forever-companion/internal/backup"
-	"github.com/magnusev/gold-forever-companion/internal/config"
-	"github.com/magnusev/gold-forever-companion/internal/core"
-	"github.com/magnusev/gold-forever-companion/internal/find"
-	"github.com/magnusev/gold-forever-companion/internal/install"
-	"github.com/magnusev/gold-forever-companion/internal/link"
-	"github.com/magnusev/gold-forever-companion/internal/page"
-	"github.com/magnusev/gold-forever-companion/internal/sendlog"
-	release "github.com/magnusev/gold-forever-companion/internal/version"
-	"github.com/magnusev/gold-forever-companion/internal/watch"
+	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/backup"
+	"github.com/gold-forever/companion/internal/config"
+	"github.com/gold-forever/companion/internal/core"
+	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/install"
+	"github.com/gold-forever/companion/internal/link"
+	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/sendlog"
+	release "github.com/gold-forever/companion/internal/version"
+	"github.com/gold-forever/companion/internal/watch"
 )
 
 // A token as /me/tokens makes one: gf_ and 43 letters and digits.

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/magnusev/gold-forever-companion/internal/api"
-	"github.com/magnusev/gold-forever-companion/internal/config"
+	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/config"
 )
 
 // site hands out one code, then answers polls with tokenAnswer (status, body).

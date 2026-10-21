@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magnusev/gold-forever-companion/internal/instance"
+	"github.com/gold-forever/companion/internal/instance"
 )
 
 const (
