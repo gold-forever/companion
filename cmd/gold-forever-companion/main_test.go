@@ -169,3 +169,62 @@ func TestVersionPrintsTheBuildVersion(t *testing.T) {
 		t.Errorf("code = %d, out = %q", code, out.String())
 	}
 }
+
+func TestLinkShowsTheCodeAndSavesTheApprovedTokenWithoutPrintingIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if r.URL.Path == "/api/v1/device/code" {
+			_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"BCDF-GHJK","verification_uri":"https://gf/link",`+
+				`"verification_uri_complete":"https://gf/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"access_token":"gf_new_secret"}`)
+	}))
+	t.Cleanup(srv.Close)
+	pollSleep = func(context.Context, time.Duration) error { return nil }
+	t.Cleanup(func() { pollSleep = nil })
+	var out bytes.Buffer
+
+	code := run(context.Background(), []string{"link", "--url", srv.URL}, os.Getenv, &out, io.Discard)
+
+	if code != 0 {
+		t.Fatalf("code = %d, out = %q", code, out.String())
+	}
+	for _, want := range []string{"BCDF-GHJK", "https://gf/link?code=BCDF-GHJK"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q: %q", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "gf_new_secret") {
+		t.Errorf("the token was printed: %q", out.String())
+	}
+	cfg, _ := config.Load(filepath.Join(home, "gold-forever-companion", "config.json"))
+	if cfg.Token != "gf_new_secret" || cfg.URL != srv.URL {
+		t.Errorf("config = %+v", cfg)
+	}
+}
+
+func TestLinkThatIsDeniedSaysSoAndFails(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if r.URL.Path == "/api/v1/device/code" {
+			_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"BCDF-GHJK","expires_in":600,"interval":5}`)
+			return
+		}
+		w.WriteHeader(400)
+		_, _ = io.WriteString(w, `{"error":"access_denied"}`)
+	}))
+	t.Cleanup(srv.Close)
+	pollSleep = func(context.Context, time.Duration) error { return nil }
+	t.Cleanup(func() { pollSleep = nil })
+	var errs bytes.Buffer
+
+	code := run(context.Background(), []string{"link", "--url", srv.URL}, os.Getenv, io.Discard, &errs)
+
+	if code != 1 || !strings.Contains(errs.String(), "denied") {
+		t.Errorf("code = %d, stderr = %q", code, errs.String())
+	}
+}

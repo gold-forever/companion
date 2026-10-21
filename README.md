@@ -73,16 +73,17 @@ Started with no arguments, as a double-click does, the companion is the player's
 The Windows build is a windowed program, so it opens no console window and prints nothing: use the
 Linux or macOS build for the command line below.
 
-`run` watches every World of Warcraft install it finds and uploads each new save, without the tray or
-the page; `--once --file` uploads one file and exits.
+`link` connects this computer to your account, `run` watches every World of Warcraft install it finds
+and uploads each new save without the tray or the page, and `--once --file` uploads one file and exits.
 
 ```sh
-export GF_TOKEN=gf_...        # a token from /me/tokens; PowerShell: $env:GF_TOKEN = "gf_..."
+gold-forever-companion link   # prints a code and a link; approve it on the site, and the token is saved
 gold-forever-companion run
 gold-forever-companion --once --file ".../WTF/Account/<ACCOUNT>/SavedVariables/GoldForever.lua"
 ```
 
-`GF_TOKEN` rather than `--token` keeps the token out of your shell history. `run` also reads its
+Instead of `link`, you can make a token at /me/tokens and set `GF_TOKEN`, which keeps it out of your
+shell history (PowerShell: `$env:GF_TOKEN = "gf_..."`). `run` reads its
 settings from `config.json` in your system's config folder (`~/.config/gold-forever-companion/` on
 Linux): `token`, `url`, `folders` (WoW folders it doesn't find by itself) and `off` (saves to skip, by
 path). The file is readable by you only.

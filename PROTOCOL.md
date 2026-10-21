@@ -66,7 +66,10 @@ shows a notice with the link: the app never downloads or installs anything itsel
 curl https://gold-forever.evensberget.com/api/v1/companion/latest
 ```
 
-## Planned: linking the app (a device code, as in RFC 8628)
+## Linking the app (a device code, as in RFC 8628)
+
+`gold-forever-companion link` does this, and so will the settings page. No token is sent: linking is
+how the app gets one.
 
 1. **The app asks for a code:**
 
@@ -79,13 +82,17 @@ curl https://gold-forever.evensberget.com/api/v1/companion/latest
 
    `{"device_code":"…","user_code":"BCDF-GHJK","verification_uri":"https://…/link","verification_uri_complete":"https://…/link?code=BCDF-GHJK","expires_in":600,"interval":5}`
 
-   The hostname only names the token you approve ("Companion on <hostname>"), so you can tell your
-   devices apart at `/me/tokens`.
+   - The hostname only names the token you approve ("Companion on <hostname>"), so you can tell your
+     devices apart at `/me/tokens`. The server keeps letters, digits, spaces and `-_.`, at most 50;
+     a computer with no usable name is sent as "this computer".
+   - The `device_code` is the app's secret for the next step and is never shown. The `user_code` is
+     what you check on the site.
+   - 503 means too many codes are waiting on the server: try again later.
 
 2. **You approve it:** you open the link, sign in, check that the code matches the one the app
-   shows, and approve.
+   shows, and approve or deny.
 
-3. **The app waits for the token:**
+3. **The app waits for the token,** asking every `interval` seconds (5):
 
    ```http
    POST /api/v1/device/token
@@ -94,11 +101,14 @@ curl https://gold-forever.evensberget.com/api/v1/companion/latest
    {"device_code":"…"}
    ```
 
-   - `authorization_pending`: not approved yet.
-   - `slow_down`: ask less often.
-   - `access_denied`, or `expired_token` after 10 minutes: the link failed.
-   - Otherwise `{"access_token":"gf_…"}`. The token is given once, with the scopes `saves:write` and
-     `prices:read`.
+   - 400 `{"error":"authorization_pending"}`: not decided yet; ask again.
+   - 400 `{"error":"slow_down"}`: asked too soon. The app adds 5 seconds to its interval for good.
+   - 400 `{"error":"access_denied"}`: you denied it. The app stops.
+   - 400 `{"error":"expired_token"}`: the code is past its 10 minutes, unknown, or already used. The
+     app stops; it also stops on its own once `expires_in` has passed.
+   - 200 `{"access_token":"gf_…","token_type":"Bearer","scope":"saves:write prices:read"}`: the token,
+     given once. The app saves it in its settings file (readable only by you) and never prints it.
+   - A 5xx answer or no answer is waited out until the code expires.
 
 ## Planned: prices into the game
 

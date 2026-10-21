@@ -34,6 +34,9 @@ type Client struct {
 	OS      string
 	// HTTP is the client used; nil means one with a two-minute timeout.
 	HTTP *http.Client
+	// Now and Sleep pace the wait for a link; nil means the real clock.
+	Now   func() time.Time
+	Sleep func(ctx context.Context, d time.Duration) error
 }
 
 // Answer is what the server says about an upload it took.

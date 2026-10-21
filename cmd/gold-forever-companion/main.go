@@ -1,6 +1,7 @@
 // Command gold-forever-companion uploads the GoldForever.lua saves World of Warcraft writes to Gold
-// Forever. Double-clicked, it installs itself and runs in the tray with a settings page; `run` watches
-// every install it finds without either; `--once --file` uploads one file and exits.
+// Forever. Double-clicked, it installs itself and runs in the tray with a settings page; `link`
+// connects it to your account, `run` watches every install it finds without either, and
+// `--once --file` uploads one file and exits.
 package main
 
 import (
@@ -20,6 +21,7 @@ import (
 	"github.com/magnusev/gold-forever-companion/internal/config"
 	"github.com/magnusev/gold-forever-companion/internal/core"
 	"github.com/magnusev/gold-forever-companion/internal/find"
+	"github.com/magnusev/gold-forever-companion/internal/link"
 	"github.com/magnusev/gold-forever-companion/internal/sendlog"
 	"github.com/magnusev/gold-forever-companion/internal/watch"
 )
@@ -33,9 +35,13 @@ const (
 	pollEvery   = 2 * time.Second
 	keepCopies  = 10
 	keepLogFor  = 30 * 24 * time.Hour
-	usageAdvice = "usage: gold-forever-companion run    (watch every WoW install and upload each new save)\n" +
+	usageAdvice = "usage: gold-forever-companion link   (connect this computer to your Gold Forever account)\n" +
+		"       gold-forever-companion run    (watch every WoW install and upload each new save)\n" +
 		"       gold-forever-companion --once --file <GoldForever.lua>"
 )
+
+// pollSleep paces the wait for a link; nil is the real clock. Tests make it instant.
+var pollSleep func(ctx context.Context, d time.Duration) error
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -52,6 +58,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return player(ctx, args[0])
 	case args[0] == "run":
 		return watchAndUpload(ctx, args[1:], getenv, stdout, stderr)
+	case args[0] == "link":
+		return linkAccount(ctx, args[1:], stdout, stderr)
 	}
 	flags := flag.NewFlagSet("gold-forever-companion", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -135,6 +143,47 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	return 0
+}
+
+// linkAccount is `link`: a code to approve on the site, then the token saved in the config file. The
+// token itself is never printed.
+func linkAccount(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("gold-forever-companion link", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	url := flags.String("url", defaultURL, "the Gold Forever site")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	cfgPath, err := config.Path()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	hostname, _ := os.Hostname()
+	c := client(*url, "")
+	c.Sleep = pollSleep
+	show := func(code api.DeviceCode) {
+		fmt.Fprintf(stdout, "Open %s\nand approve the code %s (it is valid for %d minutes).\n",
+			code.VerificationURIComplete, code.UserCode, code.ExpiresIn/60)
+	}
+	if err := link.Link(ctx, c, hostname, cfgPath, show); err != nil {
+		fmt.Fprintln(stderr, "not linked:", err)
+		return 1
+	}
+	if *url != defaultURL {
+		// Remember a site other than the public one, so `run` uploads where the account was linked.
+		cfg, err := config.Load(cfgPath)
+		if err == nil {
+			cfg.URL = *url
+			err = config.Save(cfgPath, cfg)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	fmt.Fprintln(stdout, "Linked. The token is saved in", cfgPath)
 	return 0
 }
 
