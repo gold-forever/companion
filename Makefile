@@ -12,16 +12,19 @@ NAME := gold-forever-companion
 TARGETS := linux/amd64 linux/arm64 windows/amd64 windows/arm64
 
 # No paths, build id or VCS state in the binary: only the source and the version decide its bytes.
-GOFLAGS_BUILD := -trimpath -buildvcs=false -ldflags '-s -w -buildid= -X main.version=$(VERSION)'
+LDFLAGS := -s -w -buildid= -X main.version=$(VERSION)
+# Windows builds as a windowed program, so a double-click opens no console window.
+WINDOWS_LDFLAGS := $(LDFLAGS) -H=windowsgui
 
 .PHONY: build test vet reproduce clean
 
 build:
 	@mkdir -p $(DIST)
 	@for target in $(TARGETS); do \
-		os=$${target%/*}; arch=$${target#*/}; ext=; [ $$os = windows ] && ext=.exe; \
+		os=$${target%/*}; arch=$${target#*/}; ext=; ldflags='$(LDFLAGS)'; \
+		[ $$os = windows ] && { ext=.exe; ldflags='$(WINDOWS_LDFLAGS)'; }; \
 		out=$(DIST)/$(NAME)-$$os-$$arch$$ext; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS_BUILD) -o $$out ./cmd/$(NAME) || exit 1; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -buildvcs=false -ldflags "$$ldflags" -o $$out ./cmd/$(NAME) || exit 1; \
 		echo $$out; \
 	done
 
