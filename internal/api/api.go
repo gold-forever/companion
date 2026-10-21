@@ -26,7 +26,7 @@ const maxAnswerBytes = 64 << 10
 
 // Client talks to one Gold Forever server with one token.
 type Client struct {
-	// BaseURL is the site, e.g. https://gold-forever.evensberget.com.
+	// BaseURL is the site, e.g. https://gold-forever.app.
 	BaseURL string
 	Token   string
 	// Version and OS make the User-Agent, so the server can tell the companion's uploads apart.
@@ -148,10 +148,29 @@ func (c *Client) userAgent() string {
 }
 
 func (c *Client) httpClient() *http.Client {
+	client := http.Client{Timeout: 2 * time.Minute}
 	if c.HTTP != nil {
-		return c.HTTP
+		client = *c.HTTP
 	}
-	return &http.Client{Timeout: 2 * time.Minute}
+	client.CheckRedirect = carryToken
+	return &client
+}
+
+// PublicHost is the site's name. It moved there from gold-forever.evensberget.com, which answers 308.
+const PublicHost = "gold-forever.app"
+
+// carryToken lets a redirect to the public site keep the token: Go drops Authorization when a
+// redirect changes domain, which would turn every upload from a companion set to the old name into a
+// 401. Only https://gold-forever.app gets it; a redirect anywhere else goes without.
+func carryToken(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	auth := via[0].Header.Get("Authorization")
+	if auth != "" && req.Header.Get("Authorization") == "" && req.URL.Scheme == "https" && req.URL.Hostname() == PublicHost {
+		req.Header.Set("Authorization", auth)
+	}
+	return nil
 }
 
 // Release is the newest companion the server knows of.

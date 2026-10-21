@@ -8,7 +8,7 @@
 set -euo pipefail
 
 wow=${1:?usage: GF_TOKEN=gf_... $0 "<World of Warcraft folder>" [site URL]}
-url=${2:-https://gold-forever.evensberget.com}
+url=${2:-https://gold-forever.app}
 : "${GF_TOKEN:?set GF_TOKEN to a token from /me/tokens}"
 
 state=$(mktemp -d)

@@ -2,7 +2,7 @@
 
 > **Draft for v0.1.** The player version isn't released yet. This is what it will be. Until then,
 > upload with `/gf export` in the game and paste the text at
-> <https://gold-forever.evensberget.com/me/upload>.
+> <https://gold-forever.app/me/upload>.
 
 You download one file, double-click it, and approve the link in your browser. That's all. It
 installs itself for your user only. It never asks for admin rights.
@@ -71,7 +71,7 @@ own computer.
 2. **"Start with my computer"** is ticked. Leave it ticked, so new saves upload without you
    remembering to start it. Untick it if you'd rather start it yourself.
 3. **Link your account:** press **Link this computer** and approve the link in your browser. The
-   page shows a code and opens <https://gold-forever.evensberget.com/link>: sign in with Battle.net,
+   page shows a code and opens <https://gold-forever.app/link>: sign in with Battle.net,
    check that the code matches, and click **Approve**. (If you'd rather, **Or paste a token** takes a
    token from your tokens page instead.)
 4. **It finds World of Warcraft** and lists every account folder it found. Each has a switch. If your
@@ -101,7 +101,7 @@ program, the shortcut and "start with my computer". It asks whether to keep your
 On macOS, also drag the app from Applications to the Bin.
 
 Your account on the site isn't touched. To stop uploads without uninstalling, revoke the
-companion's token at <https://gold-forever.evensberget.com/me/tokens>.
+companion's token at <https://gold-forever.app/me/tokens>.
 
 ---
 

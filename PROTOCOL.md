@@ -1,6 +1,12 @@
 # Protocol
 
-Every request the companion makes, all to one site (by default `https://gold-forever.evensberget.com`).
+Every request the companion makes, all to one site (by default `https://gold-forever.app`).
+
+The site moved there from `gold-forever.evensberget.com` on 2026-10-22; the old name answers 308 to the
+same path on the new one. A redirect normally loses the `Authorization` header when it changes domain,
+so the companion carries the token across a redirect only to `https://gold-forever.app`, and to no other
+host (`internal/api`, `carryToken`). Another client that follows the 308 should do the same, or use
+the new address directly.
 Anything here can be done with `curl`, so you can check the app against this list or write your own
 client. A request not listed here is a bug.
 
@@ -26,7 +32,7 @@ User-Agent: gold-forever-companion/<version> (<os>)
 
 ```sh
 curl -H "Authorization: Bearer $GF_TOKEN" -H 'Content-Type: application/octet-stream' \
-  --data-binary @GoldForever.lua 'https://gold-forever.evensberget.com/api/v1/saves?name=GoldForever.lua'
+  --data-binary @GoldForever.lua 'https://gold-forever.app/api/v1/saves?name=GoldForever.lua'
 ```
 
 - **What the server reads:** the file itself. `name` only labels the upload in your list. Nothing
@@ -63,7 +69,7 @@ Asked at start and then once a day, with no token, so it says nothing about who 
 shows a notice with the link: the app never downloads or installs anything itself.
 
 ```sh
-curl https://gold-forever.evensberget.com/api/v1/companion/latest
+curl https://gold-forever.app/api/v1/companion/latest
 ```
 
 ## Linking the app (a device code, as in RFC 8628)

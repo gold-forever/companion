@@ -29,7 +29,7 @@ import (
 // version is set at build time (-X main.version=…); a plain `go build` reports dev.
 var version = "dev"
 
-const defaultURL = "https://gold-forever.evensberget.com"
+const defaultURL = "https://gold-forever.app"
 
 const (
 	pollEvery   = 2 * time.Second

@@ -8,7 +8,7 @@
 # Unblock-File .\gf-upload.ps1 (see the README). Stop it with Ctrl-C.
 param(
     [Parameter(Mandatory = $true)][string]$Wow,
-    [string]$Url = "https://gold-forever.evensberget.com"
+    [string]$Url = "https://gold-forever.app"
 )
 $ErrorActionPreference = "Stop"
 if (-not $env:GF_TOKEN) { throw "Set GF_TOKEN to a token from /me/tokens" }

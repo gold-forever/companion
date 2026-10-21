@@ -1,7 +1,7 @@
 # Gold Forever companion
 
 A small, open-source program that sends the `GoldForever.lua` file World of Warcraft writes to
-[Gold Forever](https://gold-forever.evensberget.com), so your characters, scans and ledger show up there
+[Gold Forever](https://gold-forever.app), so your characters, scans and ledger show up there
 without copying anything by hand. Later versions will also write market prices back into the game.
 
 ## Getting it
@@ -13,7 +13,7 @@ own. Uninstall is a button in its settings. [INSTALL.md](INSTALL.md) walks throu
 included.
 
 Until then, upload in the game with `/gf export` and paste the text at
-<https://gold-forever.evensberget.com/me/upload>.
+<https://gold-forever.app/me/upload>.
 
 The releases published so far (v0.0.x) are for developers: they upload one file from the command line
 (see "For developers" below).
