@@ -85,8 +85,22 @@ func TestARevokedTokenStopsUploads(t *testing.T) {
 	}
 }
 
+func TestAForbiddenAccountStopsUploadsWithTheReason(t *testing.T) {
+	c, _, _ := server(t, 403, `{"status":"this account is suspended; uploads are refused"}`, nil)
+
+	_, err := c.Upload(context.Background(), []byte("x"))
+
+	var forbidden *ForbiddenError
+	if !errors.As(err, &forbidden) || forbidden.Reason != "this account is suspended; uploads are refused" {
+		t.Fatalf("err = %v, want a ForbiddenError with the reason", err)
+	}
+	if Retryable(err) {
+		t.Fatal("a forbidden upload must not be retried on its own")
+	}
+}
+
 func TestASaveTheServerRefusesCarriesItsReason(t *testing.T) {
-	for _, status := range []int{400, 403, 422} {
+	for _, status := range []int{400, 422} {
 		c, _, _ := server(t, status, `{"status":"unknown game","reason":"unknown game version 30403"}`, nil)
 
 		_, err := c.Upload(context.Background(), []byte("x"))

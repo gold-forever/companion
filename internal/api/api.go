@@ -50,6 +50,12 @@ var ErrUnauthorized = errors.New("the server does not accept this token")
 // ErrTooLarge means the save is over the server's limit; sending it again changes nothing.
 var ErrTooLarge = errors.New("the save is too large for the server")
 
+// ForbiddenError means the account may not upload now (suspended, or a token without upload rights):
+// uploads stop until that changes on the server.
+type ForbiddenError struct{ Reason string }
+
+func (e *ForbiddenError) Error() string { return "the server refuses uploads: " + e.Reason }
+
 // RefusedError is a save the server read and refused, with its reason (an unknown game, a broken file).
 type RefusedError struct {
 	Status int
@@ -105,6 +111,8 @@ func answer(res *http.Response, body []byte) (Answer, error) {
 		return a, nil
 	case res.StatusCode == http.StatusUnauthorized:
 		return a, ErrUnauthorized
+	case res.StatusCode == http.StatusForbidden:
+		return a, &ForbiddenError{reasonOf(a)}
 	case res.StatusCode == http.StatusRequestEntityTooLarge:
 		return a, ErrTooLarge
 	case res.StatusCode == http.StatusTooManyRequests:
@@ -112,12 +120,16 @@ func answer(res *http.Response, body []byte) (Answer, error) {
 	case res.StatusCode >= 500:
 		return a, &unavailableError{fmt.Errorf("status %d", res.StatusCode)}
 	default:
-		reason := a.Reason
-		if reason == "" {
-			reason = a.Status
-		}
-		return a, &RefusedError{res.StatusCode, reason}
+		return a, &RefusedError{res.StatusCode, reasonOf(a)}
 	}
+}
+
+// reasonOf is the answer's reason, else its status, which carries it on some answers.
+func reasonOf(a Answer) string {
+	if a.Reason != "" {
+		return a.Reason
+	}
+	return a.Status
 }
 
 // retryAfter reads Retry-After in seconds, the only form the server sends.

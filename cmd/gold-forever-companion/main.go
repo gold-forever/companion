@@ -1,5 +1,5 @@
-// Command gold-forever-companion uploads the GoldForever.lua the game writes to Gold Forever.
-// This first version uploads one file and exits; watching every install comes next (design 006).
+// Command gold-forever-companion uploads the GoldForever.lua saves World of Warcraft writes to Gold
+// Forever. `run` watches every install it finds; `--once --file` uploads one file and exits.
 package main
 
 import (
@@ -9,9 +9,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/magnusev/gold-forever-companion/internal/api"
+	"github.com/magnusev/gold-forever-companion/internal/backup"
+	"github.com/magnusev/gold-forever-companion/internal/config"
+	"github.com/magnusev/gold-forever-companion/internal/core"
+	"github.com/magnusev/gold-forever-companion/internal/find"
+	"github.com/magnusev/gold-forever-companion/internal/sendlog"
+	"github.com/magnusev/gold-forever-companion/internal/watch"
 )
 
 // version is set at build time (-X main.version=…); a plain `go build` reports dev.
@@ -19,12 +28,25 @@ var version = "dev"
 
 const defaultURL = "https://gold-forever.evensberget.com"
 
+const (
+	pollEvery   = 2 * time.Second
+	keepCopies  = 10
+	keepLogFor  = 30 * 24 * time.Hour
+	usageAdvice = "usage: gold-forever-companion run    (watch every WoW install and upload each new save)\n" +
+		"       gold-forever-companion --once --file <GoldForever.lua>"
+)
+
 func main() {
-	os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	os.Exit(run(ctx, os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 }
 
-// run is the whole program: 0 on success, 1 when the upload failed, 2 for a usage error.
-func run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+// run is the whole program: 0 on success, 1 when uploading failed, 2 for a usage error.
+func run(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "run" {
+		return watchAndUpload(ctx, args[1:], getenv, stdout, stderr)
+	}
 	flags := flag.NewFlagSet("gold-forever-companion", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	once := flags.Bool("once", false, "upload --file once and exit")
@@ -47,19 +69,80 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return 2
 	}
 	if !*once || *file == "" {
-		fmt.Fprintln(stderr, "only --once --file <GoldForever.lua> is built yet; watching your installs comes next")
+		fmt.Fprintln(stderr, usageAdvice)
 		return 2
 	}
-	return uploadOnce(*file, &api.Client{BaseURL: *url, Token: *token, Version: version, OS: runtime.GOOS}, stdout, stderr)
+	return uploadOnce(ctx, *file, client(*url, *token), stdout, stderr)
 }
 
-func uploadOnce(path string, client *api.Client, stdout, stderr io.Writer) int {
+// watchAndUpload is `run`: settings from the config file, the token from it or GF_TOKEN.
+func watchAndUpload(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("gold-forever-companion run", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	cfgPath, err := config.Path()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "cannot read %s: %v\n", cfgPath, err)
+		return 1
+	}
+	token := cfg.Token
+	if token == "" {
+		token = getenv("GF_TOKEN")
+	}
+	if token == "" {
+		fmt.Fprintf(stderr, "no token: set GF_TOKEN, or put one in %s (make one at /me/tokens)\n", cfgPath)
+		return 2
+	}
+	url := cfg.URL
+	if url == "" {
+		url = defaultURL
+	}
+	home, _ := os.UserHomeDir()
+	data := config.DataDir(runtime.GOOS, home, getenv)
+	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: keepLogFor}
+	_ = log.Prune(time.Now())
+	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)
+	c := &core.Core{
+		Uploader: client(url, token),
+		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: keepCopies, Now: time.Now},
+		Log:      log,
+		Watcher:  watch.New(pollEvery),
+		Saves:    func() []find.Save { return find.Saves(installs) },
+		IsOff:    cfg.IsOff,
+		Out:      stdout,
+	}
+	saves := c.Saves()
+	if len(saves) == 0 {
+		fmt.Fprintln(stdout, "no GoldForever.lua found yet; add your WoW folder to", cfgPath)
+	}
+	for _, s := range saves {
+		fmt.Fprintln(stdout, "watching", s.Label())
+	}
+	if err := c.Run(ctx, pollEvery); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func client(url, token string) *api.Client {
+	return &api.Client{BaseURL: url, Token: token, Version: version, OS: runtime.GOOS}
+}
+
+func uploadOnce(ctx context.Context, path string, client *api.Client, stdout, stderr io.Writer) int {
 	save, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	answer, err := client.Upload(context.Background(), save)
+	answer, err := client.Upload(ctx, save)
 	if err != nil {
 		var refused *api.RefusedError
 		if errors.As(err, &refused) {

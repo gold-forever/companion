@@ -59,14 +59,34 @@ one. Instead, each release can be checked two ways:
 
 ## For developers
 
-The v0.0.x releases upload one file and exit:
+`run` watches every World of Warcraft install it finds and uploads each new save; `--once --file`
+uploads one file and exits.
 
 ```sh
 export GF_TOKEN=gf_...        # a token from /me/tokens; PowerShell: $env:GF_TOKEN = "gf_..."
+gold-forever-companion run
 gold-forever-companion --once --file ".../WTF/Account/<ACCOUNT>/SavedVariables/GoldForever.lua"
 ```
 
-`GF_TOKEN` rather than `--token` keeps the token out of your shell history.
+`GF_TOKEN` rather than `--token` keeps the token out of your shell history. `run` also reads its
+settings from `config.json` in your system's config folder (`~/.config/gold-forever-companion/` on
+Linux): `token`, `url`, `folders` (WoW folders it doesn't find by itself) and `off` (saves to skip, by
+path). The file is readable by you only.
+
+What `run` does, in order:
+
+1. **Finds the installs:** Battle.net's registry entry and `Program Files (x86)` on Windows,
+   `/Applications` on macOS, the usual Wine, Lutris, Bottles and Steam prefixes on Linux, plus your
+   `folders`. In each, every `_flavour_` folder's `WTF/Account/*/SavedVariables/GoldForever.lua`.
+2. **Waits for the game to finish writing:** a save counts once it has been unchanged for 2 seconds
+   and ends with the bare `}` that closes `GoldForeverDB`. A cut-off file waits for the next change.
+3. **Keeps a copy** in your data folder (`~/.local/share/gold-forever-companion/backups` on Linux), the
+   last 10 per save. A copy is pending until the server has answered for it, so nothing is lost if
+   the computer shuts down first.
+4. **Sends pending copies, oldest first.** A server that is down is tried again after 1 minute, then
+   2, 4 … up to 30. A 429 waits as long as it says. A refused token or account (401, 403) stops it.
+5. **Logs every answer** in `sent.jsonl` next to the backups: time, save, size, SHA-256 and the
+   answer, kept 30 days.
 
 To build:
 
