@@ -29,6 +29,24 @@ program at all, the same uploads are a few lines of shell: see [scripts/](script
 
    Using `GF_TOKEN` rather than `--token` keeps the token out of your shell history.
 
+## Without the app: the scripts
+
+`scripts/gf-upload.sh` (Linux, macOS) and `scripts/gf-upload.ps1` (Windows) do the upload part in about
+50 lines each. They watch every `GoldForever.lua` under your WoW folder and send each new save.
+
+```sh
+GF_TOKEN=gf_... scripts/gf-upload.sh "$HOME/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft"
+```
+
+```powershell
+$env:GF_TOKEN = "gf_..."
+Unblock-File .\gf-upload.ps1     # Windows blocks scripts downloaded from the internet until you do
+.\gf-upload.ps1 -Wow "C:\Program Files (x86)\World of Warcraft"
+```
+
+If PowerShell still refuses ("running scripts is disabled on this system"), run it once with
+`powershell -ExecutionPolicy Bypass -File .\gf-upload.ps1 -Wow "…"`. That changes nothing permanently.
+
 ## Checking that a download matches this source
 
 Releases are not signed with a Windows or Apple certificate, so your system will warn before running
