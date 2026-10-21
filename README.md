@@ -4,8 +4,18 @@ A small, open-source program that sends the `GoldForever.lua` file World of Warc
 [Gold Forever](https://gold-forever.evensberget.com), so your characters, scans and ledger show up there
 without copying anything by hand. Later versions will also write market prices back into the game.
 
-> **Status: early.** This version uploads one file when you run it. Watching your installs, the tray
-> icon and the settings page come next.
+## Getting it
+
+**Not ready for players yet.** The first version for players (v0.1) will be one file: download it,
+double-click it, and approve the link in your browser. It installs itself for your user only (no
+admin rights), starts with your computer, finds World of Warcraft, and uploads every new save on its
+own. Uninstall is a button in its settings.
+
+Until then, upload in the game with `/gf export` and paste the text at
+<https://gold-forever.evensberget.com/me/upload>.
+
+The releases published so far (v0.0.x) are for developers: they upload one file from the command line
+(see "For developers" below).
 
 ## What it sends, and what it doesn't
 
@@ -16,18 +26,6 @@ without copying anything by hand. Later versions will also write market prices b
 
 Every request it can make is listed in [PROTOCOL.md](PROTOCOL.md). If you'd rather not run this
 program at all, the same uploads are a few lines of shell: see [scripts/](scripts/).
-
-## Using it
-
-1. Make a token at <https://gold-forever.evensberget.com/me/tokens>.
-2. Run it:
-
-   ```sh
-   export GF_TOKEN=gf_...        # PowerShell: $env:GF_TOKEN = "gf_..."
-   gold-forever-companion --once --file "<WoW folder>/_retail_/WTF/Account/<ACCOUNT>/SavedVariables/GoldForever.lua"
-   ```
-
-   Using `GF_TOKEN` rather than `--token` keeps the token out of your shell history.
 
 ## Without the app: the scripts
 
@@ -59,7 +57,18 @@ one. Instead, each release can be checked two ways:
   pinned in `go.mod`, so `go` fetches the same toolchain. The macOS binary depends on the Xcode
   version, which the release log prints.
 
-## Building
+## For developers
+
+The v0.0.x releases upload one file and exit:
+
+```sh
+export GF_TOKEN=gf_...        # a token from /me/tokens; PowerShell: $env:GF_TOKEN = "gf_..."
+gold-forever-companion --once --file ".../WTF/Account/<ACCOUNT>/SavedVariables/GoldForever.lua"
+```
+
+`GF_TOKEN` rather than `--token` keeps the token out of your shell history.
+
+To build:
 
 ```sh
 make test
