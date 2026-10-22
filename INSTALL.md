@@ -1,9 +1,5 @@
 # Installing the companion
 
-> **Draft for v0.1.** The player version isn't released yet. This is what it will be. Until then,
-> upload with `/gf export` in the game and paste the text at
-> <https://gold-forever.app/me/upload>.
-
 You download one file, double-click it, and approve the link in your browser. That's all. It
 installs itself for your user only. It never asks for admin rights.
 
@@ -78,7 +74,21 @@ own computer.
    game is somewhere unusual, use **Add folder**.
 
 From then on, every time the game saves (logout, `/reload`), the companion uploads the new save.
-The icon in the tray or menu bar shows when it last uploaded.
+The icon in the tray or menu bar shows when it last uploaded. Every upload adds its auction scans,
+item details and loot counts to the shared prices, never your name. Your characters, gold and
+ledger stay private.
+
+## Prices in the game
+
+The companion also fetches the prices of your characters' markets, every hour and right after each
+upload, and writes them into a small addon, `GoldForever_Data`, in your game folder. The Gold Forever
+addon (0.15.0 or newer) shows them in item tooltips.
+
+1. **After the first install, quit the game completely and start it again.** WoW only looks for new
+   addon folders when it starts, so `/reload` won't find `GoldForever_Data` the first time.
+2. **Later, `/reload` or logging in is enough** to pick up newer prices.
+3. **To check it worked,** open the settings page (from the tray or menu bar icon). The **Prices in
+   the game** table shows each game folder, its markets, how many items, and when it last fetched.
 
 ## What it puts on your computer
 
@@ -91,7 +101,7 @@ The icon in the tray or menu bar shows when it last uploaded.
 | Backups and log | `%LOCALAPPDATA%\gold-forever-companion\` | `~/Library/Application Support/gold-forever-companion/` | `~/.local/share/gold-forever-companion/` |
 
 Nothing else is written. The only folder it writes to in your game's folder is
-`Interface/AddOns/GoldForever_Data/`, and only once prices into the game exist (a later version).
+`Interface/AddOns/GoldForever_Data/`, which holds the prices.
 
 ## Uninstall
 

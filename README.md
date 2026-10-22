@@ -2,21 +2,35 @@
 
 A small, open-source program that sends the `GoldForever.lua` file World of Warcraft writes to
 [Gold Forever](https://gold-forever.app), so your characters, scans and ledger show up there
-without copying anything by hand. Later versions will also write market prices back into the game.
+without copying anything by hand. It also brings the shared market prices back into the game, so
+the Gold Forever addon can show them in item tooltips.
 
 ## Getting it
 
-**Not ready for players yet.** The first version for players (v0.1) will be one file: download it,
+Download one file from the [latest release](https://github.com/gold-forever/companion/releases/latest),
 double-click it, and approve the link in your browser. It installs itself for your user only (no
 admin rights), starts with your computer, finds World of Warcraft, and uploads every new save on its
 own. Uninstall is a button in its settings. [INSTALL.md](INSTALL.md) walks through it, warnings
 included.
 
-Until then, upload in the game with `/gf export` and paste the text at
+If you'd rather not run it, you can still upload in the game with `/gf export` and paste the text at
 <https://gold-forever.app/me/upload>.
 
-The releases published so far (v0.0.x) are for developers: they upload one file from the command line
-(see "For developers" below).
+## Prices in the game
+
+Every hour, and right after each of your uploads, the companion fetches the prices of your
+characters' markets (each realm and faction you play, Forever and retail) and writes them into a
+small addon, `GoldForever_Data`, in your game folder. The Gold Forever addon (0.15.0 or newer) shows
+them in item tooltips.
+
+- **The first time, restart the game fully** (quit and start it again). WoW only sees a new addon
+  folder at start, so `/reload` is not enough the first time.
+- **After that, `/reload` or logging in** picks up the newest prices.
+- **To see what was written,** open the settings page: the **Prices in the game** table shows each
+  game folder, its markets, how many items, and the last fetch.
+
+The prices come from everyone's uploads: every upload adds its auction scans, item details and loot
+counts to the shared prices, never your name. Your characters, gold and ledger stay private.
 
 ## What it sends, and what it doesn't
 
