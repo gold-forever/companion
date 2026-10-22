@@ -293,3 +293,46 @@ func TestRunWritesTheMarketsPricesIntoTheForeverFlavourAtStart(t *testing.T) {
 		}
 	}
 }
+
+func TestRunAsksForThePricesAgainWithTheirETagOnceAnUploadIsImported(t *testing.T) {
+	home := isolatedHome(t)
+	wow := filepath.Join(home, "World of Warcraft")
+	dir := filepath.Join(wow, "_forever_", "WTF", "Account", "A", "SavedVariables")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	save := "GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "GoldForever.lua"), []byte(save), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const market = "forever-BETA-normal-horde"
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var sent []string // If-None-Match of each price request, in order
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/prices" {
+			sent = append(sent, r.Header.Get("If-None-Match"))
+			if len(sent) > 1 {
+				w.WriteHeader(http.StatusNotModified)
+				cancel()
+				return
+			}
+			w.Header().Set("ETag", `"m-1"`)
+			_, _ = io.WriteString(w, `{"v":1,"game":"forever","market":"`+market+`","at":5,"items":[]}`)
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	defer srv.Close()
+	cfgPath, _ := config.Path()
+	if err := config.Save(cfgPath, config.Config{Token: "gf_t", URL: srv.URL, Folders: []string{wow}, Market: market}); err != nil {
+		t.Fatal(err)
+	}
+
+	code := run(ctx, []string{"run"}, os.Getenv, io.Discard, io.Discard)
+
+	if code != 0 || len(sent) != 2 || sent[0] != "" || sent[1] != `"m-1"` {
+		t.Fatalf("code = %d, If-None-Match sent = %q; want a full fetch at start, then one with its ETag", code, sent)
+	}
+}

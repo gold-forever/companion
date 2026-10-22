@@ -389,11 +389,16 @@ func (c *companion) loop(ctx context.Context) {
 				}
 			}()
 			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
-			prices.Refresh(run, client, c.saves(), c.settings().Market, c.status)
+			imported, announce := prices.Trigger()
+			refresher := &prices.Refresher{
+				Fetcher: client, Saves: c.saves, Market: c.settings().Market,
+				State: filepath.Join(c.dataDir, pricesState), Out: c.status,
+			}
+			go refresher.Run(run, refreshPricesEvery, time.After, imported)
 			loop := &core.Core{
 				Uploader: client,
 				Backups:  c.backups, Log: c.log, Watcher: watch.New(pollEvery),
-				Saves: c.saves, IsOff: c.isOff, Out: c.status,
+				Saves: c.saves, IsOff: c.isOff, Out: c.status, Imported: announce,
 			}
 			err := loop.Run(run, pollEvery)
 			stop()

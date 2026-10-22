@@ -36,6 +36,7 @@ type server struct {
 	headers  []string
 	bodies   []string
 	requests []string
+	ok       string // a 200's body; empty is imported
 }
 
 func (s *server) handler(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +56,11 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
 	}
 	switch status {
 	case http.StatusOK:
-		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+		body := `{"status":"imported","saves":1}`
+		if s.ok != "" {
+			body = s.ok
+		}
+		_, _ = io.WriteString(w, body)
 	case http.StatusTooManyRequests:
 		w.Header().Set("Retry-After", "90")
 		w.WriteHeader(status)
@@ -173,18 +178,6 @@ func TestAnOfflineServerIsRetriedWithGrowingWaits(t *testing.T) {
 	}
 }
 
-func TestTheWaitStopsGrowingAtThirtyMinutes(t *testing.T) {
-	waits := []time.Duration{}
-	var w time.Duration
-	for range 8 {
-		w = nextBackoff(w)
-		waits = append(waits, w)
-	}
-	if waits[0] != time.Minute || waits[5] != 30*time.Minute || waits[7] != 30*time.Minute {
-		t.Fatalf("waits = %v", waits)
-	}
-}
-
 func TestARateLimitWaitsForRetryAfter(t *testing.T) {
 	f := setup(t, http.StatusTooManyRequests, http.StatusOK)
 
@@ -289,5 +282,30 @@ func TestAForbiddenAccountStopsTheCompanionAndKeepsTheSave(t *testing.T) {
 	}
 	if pending, _ := f.core.Backups.Pending(); len(pending) != 1 {
 		t.Fatal("the save was dropped; it should wait until the account may upload again")
+	}
+}
+
+func TestAnImportedUploadIsAnnounced(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		ok     string
+		want   int
+	}{
+		{http.StatusOK, "", 1},
+		{http.StatusOK, `{"status":"already imported","saves":1}`, 0},
+		{http.StatusBadRequest, "", 0},
+		{http.StatusServiceUnavailable, "", 0},
+	} {
+		status, want := c.status, c.want
+		f := setup(t, status)
+		f.srv.ok = c.ok
+		announced := 0
+		f.core.Imported = func() { announced++ }
+
+		f.settle(t)
+
+		if f.uploads() != 1 || announced != want {
+			t.Errorf("answer %d: %d uploads, announced %d times, want %d", status, f.uploads(), announced, want)
+		}
 	}
 }

@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +15,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/find"
 )
 
@@ -158,16 +163,37 @@ func TestTOCCarriesTheFlavoursInterface(t *testing.T) {
 	}
 }
 
-// fetcher answers every market with body, and counts the asks.
+// fetcher is the server: every market answers body under etag, 304 to a request holding that etag,
+// or err. It records each ask and the ETag it carried.
 type fetcher struct {
 	body  []byte
+	etag  string
 	err   error
 	asked []string
+	sent  []string
 }
 
-func (f *fetcher) Prices(_ context.Context, game, market string) ([]byte, error) {
+func (f *fetcher) Prices(_ context.Context, game, market, etag string) ([]byte, string, error) {
 	f.asked = append(f.asked, game+" "+market)
-	return f.body, f.err
+	f.sent = append(f.sent, etag)
+	switch {
+	case f.err != nil:
+		return nil, "", f.err
+	case etag != "" && etag == f.etag:
+		return nil, etag, api.ErrNotModified
+	}
+	return f.body, f.etag, nil
+}
+
+// refresher keeps market's prices from f in saves, its ETags in state.
+func refresher(f Fetcher, saves []find.Save, market, state string) *Refresher {
+	return &Refresher{Fetcher: f, Saves: func() []find.Save { return saves }, Market: market, State: state, Out: io.Discard}
+}
+
+// refresh is one refresh with a fresh Refresher, as at the companion's start.
+func refresh(t *testing.T, f Fetcher, saves []find.Save, market string) {
+	t.Helper()
+	_ = refresher(f, saves, market, filepath.Join(t.TempDir(), "prices.json")).Refresh(context.Background())
 }
 
 // tree makes a WoW install with one save per flavour, each with its interface number.
@@ -195,7 +221,7 @@ func TestRefreshWritesTheDataAddonIntoEachForeverFlavour(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001, "_retail_": 120001})
 	f := &fetcher{body: canned(t)}
 
-	Refresh(context.Background(), f, saves, market, &bytes.Buffer{})
+	refresh(t, f, saves, market)
 
 	if len(f.asked) != 1 || f.asked[0] != "forever "+market {
 		t.Fatalf("asked %v, want one fetch of the market", f.asked)
@@ -219,7 +245,7 @@ func TestRefreshFetchesOnceForSeveralForeverFlavours(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001, "_forever_ptr_": 16002})
 	f := &fetcher{body: canned(t)}
 
-	Refresh(context.Background(), f, saves, market, &bytes.Buffer{})
+	refresh(t, f, saves, market)
 
 	if len(f.asked) != 1 {
 		t.Errorf("asked %d times, want once", len(f.asked))
@@ -235,8 +261,8 @@ func TestRefreshWithoutAMarketOrAForeverFlavourFetchesNothing(t *testing.T) {
 	_, retail := tree(t, map[string]int{"_retail_": 120001})
 	f := &fetcher{body: canned(t)}
 
-	Refresh(context.Background(), f, forever, "", &bytes.Buffer{})
-	Refresh(context.Background(), f, retail, market, &bytes.Buffer{})
+	refresh(t, f, forever, "")
+	refresh(t, f, retail, market)
 
 	if len(f.asked) != 0 {
 		t.Errorf("asked %v", f.asked)
@@ -246,7 +272,7 @@ func TestRefreshWithoutAMarketOrAForeverFlavourFetchesNothing(t *testing.T) {
 func TestAMalformedAnswerWritesNoFile(t *testing.T) {
 	for name, body := range malformed {
 		install, saves := tree(t, map[string]int{"_forever_": 16001})
-		Refresh(context.Background(), &fetcher{body: []byte(body)}, saves, market, &bytes.Buffer{})
+		refresh(t, &fetcher{body: []byte(body)}, saves, market)
 		if _, err := os.Stat(dataDir(install, "_forever_")); !os.IsNotExist(err) {
 			t.Errorf("%s: wrote %s", name, dataDir(install, "_forever_"))
 		}
@@ -255,18 +281,202 @@ func TestAMalformedAnswerWritesNoFile(t *testing.T) {
 
 func TestAMalformedAnswerOrAFailedFetchLeavesThePreviousFiles(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001})
-	Refresh(context.Background(), &fetcher{body: canned(t)}, saves, market, &bytes.Buffer{})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	_ = refresher(&fetcher{body: canned(t), etag: `"e1"`}, saves, market, state).Refresh(context.Background())
 	dir := dataDir(install, "_forever_")
 	before, _ := os.ReadFile(filepath.Join(dir, "Data.lua"))
 
-	Refresh(context.Background(), &fetcher{body: []byte(malformed["a float price"])}, saves, market, &bytes.Buffer{})
-	Refresh(context.Background(), &fetcher{err: errors.New("offline")}, saves, market, &bytes.Buffer{})
+	for _, f := range []*fetcher{
+		{body: []byte(malformed["a float price"]), etag: `"e2"`},
+		{err: errors.New("offline")},
+		{err: errors.New("status 500")},
+	} {
+		_ = refresher(f, saves, market, state).Refresh(context.Background())
+	}
 
 	after, _ := os.ReadFile(filepath.Join(dir, "Data.lua"))
 	if len(before) == 0 || !bytes.Equal(before, after) {
 		t.Fatalf("the last good Data.lua changed")
 	}
 	assertOnly(t, dir, "Data.lua", "GoldForever_Data.toc")
+	f := &fetcher{body: canned(t), etag: `"e1"`}
+	_ = refresher(f, saves, market, state).Refresh(context.Background())
+	if f.sent[0] != `"e1"` {
+		t.Errorf("after the failures the ETag sent is %q, want that of the file kept", f.sent[0])
+	}
+}
+
+func TestAnUnchangedMarketCostsA304AndTheFileIsNotWritten(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	f := &fetcher{body: canned(t), etag: `"e1"`}
+	_ = refresher(f, saves, market, state).Refresh(context.Background())
+	lua := filepath.Join(dataDir(install, "_forever_"), "Data.lua")
+	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(lua, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	err := refresher(f, saves, market, state).Refresh(context.Background()) // a restart: the ETag was kept
+
+	if err != nil || len(f.sent) != 2 || f.sent[1] != `"e1"` {
+		t.Fatalf("second ask sent %q, err %v; want the file's ETag", f.sent, err)
+	}
+	if info, err := os.Stat(lua); err != nil || !info.ModTime().Equal(old) {
+		t.Fatalf("Data.lua was written on a 304: %v, %v", info.ModTime(), err)
+	}
+	assertOnly(t, dataDir(install, "_forever_"), "Data.lua", "GoldForever_Data.toc")
+}
+
+func TestAChangedMarketIsWrittenAgainUnderItsNewETag(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	r := refresher(nil, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	r.Fetcher = &fetcher{body: canned(t), etag: `"e1"`}
+	_ = r.Refresh(context.Background())
+
+	changed := answerWith("at", `1761300000`)
+	f := &fetcher{body: []byte(changed), etag: `"e2"`}
+	r.Fetcher = f
+	_ = r.Refresh(context.Background())
+	_ = r.Refresh(context.Background())
+
+	p, _ := Parse([]byte(changed), "forever", market)
+	data, _ := os.ReadFile(filepath.Join(dataDir(install, "_forever_"), "Data.lua"))
+	if !bytes.Equal(data, Lua(p)) {
+		t.Fatalf("Data.lua is not the changed answer:\n%s", data)
+	}
+	if strings.Join(f.sent, " ") != `"e1" "e2"` {
+		t.Errorf("sent %q, want the old ETag, then the new one", f.sent)
+	}
+}
+
+func TestADataFileGoneIsFetchedInFull(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	f := &fetcher{body: canned(t), etag: `"e1"`}
+	_ = refresher(f, saves, market, state).Refresh(context.Background())
+	lua := filepath.Join(dataDir(install, "_forever_"), "Data.lua")
+	if err := os.Remove(lua); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = refresher(f, saves, market, state).Refresh(context.Background())
+
+	if f.sent[1] != "" {
+		t.Errorf("sent %q for a missing file: a 304 would leave it missing", f.sent[1])
+	}
+	if _, err := os.Stat(lua); err != nil {
+		t.Errorf("Data.lua not written again: %v", err)
+	}
+}
+
+func TestAnotherMarketsETagIsNotSentForTheFile(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	_ = refresher(&fetcher{body: canned(t), etag: `"e1"`}, saves, market, state).Refresh(context.Background())
+	const other = "forever-BETA-normal-alliance"
+	_ = refresher(&fetcher{body: []byte(strings.Replace(string(canned(t)), market, other, 1)), etag: `"o1"`}, saves, other, state).Refresh(context.Background())
+
+	f := &fetcher{body: canned(t), etag: `"e1"`}
+	_ = refresher(f, saves, market, state).Refresh(context.Background())
+
+	if f.sent[0] != "" {
+		t.Errorf("sent %q though Data.lua now holds %s", f.sent[0], other)
+	}
+}
+
+// clock is the injected timer: each wait Run asks for is reported, and fires when the test ticks.
+type clock struct {
+	waits chan time.Duration
+	tick  chan time.Time
+}
+
+func newClock() *clock { return &clock{waits: make(chan time.Duration), tick: make(chan time.Time)} }
+
+func (c *clock) after(d time.Duration) <-chan time.Time {
+	c.waits <- d
+	return c.tick
+}
+
+func (c *clock) next(t *testing.T) time.Duration {
+	t.Helper()
+	select {
+	case d := <-c.waits:
+		return d
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run never waited")
+		return 0
+	}
+}
+
+func TestRunRefreshesAtStartHourlyAndAfterAnImportedUpload(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	f := &fetcher{body: canned(t), etag: `"e1"`}
+	r := refresher(f, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	clk, imported := newClock(), make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { r.Run(ctx, time.Hour, clk.after, imported); close(done) }()
+
+	if d := clk.next(t); d != time.Hour || len(f.asked) != 1 {
+		t.Fatalf("at start: asked %d times, then waits %s", len(f.asked), d)
+	}
+	clk.tick <- time.Time{}
+	if d := clk.next(t); d != time.Hour || len(f.asked) != 2 {
+		t.Fatalf("on the hour: asked %d times, then waits %s", len(f.asked), d)
+	}
+	select {
+	case imported <- struct{}{}:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run does not listen for imported uploads")
+	}
+	if d := clk.next(t); d != time.Hour || len(f.asked) != 3 {
+		t.Fatalf("after an import: asked %d times, then waits %s", len(f.asked), d)
+	}
+	cancel()
+	<-done
+}
+
+func TestRunWaitsOutAFailingServerAsUploadsDo(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	r := refresher(&api.Client{BaseURL: srv.URL}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	clk := newClock()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { r.Run(ctx, time.Hour, clk.after, nil); close(done) }()
+
+	var waits []time.Duration
+	for range 3 {
+		waits = append(waits, clk.next(t))
+		if len(waits) < 3 {
+			clk.tick <- time.Time{}
+		}
+	}
+	cancel()
+	<-done
+	if waits[0] != time.Minute || waits[1] != 2*time.Minute || waits[2] != 4*time.Minute {
+		t.Fatalf("waits = %v, want 1m 2m 4m", waits)
+	}
+}
+
+func TestRunWaitsForRetryAfterWhenRateLimited(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	r := refresher(&fetcher{err: &api.RateLimitedError{RetryAfter: 90 * time.Second}}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	clk := newClock()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { r.Run(ctx, time.Hour, clk.after, nil); close(done) }()
+
+	d := clk.next(t)
+	cancel()
+	<-done
+	if d != 90*time.Second {
+		t.Fatalf("waits %s, want Retry-After", d)
+	}
 }
 
 func assertOnly(t *testing.T, dir string, names ...string) {
@@ -393,4 +603,26 @@ func same(a, b Prices) bool {
 		}
 	}
 	return true
+}
+
+func TestAFlavourNotWrittenKeepsItsNewETagFromBeingSent(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001, "_forever_ptr_": 16002})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	_ = refresher(&fetcher{body: canned(t), etag: `"e1"`}, saves, market, state).Refresh(context.Background())
+	toc := filepath.Join(dataDir(install, "_forever_ptr_"), "GoldForever_Data.toc")
+	if err := os.Remove(toc); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(toc, "blocker"), 0o755); err != nil { // nothing renames over it
+		t.Fatal(err)
+	}
+	changed := []byte(answerWith("at", `1761300000`))
+	_ = refresher(&fetcher{body: changed, etag: `"e2"`}, saves, market, state).Refresh(context.Background())
+
+	f := &fetcher{body: changed, etag: `"e2"`}
+	_ = refresher(f, saves, market, state).Refresh(context.Background())
+
+	if f.sent[0] == `"e2"` {
+		t.Fatal(`sent "e2" though _forever_ptr_ still holds the older prices: a 304 would keep them`)
+	}
 }

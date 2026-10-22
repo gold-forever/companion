@@ -118,19 +118,26 @@ how the app gets one.
 
 ## Prices into the game
 
-Once at start, for the market in the settings (`"market"`) or `run --market`, when a Forever save is
-found:
+For the market in the settings (`"market"`) or `run --market`, when a Forever save is found: at
+start, every hour, and right after one of its own uploads answers `imported`:
 
 ```http
 GET /api/v1/prices?game=forever&market=forever-EU-normal-horde
 Authorization: Bearer gf_...
+If-None-Match: "<the ETag of the prices in the game>"
 ```
+
+`If-None-Match` is sent only when every Forever flavour already has its `Data.lua`; the ETag of what
+was written is kept per market in `prices.json` in the app's data folder.
 
 - 200 `{"v":1,"game":"forever","market":"…","at":<epoch s>,"items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":<epoch s>}, …]}`:
   prices in integer copper. The app checks every field (version 1, the game and market it asked for,
   plain integers, ids above 0, nothing negative or past 2^53, a market key of letters, digits, `-`
   and `_`); any fault refuses the whole answer and the last good file stays.
-- 401, 403, 404 and 400 write nothing.
+- 304, no body: the prices are unchanged; nothing is written.
+- 401, 403, 404 and 400 write nothing; the next try is in an hour.
+- 5xx or no answer writes nothing and is tried again after 1, 2, 4 … up to 30 minutes, as uploads
+  are; 429 after `Retry-After`.
 
 The app then writes `Interface/AddOns/GoldForever_Data/` in each Forever flavour folder: a TOC with
 the interface number its save names, and `Data.lua`, one table of integers and one quoted market key,

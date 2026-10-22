@@ -175,3 +175,15 @@ func TestTheBaseURLMayEndWithASlash(t *testing.T) {
 		t.Errorf("path = %q", seen.URL.Path)
 	}
 }
+
+func TestTheWaitStopsGrowingAtThirtyMinutes(t *testing.T) {
+	waits := []time.Duration{}
+	var w time.Duration
+	for range 8 {
+		w = NextWait(w)
+		waits = append(waits, w)
+	}
+	if waits[0] != time.Minute || waits[5] != 30*time.Minute || waits[7] != 30*time.Minute {
+		t.Fatalf("waits = %v", waits)
+	}
+}

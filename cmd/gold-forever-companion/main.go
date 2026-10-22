@@ -33,7 +33,11 @@ var version = "dev"
 const defaultURL = "https://gold-forever.app"
 
 const (
-	pollEvery   = 2 * time.Second
+	pollEvery = 2 * time.Second
+	// The prices' freshness without an upload of one's own: most refreshes cost a 304 (D-013.4).
+	refreshPricesEvery = time.Hour
+	// Where the ETag of the prices in the game is kept, in the data folder.
+	pricesState = "prices.json"
 	keepCopies  = 10
 	keepLogFor  = 30 * 24 * time.Hour
 	usageAdvice = "usage: gold-forever-companion link   (connect this computer to your Gold Forever account)\n" +
@@ -128,6 +132,7 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	if *market == "" {
 		*market = cfg.Market
 	}
+	imported, announce := prices.Trigger()
 	c := &core.Core{
 		Uploader: client(url, token),
 		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: keepCopies, Now: time.Now},
@@ -136,6 +141,7 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		Saves:    func() []find.Save { return find.Saves(installs) },
 		IsOff:    cfg.IsOff,
 		Out:      stdout,
+		Imported: announce,
 	}
 	saves := c.Saves()
 	if len(saves) == 0 {
@@ -144,7 +150,11 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	for _, s := range saves {
 		fmt.Fprintln(stdout, "watching", s.Label())
 	}
-	prices.Refresh(ctx, client(url, token), saves, *market, stdout)
+	refresher := &prices.Refresher{
+		Fetcher: client(url, token), Saves: c.Saves, Market: *market,
+		State: filepath.Join(data, pricesState), Out: stdout,
+	}
+	go refresher.Run(ctx, refreshPricesEvery, time.After, imported)
 	if err := c.Run(ctx, pollEvery); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
