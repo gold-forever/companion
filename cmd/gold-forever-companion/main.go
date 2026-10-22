@@ -40,6 +40,10 @@ const (
 		"       gold-forever-companion --once --file <GoldForever.lua>"
 )
 
+// sharingLine is the site's own line on what an upload shares, said where the player links.
+const sharingLine = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
+	"never your name. Your characters, gold and ledger stay private."
+
 // pollSleep paces the wait for a link; nil is the real clock. Tests make it instant.
 var pollSleep func(ctx context.Context, d time.Duration) error
 
@@ -166,6 +170,7 @@ func linkAccount(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	show := func(code api.DeviceCode) {
 		fmt.Fprintf(stdout, "Open %s\nand approve the code %s (it is valid for %d minutes).\n",
 			code.VerificationURIComplete, code.UserCode, code.ExpiresIn/60)
+		fmt.Fprintln(stdout, sharingLine)
 	}
 	if err := link.Link(ctx, c, hostname, cfgPath, show); err != nil {
 		fmt.Fprintln(stderr, "not linked:", err)
