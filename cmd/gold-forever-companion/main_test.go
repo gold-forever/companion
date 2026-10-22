@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -308,11 +309,15 @@ func TestRunAsksForThePricesAgainWithTheirETagOnceAnUploadIsImported(t *testing.
 	const market = "forever-BETA-normal-horde"
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	var mu sync.Mutex
 	var sent []string // If-None-Match of each price request, in order
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/prices" {
+			mu.Lock()
 			sent = append(sent, r.Header.Get("If-None-Match"))
-			if len(sent) > 1 {
+			n := len(sent)
+			mu.Unlock()
+			if n > 1 {
 				w.WriteHeader(http.StatusNotModified)
 				cancel()
 				return
@@ -332,9 +337,27 @@ func TestRunAsksForThePricesAgainWithTheirETagOnceAnUploadIsImported(t *testing.
 
 	code := run(ctx, []string{"run"}, os.Getenv, io.Discard, io.Discard)
 
+	if left := stillRunning(); left != "" {
+		t.Fatalf("run returned with its loops still running:\n%s", left)
+	}
+	mu.Lock()
+	defer mu.Unlock()
 	if code != 0 || len(sent) != 2 || sent[0] != "" || sent[1] != `"m-1"` {
 		t.Fatalf("code = %d, If-None-Match sent = %q; want a full fetch at start, then one with its ETag", code, sent)
 	}
+}
+
+// stillRunning is the stack of every goroutine inside the upload or price loops: "" when none is.
+func stillRunning() string {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	var left []string
+	for g := range strings.SplitSeq(string(buf), "\n\n") {
+		if strings.Contains(g, "companion/internal/prices.") || strings.Contains(g, "companion/internal/core.") {
+			left = append(left, g)
+		}
+	}
+	return strings.Join(left, "\n\n")
 }
 
 func TestRunWithoutAMarketWritesTheAccountsMarkets(t *testing.T) {

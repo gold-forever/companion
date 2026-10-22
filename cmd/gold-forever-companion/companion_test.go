@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/page"
 )
@@ -291,5 +295,30 @@ func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
 		len(got[0].Markets) != 1 || got[0].Markets[0] != (page.PriceMarket{Market: "forever-EU-normal-horde", Items: 2}) ||
 		got[0].Size != int64(len(lua)) || got[0].Fetched == nil || got[0].Outcome != "ok" {
 		t.Fatalf("after a fetch: %+v", got)
+	}
+}
+
+func TestTheUploadLoopEndsOnlyOnceItsPriceLoopHasEnded(t *testing.T) {
+	c, _ := fixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/prices" {
+			cancel()
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	defer srv.Close()
+	if err := c.update(func(cfg *config.Config) error { cfg.Token, cfg.URL = validToken, srv.URL; return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	c.loop(ctx)
+
+	if left := stillRunning(); left != "" {
+		t.Fatalf("the loop returned with its price loop still running:\n%s", left)
 	}
 }

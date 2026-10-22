@@ -46,7 +46,7 @@ type held struct {
 // that fails is asked again sooner, waiting as uploads do; after is the clock (time.After).
 func (r *Refresher) Run(ctx context.Context, every time.Duration, after func(time.Duration) <-chan time.Time, imported <-chan struct{}) {
 	var backoff time.Duration
-	for {
+	for ctx.Err() == nil { // select picks among ready cases at random: a poke can win over the stop
 		wait := every
 		var limited *api.RateLimitedError
 		switch err := r.Refresh(ctx); {

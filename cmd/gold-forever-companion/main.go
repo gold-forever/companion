@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
@@ -154,8 +155,13 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		Fetcher: client(url, token), Saves: c.Saves, Market: *market,
 		State: filepath.Join(data, pricesState), Out: stdout,
 	}
-	go refresher.Run(ctx, refreshPricesEvery, time.After, imported)
-	if err := c.Run(ctx, pollEvery); err != nil {
+	ctx, stop := context.WithCancel(ctx)
+	var refreshing sync.WaitGroup
+	refreshing.Go(func() { refresher.Run(ctx, refreshPricesEvery, time.After, imported) })
+	err = c.Run(ctx, pollEvery)
+	stop()
+	refreshing.Wait() // nothing writes into the data folder once run has returned
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

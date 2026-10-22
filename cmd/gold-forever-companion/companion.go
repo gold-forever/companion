@@ -409,16 +409,18 @@ func (c *companion) loop(ctx context.Context) {
 			c.status.Set("Not linked yet: open Settings and press \"Link this computer\".")
 		} else {
 			run, stop := context.WithCancel(ctx)
-			go func() {
+			var started sync.WaitGroup
+			started.Go(func() {
 				select {
 				case <-changed:
 					stop()
 				case <-run.Done():
 				}
-			}()
+			})
 			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
 			imported, announce := prices.Trigger()
-			go c.refresher(client).Run(run, refreshPricesEvery, time.After, imported)
+			refresher := c.refresher(client)
+			started.Go(func() { refresher.Run(run, refreshPricesEvery, time.After, imported) })
 			loop := &core.Core{
 				Uploader: client,
 				Backups:  c.backups, Log: c.log, Watcher: watch.New(pollEvery),
@@ -426,6 +428,7 @@ func (c *companion) loop(ctx context.Context) {
 			}
 			err := loop.Run(run, pollEvery)
 			stop()
+			started.Wait() // the next round, or the caller, owns the data folder alone
 			if err == nil {
 				continue // a change, or the companion is stopping
 			}

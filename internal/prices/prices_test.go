@@ -648,6 +648,22 @@ func TestRunRefreshesAtStartHourlyAndAfterAnImportedUpload(t *testing.T) {
 	<-done
 }
 
+func TestRunAfterItsContextEndedNeitherAsksNorWrites(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	f := &fetcher{body: canned(t), etag: `"e1"`}
+	state := filepath.Join(t.TempDir(), "prices.json")
+	imported := make(chan struct{}, 1)
+	imported <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	refresher(f, saves, market, state).Run(ctx, time.Hour, time.After, imported)
+
+	if _, err := os.Stat(state); len(f.asked) != 0 || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("asked %q and the state file is %v; want no ask and no write once stopped", f.asked, err)
+	}
+}
+
 func TestRunWaitsOutAFailingServerAsUploadsDo(t *testing.T) {
 	_, saves := tree(t, map[string]int{"_forever_": 16001})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
