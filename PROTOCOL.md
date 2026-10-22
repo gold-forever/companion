@@ -134,6 +134,8 @@ was written is kept per market in `prices.json` in the app's data folder.
   prices in integer copper. The app checks every field (version 1, the game and market it asked for,
   plain integers, ids above 0, nothing negative or past 2^53, a market key of letters, digits, `-`
   and `_`); any fault refuses the whole answer and the last good file stays.
+- An answer over 4 MB, or one whose `Data.lua` would be over 1 MB, is refused and the last good
+  file stays; a market taking over 200 KB of it is written with a warning.
 - 304, no body: the prices are unchanged; nothing is written.
 - 401, 403, 404 and 400 write nothing; the next try is in an hour.
 - 5xx or no answer writes nothing and is tried again after 1, 2, 4 … up to 30 minutes, as uploads

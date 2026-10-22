@@ -94,9 +94,14 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", r.Market, err)
 		return nil
 	}
+	lua, err := r.render(p)
+	if err != nil {
+		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", r.Market, err)
+		return err
+	}
 	written := map[string]string{r.Market: etag}
 	for dir, iface := range flavours {
-		if err := Write(dir, iface, p); err != nil {
+		if err := Write(dir, iface, lua); err != nil {
 			fmt.Fprintf(r.Out, "prices not written into %s: %v\n", dir, err)
 			written = nil // a flavour without this answer must be fetched in full next time
 			continue
@@ -107,6 +112,18 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 		fmt.Fprintf(r.Out, "could not keep the prices' ETag: %v\n", err)
 	}
 	return nil
+}
+
+// render writes p's Data.lua, refusing one over maxDataBytes and warning of a market over its budget.
+func (r *Refresher) render(p Prices) ([]byte, error) {
+	if part := len(marketPart(p)); part > marketBudget {
+		fmt.Fprintf(r.Out, "warning: the prices for %s take %d bytes, over the %d-byte budget of a market\n", p.Market, part, marketBudget)
+	}
+	lua := Lua(p)
+	if len(lua) > maxDataBytes {
+		return nil, fmt.Errorf("the Data.lua would be %d bytes, over the %d-byte limit; the last good one stays", len(lua), maxDataBytes)
+	}
+	return lua, nil
 }
 
 // etags reads the state; anything unreadable is no ETag, which costs one full fetch.
@@ -156,7 +173,7 @@ func foreverFlavours(saves []find.Save) map[string]int {
 
 // Write puts the data addon into a flavour folder, each file through a temporary file renamed into
 // place, so the game never loads half a file.
-func Write(flavourDir string, iface int, p Prices) error {
+func Write(flavourDir string, iface int, lua []byte) error {
 	dir := addonDir(flavourDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -164,7 +181,7 @@ func Write(flavourDir string, iface int, p Prices) error {
 	if err := replace(filepath.Join(dir, "GoldForever_Data.toc"), TOC(iface)); err != nil {
 		return err
 	}
-	return replace(filepath.Join(dir, "Data.lua"), Lua(p))
+	return replace(filepath.Join(dir, "Data.lua"), lua)
 }
 
 func addonDir(flavourDir string) string {

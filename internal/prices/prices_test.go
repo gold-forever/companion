@@ -626,3 +626,90 @@ func TestAFlavourNotWrittenKeepsItsNewETagFromBeingSent(t *testing.T) {
 		t.Fatal(`sent "e2" though _forever_ptr_ still holds the older prices: a 304 would keep them`)
 	}
 }
+
+// sized is an answer of n items with the widest numbers, and the Data.lua it renders.
+func sized(t *testing.T, n int) ([]byte, []byte) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString(`{"v":1,"game":"forever","market":"` + market + `","at":1761148800,"items":[`)
+	for i := 1; i <= n; i++ {
+		if i > 1 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"id":` + strconv.Itoa(i) + `,"value":9007199254740991,"minBuyout":9007199254740991,"players":9007199254740991,"scannedAt":9007199254740991}`)
+	}
+	b.WriteString(`]}`)
+	p, err := Parse([]byte(b.String()), "forever", market)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []byte(b.String()), Lua(p)
+}
+
+func TestADataFileOverItsLimitIsRefusedAndTheLastGoodOneKept(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	_ = refresher(&fetcher{body: canned(t), etag: `"e1"`}, saves, market, state).Refresh(context.Background())
+	lua := filepath.Join(dataDir(install, "_forever_"), "Data.lua")
+	before, _ := os.ReadFile(lua)
+	body, big := sized(t, 12000)
+	if len(big) <= maxDataBytes {
+		t.Fatalf("fixture: %d bytes is not over the limit", len(big))
+	}
+	var out bytes.Buffer
+	r := refresher(&fetcher{body: body, etag: `"e2"`}, saves, market, state)
+	r.Out = &out
+
+	err := r.Refresh(context.Background())
+
+	size := strconv.Itoa(len(big))
+	if err == nil || !strings.Contains(err.Error(), size) || !strings.Contains(out.String(), size) {
+		t.Fatalf("err = %v, out = %q; want both to name the size %s", err, out.String(), size)
+	}
+	if after, _ := os.ReadFile(lua); !bytes.Equal(before, after) {
+		t.Fatal("the last good Data.lua was replaced")
+	}
+	assertOnly(t, dataDir(install, "_forever_"), "Data.lua", "GoldForever_Data.toc")
+	f := &fetcher{body: canned(t), etag: `"e1"`}
+	_ = refresher(f, saves, market, state).Refresh(context.Background())
+	if f.sent[0] != `"e1"` {
+		t.Errorf("after the refusal the ETag sent is %q, want that of the file kept", f.sent[0])
+	}
+}
+
+func TestAMarketOverItsBudgetIsWrittenWithAWarning(t *testing.T) {
+	for _, c := range []struct {
+		items int
+		warn  bool
+	}{{2000, false}, {3000, true}} {
+		install, saves := tree(t, map[string]int{"_forever_": 16001})
+		body, lua := sized(t, c.items)
+		part := len(marketPart(mustParse(t, body)))
+		if (part > marketBudget) != c.warn || len(lua) > maxDataBytes {
+			t.Fatalf("fixture: %d items render a %d-byte market in %d bytes", c.items, part, len(lua))
+		}
+		var out bytes.Buffer
+		r := refresher(&fetcher{body: body, etag: `"e1"`}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+		r.Out = &out
+
+		err := r.Refresh(context.Background())
+
+		data, _ := os.ReadFile(filepath.Join(dataDir(install, "_forever_"), "Data.lua"))
+		if err != nil || !bytes.Equal(data, lua) {
+			t.Fatalf("%d items: err %v, Data.lua not written as rendered", c.items, err)
+		}
+		warned := strings.Contains(out.String(), "warning") && strings.Contains(out.String(), strconv.Itoa(part))
+		if warned != c.warn {
+			t.Errorf("%d items (%d bytes for the market): warned %v, want %v; out = %q", c.items, part, warned, c.warn, out.String())
+		}
+	}
+}
+
+func mustParse(t *testing.T, body []byte) Prices {
+	t.Helper()
+	p, err := Parse(body, "forever", market)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
