@@ -14,21 +14,28 @@ import (
 	"github.com/gold-forever/companion/internal/find"
 )
 
-// Fetcher gets one market's answer and its ETag from the server, or api.ErrNotModified when etag is
-// still current; api.Client is the real one.
+// Fetcher gets the server's answer for game (one market's, or the account's when market is empty) and
+// its ETag, or api.ErrNotModified when etag is still current; api.Client is the real one.
 type Fetcher interface {
 	Prices(ctx context.Context, game, market, etag string) ([]byte, string, error)
 }
 
 const game = "forever"
 
-// Refresher keeps one market's prices in every Forever flavour the saves are in.
+// Refresher keeps the prices of the account's markets in every Forever flavour the saves are in.
 type Refresher struct {
 	Fetcher Fetcher
 	Saves   func() []find.Save
-	Market  string // empty writes none
-	State   string // the file holding the ETag of each market Data.lua holds now
+	Market  string // one market instead of the account's, to try a market out
+	State   string // the file holding what the game's Data.lua holds now, and its ETag
 	Out     io.Writer
+}
+
+// held is what a game's Data.lua files hold: the answer asked for (a market, or "" for the account's
+// markets) under its ETag.
+type held struct {
+	Ask  string `json:"ask"`
+	ETag string `json:"etag"`
 }
 
 // Run refreshes at once, then every interval and after each imported upload, until ctx ends. A server
@@ -68,76 +75,90 @@ func Trigger() (<-chan struct{}, func()) {
 	}
 }
 
-// Refresh fetches the market once, asking only for a change when every flavour has its file, and
-// writes it into each flavour. A 304, a failed fetch or an answer out of shape writes nothing, so the
-// last good files stay; the error is the fetch's.
+// Refresh fetches the game's answer once, asking only for a change when every flavour has the file it
+// last wrote, and writes it into each flavour. A 304, a failed fetch or an answer out of shape writes
+// nothing, so the last good files stay; the error is the fetch's.
 func (r *Refresher) Refresh(ctx context.Context) error {
 	flavours := foreverFlavours(r.Saves())
-	if r.Market == "" || len(flavours) == 0 {
+	if len(flavours) == 0 {
 		return nil
 	}
-	etags := r.etags()
-	etag := etags[r.Market]
-	if !allHaveData(flavours) {
-		etag = ""
+	ask, label := r.Market, r.Market
+	if ask == "" {
+		label = "the account's " + game + " markets"
 	}
-	body, etag, err := r.Fetcher.Prices(ctx, game, r.Market, etag)
+	state := r.state()
+	etag := ""
+	if h := state[game]; h.Ask == ask && allHaveData(flavours) {
+		etag = h.ETag
+	}
+	body, etag, err := r.Fetcher.Prices(ctx, game, ask, etag)
 	if errors.Is(err, api.ErrNotModified) {
 		return nil
 	}
 	if err != nil {
-		fmt.Fprintf(r.Out, "prices for %s not fetched: %v\n", r.Market, err)
+		fmt.Fprintf(r.Out, "prices for %s not fetched: %v\n", label, err)
 		return err
 	}
-	p, err := Parse(body, game, r.Market)
+	a, err := Parse(body, game, ask)
 	if err != nil {
-		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", r.Market, err)
+		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
 		return nil
 	}
-	lua, err := r.render(p)
+	lua, err := r.render(a)
 	if err != nil {
-		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", r.Market, err)
+		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
 		return err
 	}
-	written := map[string]string{r.Market: etag}
+	state[game] = held{Ask: ask, ETag: etag}
 	for dir, iface := range flavours {
 		if err := Write(dir, iface, lua); err != nil {
 			fmt.Fprintf(r.Out, "prices not written into %s: %v\n", dir, err)
-			written = nil // a flavour without this answer must be fetched in full next time
+			delete(state, game) // a flavour without this answer must be fetched in full next time
 			continue
 		}
-		fmt.Fprintf(r.Out, "prices for %s written into %s (%d items)\n", r.Market, dir, len(p.Items))
+		fmt.Fprintf(r.Out, "prices for %s written into %s (%d markets, %d items)\n", label, dir, len(a.Markets), items(a))
 	}
-	if err := r.saveETags(written); err != nil {
+	if err := r.saveState(state); err != nil {
 		fmt.Fprintf(r.Out, "could not keep the prices' ETag: %v\n", err)
 	}
 	return nil
 }
 
-// render writes p's Data.lua, refusing one over maxDataBytes and warning of a market over its budget.
-func (r *Refresher) render(p Prices) ([]byte, error) {
-	if part := len(marketPart(p)); part > marketBudget {
-		fmt.Fprintf(r.Out, "warning: the prices for %s take %d bytes, over the %d-byte budget of a market\n", p.Market, part, marketBudget)
+func items(a Answer) int {
+	n := 0
+	for _, p := range a.Markets {
+		n += len(p.Items)
 	}
-	lua := Lua(p)
+	return n
+}
+
+// render writes a's Data.lua, refusing one over maxDataBytes and warning of a market over its budget.
+func (r *Refresher) render(a Answer) ([]byte, error) {
+	for _, p := range a.Markets {
+		if part := len(marketPart(p)); part > marketBudget {
+			fmt.Fprintf(r.Out, "warning: the prices for %s take %d bytes, over the %d-byte budget of a market\n", p.Market, part, marketBudget)
+		}
+	}
+	lua := Lua(a)
 	if len(lua) > maxDataBytes {
 		return nil, fmt.Errorf("the Data.lua would be %d bytes, over the %d-byte limit; the last good one stays", len(lua), maxDataBytes)
 	}
 	return lua, nil
 }
 
-// etags reads the state; anything unreadable is no ETag, which costs one full fetch.
-func (r *Refresher) etags() map[string]string {
-	var etags map[string]string
-	data, err := os.ReadFile(r.State)
-	if err == nil {
-		_ = json.Unmarshal(data, &etags)
+// state reads what the files hold per game; anything unreadable is nothing held, which costs one full
+// fetch.
+func (r *Refresher) state() map[string]held {
+	state := map[string]held{}
+	if data, err := os.ReadFile(r.State); err == nil {
+		_ = json.Unmarshal(data, &state)
 	}
-	return etags
+	return state
 }
 
-func (r *Refresher) saveETags(etags map[string]string) error {
-	data, err := json.Marshal(etags)
+func (r *Refresher) saveState(state map[string]held) error {
+	data, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}

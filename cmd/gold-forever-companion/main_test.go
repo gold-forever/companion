@@ -336,3 +336,49 @@ func TestRunAsksForThePricesAgainWithTheirETagOnceAnUploadIsImported(t *testing.
 		t.Fatalf("code = %d, If-None-Match sent = %q; want a full fetch at start, then one with its ETag", code, sent)
 	}
 }
+
+func TestRunWithoutAMarketWritesTheAccountsMarkets(t *testing.T) {
+	home := isolatedHome(t)
+	wow := filepath.Join(home, "World of Warcraft")
+	dir := filepath.Join(wow, "_forever_", "WTF", "Account", "A", "SavedVariables")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	save := "GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "GoldForever.lua"), []byte(save), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/prices" && r.URL.Query().Get("game") == "forever" && !r.URL.Query().Has("market") {
+			_, _ = io.WriteString(w, `{"v":1,"game":"forever","at":5,"markets":[`+
+				`{"market":"forever-EU-normal-horde","items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":4}]},`+
+				`{"market":"forever-EU-normal-alliance","items":[{"id":2589,"value":99,"minBuyout":90,"players":2,"scannedAt":4}]}]}`)
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	defer srv.Close()
+	cfgPath, _ := config.Path()
+	if err := config.Save(cfgPath, config.Config{Token: "gf_t", URL: srv.URL, Folders: []string{wow}}); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(wow, "_forever_", "Interface", "AddOns", "GoldForever_Data", "Data.lua")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	go func() {
+		for ctx.Err() == nil {
+			if _, err := os.Stat(data); err == nil {
+				cancel()
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	code := run(ctx, []string{"run"}, os.Getenv, io.Discard, io.Discard)
+
+	lua, err := os.ReadFile(data)
+	if code != 0 || err != nil || !strings.Contains(string(lua), `["forever-EU-normal-horde"]`) || !strings.Contains(string(lua), `["forever-EU-normal-alliance"]`) {
+		t.Fatalf("code = %d, Data.lua = %q, %v", code, lua, err)
+	}
+}

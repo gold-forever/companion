@@ -29,18 +29,20 @@ type Item struct {
 	ID, Value, MinBuyout, Players, ScannedAt int64
 }
 
-// Prices is one market's answer, items sorted by id.
+// Prices is one market's items, sorted by id.
 type Prices struct {
-	At     int64
 	Market string
 	Items  []Item
 }
 
-type answer struct {
-	V      json.RawMessage `json:"v"`
-	Game   string          `json:"game"`
-	Market string          `json:"market"`
-	At     json.RawMessage `json:"at"`
+// Answer is what the server sent: when it built it, and its markets sorted by key.
+type Answer struct {
+	At      int64
+	Markets []Prices
+}
+
+type rawMarket struct {
+	Market string `json:"market"`
 	Items  []struct {
 		ID        json.RawMessage `json:"id"`
 		Value     json.RawMessage `json:"value"`
@@ -50,35 +52,72 @@ type answer struct {
 	} `json:"items"`
 }
 
-// Parse checks the server's answer for game and market: any field out of shape refuses all of it.
-func Parse(body []byte, game, market string) (Prices, error) {
+// answer holds both shapes: one market's (market and items at the top) and the account's (markets).
+type answer struct {
+	V    json.RawMessage `json:"v"`
+	Game string          `json:"game"`
+	At   json.RawMessage `json:"at"`
+	rawMarket
+	Markets []rawMarket `json:"markets"`
+}
+
+// Parse checks the server's answer for game: for market when one was asked for, else the account's
+// markets. Any field out of shape refuses all of it.
+func Parse(body []byte, game, market string) (Answer, error) {
 	var a answer
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if err := dec.Decode(&a); err != nil {
-		return Prices{}, fmt.Errorf("not a price answer: %w", err)
+		return Answer{}, fmt.Errorf("not a price answer: %w", err)
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return Prices{}, errors.New("not a price answer: data after it")
+		return Answer{}, errors.New("not a price answer: data after it")
 	}
 	if v, err := integer(a.V, version, version); err != nil || v != version {
-		return Prices{}, fmt.Errorf("answer version: want %d", version)
+		return Answer{}, fmt.Errorf("answer version: want %d", version)
 	}
-	if a.Game != game || a.Market != market {
-		return Prices{}, fmt.Errorf("an answer for %q %q, not %q %q", a.Game, a.Market, game, market)
+	if a.Game != game {
+		return Answer{}, fmt.Errorf("an answer for %q, not %q", a.Game, game)
 	}
-	if !marketKey.MatchString(a.Market) {
-		return Prices{}, fmt.Errorf("market key %q is not one", a.Market)
+	raw := a.Markets
+	switch {
+	case market != "" && a.Market != market:
+		return Answer{}, fmt.Errorf("an answer for %q, not %q", a.Market, market)
+	case market != "":
+		raw = []rawMarket{a.rawMarket}
+	case raw == nil:
+		return Answer{}, errors.New("no markets list")
 	}
-	if a.Items == nil {
-		return Prices{}, errors.New("no items list")
-	}
-	p := Prices{Market: a.Market}
+	out := Answer{}
 	var err error
-	if p.At, err = integer(a.At, 0, maxExact); err != nil {
-		return Prices{}, fmt.Errorf("at: %w", err)
+	if out.At, err = integer(a.At, 0, maxExact); err != nil {
+		return Answer{}, fmt.Errorf("at: %w", err)
 	}
+	seen := map[string]bool{}
+	for _, m := range raw {
+		p, err := parseMarket(m)
+		if err != nil {
+			return Answer{}, err
+		}
+		if seen[p.Market] {
+			return Answer{}, fmt.Errorf("market %s named twice", p.Market)
+		}
+		seen[p.Market] = true
+		out.Markets = append(out.Markets, p)
+	}
+	slices.SortFunc(out.Markets, func(a, b Prices) int { return cmp.Compare(a.Market, b.Market) })
+	return out, nil
+}
+
+func parseMarket(m rawMarket) (Prices, error) {
+	if !marketKey.MatchString(m.Market) {
+		return Prices{}, fmt.Errorf("market key %q is not one", m.Market)
+	}
+	if m.Items == nil {
+		return Prices{}, fmt.Errorf("market %s: no items list", m.Market)
+	}
+	p := Prices{Market: m.Market}
 	seen := map[int64]bool{}
-	for i, raw := range a.Items {
+	for i, raw := range m.Items {
 		var it Item
 		for _, f := range []struct {
 			name string
@@ -92,12 +131,13 @@ func Parse(body []byte, game, market string) (Prices, error) {
 			{"players", raw.Players, 0, &it.Players},
 			{"scannedAt", raw.ScannedAt, 0, &it.ScannedAt},
 		} {
+			var err error
 			if *f.to, err = integer(f.num, f.min, maxExact); err != nil {
-				return Prices{}, fmt.Errorf("item %d %s: %w", i, f.name, err)
+				return Prices{}, fmt.Errorf("market %s item %d %s: %w", m.Market, i, f.name, err)
 			}
 		}
 		if seen[it.ID] {
-			return Prices{}, fmt.Errorf("item %d named twice", it.ID)
+			return Prices{}, fmt.Errorf("market %s: item %d named twice", m.Market, it.ID)
 		}
 		seen[it.ID] = true
 		p.Items = append(p.Items, it)

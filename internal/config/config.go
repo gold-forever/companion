@@ -15,8 +15,8 @@ type Config struct {
 	URL     string   `json:"url,omitempty"`     // empty means the public site
 	Off     []string `json:"off,omitempty"`     // saves the player switched off, by path
 	Folders []string `json:"folders,omitempty"` // WoW folders added by hand
-	// Market is the Forever market whose prices are written into the game, e.g. forever-EU-normal-horde;
-	// empty writes none.
+	// Market is one market whose prices are written into the game instead of the account's markets,
+	// e.g. forever-EU-normal-horde, to try a market out; empty writes the account's.
 	Market string `json:"market,omitempty"`
 	// Welcomed is set once the player has seen the first-run panel; until then autostart may be turned
 	// on for them, after it only by their own choice.

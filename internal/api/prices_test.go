@@ -81,3 +81,16 @@ func TestPricesFailingOnTheServerIsWorthTryingAgain(t *testing.T) {
 		t.Fatalf("err = %v, want retryable", err)
 	}
 }
+
+func TestPricesWithoutAMarketAsksForTheAccountsMarketsOfTheGame(t *testing.T) {
+	c, seen, _ := server(t, http.StatusOK, `{"v":1}`, map[string]string{"ETag": `"all-3"`})
+
+	_, etag, err := c.Prices(context.Background(), "forever", "", "")
+
+	if err != nil || etag != `"all-3"` {
+		t.Fatalf("Prices = %q, %v", etag, err)
+	}
+	if q := seen.URL.Query(); q.Get("game") != "forever" || q.Has("market") {
+		t.Errorf("query = %q, want game=forever and no market", seen.URL.RawQuery)
+	}
+}

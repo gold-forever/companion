@@ -118,22 +118,26 @@ how the app gets one.
 
 ## Prices into the game
 
-For the market in the settings (`"market"`) or `run --market`, when a Forever save is found: at
-start, every hour, and right after one of its own uploads answers `imported`:
+When a Forever save is found: at start, every hour, and right after one of its own uploads answers
+`imported`, one request for the markets of your account's characters:
 
 ```http
-GET /api/v1/prices?game=forever&market=forever-EU-normal-horde
+GET /api/v1/prices?game=forever
 Authorization: Bearer gf_...
 If-None-Match: "<the ETag of the prices in the game>"
 ```
 
-`If-None-Match` is sent only when every Forever flavour already has its `Data.lua`; the ETag of what
-was written is kept per market in `prices.json` in the app's data folder.
+A market in the settings (`"market"`) or `run --market` asks for that one market instead
+(`&market=forever-EU-normal-horde`), to try a market out.
 
-- 200 `{"v":1,"game":"forever","market":"…","at":<epoch s>,"items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":<epoch s>}, …]}`:
-  prices in integer copper. The app checks every field (version 1, the game and market it asked for,
-  plain integers, ids above 0, nothing negative or past 2^53, a market key of letters, digits, `-`
-  and `_`); any fault refuses the whole answer and the last good file stays.
+`If-None-Match` is sent only when every Forever flavour already has the `Data.lua` of that same
+request; what was written and its one ETag are kept per game in `prices.json` in the app's data folder.
+
+- 200 `{"v":1,"game":"forever","at":<epoch s>,"markets":[{"market":"forever-EU-normal-horde","items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":<epoch s>}, …]}, …]}`
+  (for one market: `{"v":1,"game":"forever","market":"…","at":…,"items":[…]}`): prices in integer
+  copper. The app checks every field (version 1, the game and market it asked for, plain integers,
+  ids above 0, nothing negative or past 2^53, market keys of letters, digits, `-` and `_`, none twice);
+  any fault refuses the whole answer and the last good file stays. No markets writes an empty table.
 - An answer over 4 MB, or one whose `Data.lua` would be over 1 MB, is refused and the last good
   file stays; a market taking over 200 KB of it is written with a warning.
 - 304, no body: the prices are unchanged; nothing is written.
@@ -142,6 +146,6 @@ was written is kept per market in `prices.json` in the app's data folder.
   are; 429 after `Retry-After`.
 
 The app then writes `Interface/AddOns/GoldForever_Data/` in each Forever flavour folder: a TOC with
-the interface number its save names, and `Data.lua`, one table of integers and one quoted market key,
+the interface number its save names, and `Data.lua`, one table of integers under quoted market keys,
 each through a temporary file renamed into place. The server never sends Lua, so a compromised server
 could send wrong prices but could never run code in your game.

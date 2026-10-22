@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -40,11 +41,105 @@ func TestParseReadsTheContractAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if p.At != 1761148800 || p.Market != market || len(p.Items) != 3 {
+	if p.At != 1761148800 || len(p.Markets) != 1 || p.Markets[0].Market != market || len(p.Markets[0].Items) != 3 {
 		t.Fatalf("Parse = %+v", p)
 	}
-	if p.Items[0] != (Item{ID: 2589, Value: 1234, MinBuyout: 1100, Players: 1, ScannedAt: 1761140000}) {
-		t.Errorf("first item = %+v (items are sorted by id)", p.Items[0])
+	if p.Markets[0].Items[0] != (Item{ID: 2589, Value: 1234, MinBuyout: 1100, Players: 1, ScannedAt: 1761140000}) {
+		t.Errorf("first item = %+v (items are sorted by id)", p.Markets[0].Items[0])
+	}
+}
+
+func cannedMarkets(t *testing.T) []byte {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("testdata", "markets.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func TestParseReadsEveryMarketOfTheAccount(t *testing.T) {
+	a, err := Parse(cannedMarkets(t), "forever", "")
+
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if a.At != 1761148800 || len(a.Markets) != 2 {
+		t.Fatalf("Parse = %+v", a)
+	}
+	if a.Markets[0].Market != "forever-BETA-normal-alliance" || a.Markets[1].Market != market {
+		t.Errorf("markets %q, %q: want them sorted by key", a.Markets[0].Market, a.Markets[1].Market)
+	}
+	if a.Markets[0].Items[0].ID != 2589 || a.Markets[0].Items[1].ID != 14047 {
+		t.Errorf("alliance items = %+v (sorted by id)", a.Markets[0].Items)
+	}
+}
+
+func TestParseReadsAnAccountWithoutMarkets(t *testing.T) {
+	a, err := Parse([]byte(`{"v":1,"game":"forever","at":5,"markets":[]}`), "forever", "")
+	if err != nil || a.At != 5 || len(a.Markets) != 0 {
+		t.Fatalf("Parse = %+v, %v", a, err)
+	}
+}
+
+func accountWith(markets string) string {
+	return `{"v":1,"game":"forever","at":1761148800,"markets":[` + markets + `]}`
+}
+
+const goodItems = `[{"id":1,"value":1,"minBuyout":1,"players":1,"scannedAt":1}]`
+
+var malformedAccount = map[string]string{
+	"version 2":               strings.Replace(accountWith(""), `"v":1`, `"v":2`, 1),
+	"another game":            strings.Replace(accountWith(""), `"forever"`, `"retail"`, 1),
+	"no markets list":         `{"v":1,"game":"forever","at":1}`,
+	"one market's answer":     answerWith("v", `1`),
+	"a market without items":  accountWith(`{"market":"` + market + `"}`),
+	"a market without a key":  accountWith(`{"items":` + goodItems + `}`),
+	"a market key with quote": accountWith(`{"market":"a"]b","items":` + goodItems + `}`),
+	"a market named twice":    accountWith(`{"market":"` + market + `","items":` + goodItems + `},{"market":"` + market + `","items":[]}`),
+	"a float price":           accountWith(`{"market":"` + market + `","items":[{"id":1,"value":1.5,"minBuyout":1,"players":1,"scannedAt":1}]}`),
+	"a duplicated item":       accountWith(`{"market":"` + market + `","items":[` + goodItems[1:len(goodItems)-1] + `,` + goodItems[1:len(goodItems)-1] + `]}`),
+	"trailing data":           accountWith("") + `{}`,
+}
+
+func TestParseRefusesAMalformedAccountAnswer(t *testing.T) {
+	if _, err := Parse([]byte(accountWith(`{"market":"`+market+`","items":`+goodItems+`}`)), "forever", ""); err != nil {
+		t.Fatalf("the well-formed base answer must pass: %v", err)
+	}
+	for name, body := range malformedAccount {
+		if _, err := Parse([]byte(body), "forever", ""); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestOneMarketsAnswerRefusesTheAccountsShape(t *testing.T) {
+	if _, err := Parse(cannedMarkets(t), "forever", market); err == nil {
+		t.Fatal("an answer of several markets accepted for one market")
+	}
+}
+
+func TestLuaHoldsEveryMarketOfTheAccount(t *testing.T) {
+	a, err := Parse(cannedMarkets(t), "forever", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := Lua(a)
+	golden := filepath.Join("testdata", "markets.lua")
+	if *update {
+		if err := os.WriteFile(golden, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("Lua differs from testdata/markets.lua (go test -update rewrites it):\n%s", got)
+	}
+	if back, ok := readBack(got); !ok || !same(back, a) {
+		t.Fatalf("read back %+v, want %+v", back, a)
 	}
 }
 
@@ -130,21 +225,26 @@ func TestLuaIsTheContractTable(t *testing.T) {
 	}
 }
 
-// LuaJIT is not in the build container; the host runs testdata/check.lua on testdata/Data.lua, which
-// TestLuaIsTheContractTable keeps equal to the writer's output.
+// LuaJIT is not in the build container; the host runs testdata/check.lua on testdata/Data.lua and
+// testdata/check_markets.lua on testdata/markets.lua, which the golden tests keep equal to the
+// writer's output.
 func TestDataLoadsInLuaJIT(t *testing.T) {
 	luajit, err := exec.LookPath("luajit")
 	if err != nil {
-		t.Skip("no luajit here: run `luajit testdata/check.lua testdata/Data.lua` on the host")
+		t.Skip("no luajit here: run testdata/check*.lua with luajit on the host")
 	}
-	p, _ := Parse(canned(t), "forever", market)
-	path := filepath.Join(t.TempDir(), "Data.lua")
-	if err := os.WriteFile(path, Lua(p), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := exec.Command(luajit, filepath.Join("testdata", "check.lua"), path).CombinedOutput()
-	if err != nil || strings.TrimSpace(string(out)) != "ok" {
-		t.Fatalf("luajit: %v\n%s", err, out)
+	for check, a := range map[string]Answer{
+		"check.lua":         mustParse(t, canned(t)),
+		"check_markets.lua": mustParseAccount(t, cannedMarkets(t)),
+	} {
+		path := filepath.Join(t.TempDir(), "Data.lua")
+		if err := os.WriteFile(path, Lua(a), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command(luajit, filepath.Join("testdata", check), path).CombinedOutput()
+		if err != nil || strings.TrimSpace(string(out)) != "ok" {
+			t.Fatalf("luajit %s: %v\n%s", check, err, out)
+		}
 	}
 }
 
@@ -256,16 +356,127 @@ func TestRefreshFetchesOnceForSeveralForeverFlavours(t *testing.T) {
 	}
 }
 
-func TestRefreshWithoutAMarketOrAForeverFlavourFetchesNothing(t *testing.T) {
-	_, forever := tree(t, map[string]int{"_forever_": 16001})
+func TestRefreshWithoutAForeverFlavourFetchesNothing(t *testing.T) {
 	_, retail := tree(t, map[string]int{"_retail_": 120001})
 	f := &fetcher{body: canned(t)}
 
-	refresh(t, f, forever, "")
 	refresh(t, f, retail, market)
 
 	if len(f.asked) != 0 {
 		t.Errorf("asked %v", f.asked)
+	}
+}
+
+func TestRefreshWithoutAMarketWritesEveryMarketOfTheAccount(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	f := &fetcher{body: cannedMarkets(t)}
+
+	refresh(t, f, saves, "")
+
+	if strings.Join(f.asked, ",") != "forever " {
+		t.Fatalf("asked %q, want one fetch of the game without a market", f.asked)
+	}
+	data, err := os.ReadFile(filepath.Join(dataDir(install, "_forever_"), "Data.lua"))
+	if err != nil || !bytes.Equal(data, Lua(mustParseAccount(t, cannedMarkets(t)))) {
+		t.Fatalf("Data.lua = %q, %v", data, err)
+	}
+}
+
+func TestTheAccountsAnswerIsAskedForAgainUnderItsOneETag(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	f := &fetcher{body: cannedMarkets(t), etag: `"all-1"`}
+	_ = refresher(f, saves, "", state).Refresh(context.Background())
+	lua := filepath.Join(dataDir(install, "_forever_"), "Data.lua")
+	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(lua, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	err := refresher(f, saves, "", state).Refresh(context.Background())
+
+	if err != nil || strings.Join(f.sent, " ") != ` "all-1"` {
+		t.Fatalf("sent %q, err %v; want nothing, then the answer's ETag", f.sent, err)
+	}
+	if info, _ := os.Stat(lua); !info.ModTime().Equal(old) {
+		t.Errorf("Data.lua was written on a 304")
+	}
+}
+
+func TestOneMarketsETagIsNotSentForTheAccountsAnswerNorTheOtherWayRound(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	same := `"x"` // a server could tag both alike; what the file holds still differs
+	_ = refresher(&fetcher{body: cannedMarkets(t), etag: same}, saves, "", state).Refresh(context.Background())
+
+	one := &fetcher{body: canned(t), etag: same}
+	_ = refresher(one, saves, market, state).Refresh(context.Background())
+	all := &fetcher{body: cannedMarkets(t), etag: same}
+	_ = refresher(all, saves, "", state).Refresh(context.Background())
+
+	if one.sent[0] != "" || all.sent[0] != "" {
+		t.Errorf("sent %q for one market after the account's answer, %q for the account's after one market", one.sent[0], all.sent[0])
+	}
+}
+
+// account is an answer of the given markets, each of n items with the widest numbers.
+func account(markets []string, n int) []byte {
+	var b strings.Builder
+	b.WriteString(`{"v":1,"game":"forever","at":1761148800,"markets":[`)
+	for k, key := range markets {
+		if k > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"market":"` + key + `","items":[`)
+		for i := 1; i <= n; i++ {
+			if i > 1 {
+				b.WriteByte(',')
+			}
+			b.WriteString(`{"id":` + strconv.Itoa(i) + `,"value":9007199254740991,"minBuyout":9007199254740991,"players":9007199254740991,"scannedAt":9007199254740991}`)
+		}
+		b.WriteString(`]}`)
+	}
+	b.WriteString(`]}`)
+	return []byte(b.String())
+}
+
+func TestMarketsEachWithinBudgetButTogetherOverTheFileLimitAreRefused(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	keys := []string{"forever-EU-normal-horde", "forever-EU-normal-alliance", "forever-NA-normal-horde",
+		"forever-NA-normal-alliance", "forever-EU-hardcore-horde", "forever-NA-hardcore-horde"}
+	body := account(keys, 2000)
+	a := mustParseAccount(t, body)
+	if part := len(marketPart(a.Markets[0])); part > marketBudget || len(Lua(a)) <= maxDataBytes {
+		t.Fatalf("fixture: markets of %d bytes in a %d-byte file", part, len(Lua(a)))
+	}
+	var out bytes.Buffer
+	r := refresher(&fetcher{body: body, etag: `"e1"`}, saves, "", filepath.Join(t.TempDir(), "prices.json"))
+	r.Out = &out
+
+	err := r.Refresh(context.Background())
+
+	if err == nil || strings.Contains(out.String(), "warning") {
+		t.Fatalf("err = %v, out = %q; want a refusal and no market warned of", err, out.String())
+	}
+	if _, err := os.Stat(dataDir(install, "_forever_")); !os.IsNotExist(err) {
+		t.Errorf("a file over the limit was written: %v", err)
+	}
+}
+
+func TestAMarketOverItsBudgetAmongSeveralIsWarnedOfByName(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	var out bytes.Buffer
+	body := strings.Replace(string(account([]string{"forever-EU-normal-horde"}, 3000)), `"markets":[`,
+		`"markets":[{"market":"forever-EU-normal-alliance","items":[]},`, 1)
+	r := refresher(&fetcher{body: []byte(body)}, saves, "", filepath.Join(t.TempDir(), "prices.json"))
+	r.Out = &out
+
+	if err := r.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(out.String(), "warning: the prices for forever-EU-normal-horde") || strings.Contains(out.String(), "forever-EU-normal-alliance take") {
+		t.Errorf("out = %q, want the Horde market warned of, the Alliance one not", out.String())
 	}
 }
 
@@ -563,42 +774,48 @@ func unquote(q string) (string, bool) {
 }
 
 var (
-	luaHeader = regexp.MustCompile(`(?s)^-- [^\n]*\nGoldForever_Prices = \{\n  v = 1,\n  at = (\d+),\n  markets = \{\n    \[("(?:[^"\\]|\\.)*")\] = \{\n(.*)    \},\n  \},\n\}\n$`)
+	luaHeader = regexp.MustCompile(`(?s)^-- [^\n]*\nGoldForever_Prices = \{\n  v = 1,\n  at = (\d+),\n  markets = \{\n(.*)  \},\n\}\n$`)
+	luaMarket = regexp.MustCompile(`^    \[("(?:[^"\\]|\\.)*")\] = \{$`)
 	luaItem   = regexp.MustCompile(`^      \[(\d+)\] = \{ (\d+), (\d+), (\d+), (\d+) \},$`)
 )
 
 // readBack reads a Data.lua of the shape Lua writes back into Prices, or says it is not one.
-func readBack(lua []byte) (Prices, bool) {
+func readBack(lua []byte) (Answer, bool) {
 	m := luaHeader.FindSubmatch(lua)
 	if m == nil {
-		return Prices{}, false
+		return Answer{}, false
 	}
-	key, ok := unquote(string(m[2]))
-	if !ok {
-		return Prices{}, false
-	}
-	p := Prices{At: atoi(m[1]), Market: key}
-	for _, line := range strings.Split(strings.TrimSuffix(string(m[3]), "\n"), "\n") {
-		if line == "" {
+	a := Answer{At: atoi(m[1])}
+	for _, line := range strings.Split(strings.TrimSuffix(string(m[2]), "\n"), "\n") {
+		if line == "" || line == "    }," {
+			continue
+		}
+		if k := luaMarket.FindStringSubmatch(line); k != nil {
+			key, ok := unquote(k[1])
+			if !ok {
+				return Answer{}, false
+			}
+			a.Markets = append(a.Markets, Prices{Market: key})
 			continue
 		}
 		f := luaItem.FindStringSubmatch(line)
-		if f == nil {
-			return Prices{}, false
+		if f == nil || len(a.Markets) == 0 {
+			return Answer{}, false
 		}
+		p := &a.Markets[len(a.Markets)-1]
 		p.Items = append(p.Items, Item{atoi([]byte(f[1])), atoi([]byte(f[2])), atoi([]byte(f[3])), atoi([]byte(f[4])), atoi([]byte(f[5]))})
 	}
-	return p, true
+	return a, true
 }
 
 func atoi(b []byte) int64 { n, _ := strconv.ParseInt(string(b), 10, 64); return n }
 
-func same(a, b Prices) bool {
-	if a.At != b.At || a.Market != b.Market || len(a.Items) != len(b.Items) {
+func same(a, b Answer) bool {
+	if a.At != b.At || len(a.Markets) != len(b.Markets) {
 		return false
 	}
-	for i := range a.Items {
-		if a.Items[i] != b.Items[i] {
+	for i := range a.Markets {
+		if a.Markets[i].Market != b.Markets[i].Market || !slices.Equal(a.Markets[i].Items, b.Markets[i].Items) {
 			return false
 		}
 	}
@@ -684,7 +901,7 @@ func TestAMarketOverItsBudgetIsWrittenWithAWarning(t *testing.T) {
 	}{{2000, false}, {3000, true}} {
 		install, saves := tree(t, map[string]int{"_forever_": 16001})
 		body, lua := sized(t, c.items)
-		part := len(marketPart(mustParse(t, body)))
+		part := len(marketPart(mustParse(t, body).Markets[0]))
 		if (part > marketBudget) != c.warn || len(lua) > maxDataBytes {
 			t.Fatalf("fixture: %d items render a %d-byte market in %d bytes", c.items, part, len(lua))
 		}
@@ -705,11 +922,20 @@ func TestAMarketOverItsBudgetIsWrittenWithAWarning(t *testing.T) {
 	}
 }
 
-func mustParse(t *testing.T, body []byte) Prices {
+func mustParse(t *testing.T, body []byte) Answer {
 	t.Helper()
 	p, err := Parse(body, "forever", market)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func mustParseAccount(t *testing.T, body []byte) Answer {
+	t.Helper()
+	a, err := Parse(body, "forever", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
 }

@@ -10,16 +10,20 @@ import (
 	"strings"
 )
 
-// A market's prices are about 100 KB; far more than that is not an answer to trust.
+// A market's prices are about 100 KB and an answer holds at most 8; far more is not one to trust.
 const maxPricesBytes = 4 << 20
 
 // ErrNotModified means the market's prices are still those of the ETag sent: the file stays as it is.
 var ErrNotModified = errors.New("the prices have not changed")
 
-// Prices fetches one market's pooled prices as the server sent them, with their ETag; internal/prices
-// checks them. With the ETag of the prices already held, an unchanged market is ErrNotModified.
+// Prices fetches the pooled prices as the server sent them, with their ETag; internal/prices checks
+// them. Without a market the answer holds every market of the account's characters in game. With the
+// ETag of the prices already held, an unchanged answer is ErrNotModified.
 func (c *Client) Prices(ctx context.Context, game, market, etag string) ([]byte, string, error) {
-	query := url.Values{"game": {game}, "market": {market}}
+	query := url.Values{"game": {game}}
+	if market != "" {
+		query.Set("market", market)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		strings.TrimSuffix(c.BaseURL, "/")+"/api/v1/prices?"+query.Encode(), nil)
 	if err != nil {
