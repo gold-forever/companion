@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
@@ -20,14 +21,16 @@ type Fetcher interface {
 	Prices(ctx context.Context, game, market, etag string) ([]byte, string, error)
 }
 
-const game = "forever"
+// The games the server has prices for, as find.Game names them; each is asked for once per refresh.
+var games = []string{"forever", "retail"}
 
-// Refresher keeps the prices of the account's markets in every Forever flavour the saves are in.
+// Refresher keeps the prices of the account's markets in every Forever and retail flavour the saves
+// are in.
 type Refresher struct {
 	Fetcher Fetcher
 	Saves   func() []find.Save
-	Market  string // one market instead of the account's, to try a market out
-	State   string // the file holding what the game's Data.lua holds now, and its ETag
+	Market  string // one market instead of the account's in its game (forever-…, retail-…), to try it out
+	State   string // the file holding what each game's Data.lua holds now, and its ETag
 	Out     io.Writer
 }
 
@@ -75,19 +78,31 @@ func Trigger() (<-chan struct{}, func()) {
 	}
 }
 
-// Refresh fetches the game's answer once, asking only for a change when every flavour has the file it
+// Refresh asks once per game the saves are in and writes the answer into each of its flavours. A
+// failing game leaves the others written; the error is the failed fetches'.
+func (r *Refresher) Refresh(ctx context.Context) error {
+	byGame := flavoursByGame(r.Saves())
+	state := r.state()
+	var errs []error
+	for _, game := range games {
+		if len(byGame[game]) > 0 {
+			errs = append(errs, r.refreshGame(ctx, game, byGame[game], state))
+		}
+	}
+	if err := r.saveState(state); err != nil {
+		fmt.Fprintf(r.Out, "could not keep the prices' ETag: %v\n", err)
+	}
+	return errors.Join(errs...)
+}
+
+// refreshGame fetches game's answer once, asking only for a change when every flavour has the file it
 // last wrote, and writes it into each flavour. A 304, a failed fetch or an answer out of shape writes
 // nothing, so the last good files stay; the error is the fetch's.
-func (r *Refresher) Refresh(ctx context.Context) error {
-	flavours := foreverFlavours(r.Saves())
-	if len(flavours) == 0 {
-		return nil
+func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]int, state map[string]held) error {
+	ask, label := "", "the account's "+game+" markets"
+	if strings.HasPrefix(r.Market, game+"-") {
+		ask, label = r.Market, r.Market
 	}
-	ask, label := r.Market, r.Market
-	if ask == "" {
-		label = "the account's " + game + " markets"
-	}
-	state := r.state()
 	etag := ""
 	if h := state[game]; h.Ask == ask && allHaveData(flavours) {
 		etag = h.ETag
@@ -118,9 +133,6 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 			continue
 		}
 		fmt.Fprintf(r.Out, "prices for %s written into %s (%d markets, %d items)\n", label, dir, len(a.Markets), items(a))
-	}
-	if err := r.saveState(state); err != nil {
-		fmt.Fprintf(r.Out, "could not keep the prices' ETag: %v\n", err)
 	}
 	return nil
 }
@@ -178,16 +190,21 @@ func allHaveData(flavours map[string]int) bool {
 	return true
 }
 
-// foreverFlavours maps each Forever flavour folder to its interface number, read from its saves.
-func foreverFlavours(saves []find.Save) map[string]int {
-	out := map[string]int{}
+// flavoursByGame maps each game to its flavour folders and their interface numbers, read from the
+// saves.
+func flavoursByGame(saves []find.Save) map[string]map[string]int {
+	out := map[string]map[string]int{}
 	for _, s := range saves {
 		data, err := os.ReadFile(s.Path)
-		if err != nil || find.Game(data) != game {
+		if err != nil {
 			continue
 		}
+		game := find.Game(data)
+		if out[game] == nil {
+			out[game] = map[string]int{}
+		}
 		dir := filepath.Join(s.Install, s.Flavour)
-		out[dir] = max(out[dir], find.Interface(data))
+		out[game][dir] = max(out[game][dir], find.Interface(data))
 	}
 	return out
 }

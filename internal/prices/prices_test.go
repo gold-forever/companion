@@ -318,7 +318,7 @@ func dataDir(install, flavour string) string {
 }
 
 func TestRefreshWritesTheDataAddonIntoEachForeverFlavour(t *testing.T) {
-	install, saves := tree(t, map[string]int{"_forever_": 16001, "_retail_": 120001})
+	install, saves := tree(t, map[string]int{"_forever_": 16001, "_classic_": 11507})
 	f := &fetcher{body: canned(t)}
 
 	refresh(t, f, saves, market)
@@ -335,8 +335,8 @@ func TestRefreshWritesTheDataAddonIntoEachForeverFlavour(t *testing.T) {
 	if err != nil || !bytes.Equal(toc, TOC(16001)) {
 		t.Fatalf("toc = %q, %v", toc, err)
 	}
-	if _, err := os.Stat(dataDir(install, "_retail_")); !os.IsNotExist(err) {
-		t.Errorf("retail got a data folder: %v", err)
+	if _, err := os.Stat(dataDir(install, "_classic_")); !os.IsNotExist(err) {
+		t.Errorf("a game the server has no prices for got a data folder: %v", err)
 	}
 	assertOnly(t, dataDir(install, "_forever_"), "Data.lua", "GoldForever_Data.toc")
 }
@@ -356,11 +356,11 @@ func TestRefreshFetchesOnceForSeveralForeverFlavours(t *testing.T) {
 	}
 }
 
-func TestRefreshWithoutAForeverFlavourFetchesNothing(t *testing.T) {
-	_, retail := tree(t, map[string]int{"_retail_": 120001})
+func TestRefreshWithoutAForeverOrRetailFlavourFetchesNothing(t *testing.T) {
+	_, classic := tree(t, map[string]int{"_classic_era_": 11507})
 	f := &fetcher{body: canned(t)}
 
-	refresh(t, f, retail, market)
+	refresh(t, f, classic, market)
 
 	if len(f.asked) != 0 {
 		t.Errorf("asked %v", f.asked)
@@ -934,6 +934,94 @@ func mustParse(t *testing.T, body []byte) Answer {
 func mustParseAccount(t *testing.T, body []byte) Answer {
 	t.Helper()
 	a, err := Parse(body, "forever", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+// servers is the server answering each game with its own fetcher.
+type servers map[string]*fetcher
+
+func (g servers) Prices(ctx context.Context, game, market, etag string) ([]byte, string, error) {
+	return g[game].Prices(ctx, game, market, etag)
+}
+
+const retailAnswer = `{"v":1,"game":"retail","at":1761148800,"markets":[` +
+	`{"market":"retail-EU","items":[{"id":2589,"value":10,"minBuyout":9,"players":5,"scannedAt":1761140000}]},` +
+	`{"market":"retail-EU-Argentdawn","items":[{"id":2589,"value":12,"minBuyout":11,"players":2,"scannedAt":1761140000}]}]}`
+
+func TestRetailFlavoursGetTheAccountsRetailMarketsUnderTheirOwnInterface(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001, "_retail_": 110002, "_ptr_": 120001})
+	g := servers{"forever": {body: cannedMarkets(t)}, "retail": {body: []byte(retailAnswer)}}
+
+	refresh(t, g, saves, "")
+
+	if strings.Join(g["forever"].asked, ",") != "forever " || strings.Join(g["retail"].asked, ",") != "retail " {
+		t.Fatalf("asked %q and %q, want one fetch per game without a market", g["forever"].asked, g["retail"].asked)
+	}
+	want := Lua(mustParseGame(t, []byte(retailAnswer), "retail"))
+	for flavour, iface := range map[string]int{"_retail_": 110002, "_ptr_": 120001} {
+		data, err := os.ReadFile(filepath.Join(dataDir(install, flavour), "Data.lua"))
+		if err != nil || !bytes.Equal(data, want) {
+			t.Errorf("%s Data.lua = %q, %v", flavour, data, err)
+		}
+		toc, _ := os.ReadFile(filepath.Join(dataDir(install, flavour), "GoldForever_Data.toc"))
+		if !bytes.Equal(toc, TOC(iface)) {
+			t.Errorf("%s TOC = %q, want interface %d", flavour, toc, iface)
+		}
+	}
+	forever, _ := os.ReadFile(filepath.Join(dataDir(install, "_forever_"), "Data.lua"))
+	if !bytes.Equal(forever, Lua(mustParseAccount(t, cannedMarkets(t)))) {
+		t.Errorf("the Forever flavour holds %q", forever)
+	}
+}
+
+func TestEachGameKeepsItsOwnETag(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001, "_retail_": 110002})
+	state := filepath.Join(t.TempDir(), "prices.json")
+	g := servers{"forever": {body: cannedMarkets(t), etag: `"f1"`}, "retail": {body: []byte(retailAnswer), etag: `"r1"`}}
+	_ = refresher(g, saves, "", state).Refresh(context.Background())
+
+	_ = refresher(g, saves, "", state).Refresh(context.Background())
+
+	if g["forever"].sent[1] != `"f1"` || g["retail"].sent[1] != `"r1"` {
+		t.Errorf("sent %q and %q, want each game's own ETag", g["forever"].sent, g["retail"].sent)
+	}
+}
+
+func TestOneMarketToTryOutIsAskedForInItsOwnGameOnly(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001, "_retail_": 110002})
+	g := servers{"forever": {body: canned(t)}, "retail": {body: []byte(retailAnswer)}}
+
+	refresh(t, g, saves, market)
+
+	if strings.Join(g["forever"].asked, ",") != "forever "+market || strings.Join(g["retail"].asked, ",") != "retail " {
+		t.Fatalf("asked %q and %q, want the market in Forever and the account's markets in retail", g["forever"].asked, g["retail"].asked)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir(install, "_retail_"), "Data.lua")); err != nil {
+		t.Errorf("retail not written: %v", err)
+	}
+}
+
+func TestAFailingGameLeavesTheOtherWrittenAndIsReported(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001, "_retail_": 110002})
+	g := servers{"forever": {err: &api.RateLimitedError{RetryAfter: time.Minute}}, "retail": {body: []byte(retailAnswer)}}
+
+	err := refresher(g, saves, "", filepath.Join(t.TempDir(), "prices.json")).Refresh(context.Background())
+
+	var limited *api.RateLimitedError
+	if !errors.As(err, &limited) {
+		t.Errorf("err = %v, want Forever's rate limit for Run to wait out", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir(install, "_retail_"), "Data.lua")); err != nil {
+		t.Errorf("retail not written: %v", err)
+	}
+}
+
+func mustParseGame(t *testing.T, body []byte, game string) Answer {
+	t.Helper()
+	a, err := Parse(body, game, "")
 	if err != nil {
 		t.Fatal(err)
 	}

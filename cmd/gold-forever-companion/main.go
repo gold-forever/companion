@@ -98,7 +98,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 func watchAndUpload(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gold-forever-companion run", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	market := flags.String("market", "", "one Forever market whose prices to write into the game, instead of the account's markets (default: the settings' market)")
+	market := flags.String("market", "", "one market (forever-… or retail-…) whose prices to write into its game, instead of the account's markets there (default: the settings' market)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}

@@ -118,8 +118,9 @@ how the app gets one.
 
 ## Prices into the game
 
-When a Forever save is found: at start, every hour, and right after one of its own uploads answers
-`imported`, one request for the markets of your account's characters:
+At start, every hour, and right after one of its own uploads answers `imported`, one request per
+game a save was found for (Forever, interface 16000–16999: `game=forever`; retail, interface 110000
+and up: `game=retail`) for the markets of your account's characters in that game:
 
 ```http
 GET /api/v1/prices?game=forever
@@ -127,11 +128,12 @@ Authorization: Bearer gf_...
 If-None-Match: "<the ETag of the prices in the game>"
 ```
 
-A market in the settings (`"market"`) or `run --market` asks for that one market instead
-(`&market=forever-EU-normal-horde`), to try a market out.
+A market in the settings (`"market"`) or `run --market` asks for that one market instead in the game
+its key starts with (`&market=forever-EU-normal-horde`), to try a market out.
 
-`If-None-Match` is sent only when every Forever flavour already has the `Data.lua` of that same
+`If-None-Match` is sent only when every flavour of the game already has the `Data.lua` of that same
 request; what was written and its one ETag are kept per game in `prices.json` in the app's data folder.
+A failing game leaves the other's prices written.
 
 - 200 `{"v":1,"game":"forever","at":<epoch s>,"markets":[{"market":"forever-EU-normal-horde","items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":<epoch s>}, …]}, …]}`
   (for one market: `{"v":1,"game":"forever","market":"…","at":…,"items":[…]}`): prices in integer
@@ -145,7 +147,7 @@ request; what was written and its one ETag are kept per game in `prices.json` in
 - 5xx or no answer writes nothing and is tried again after 1, 2, 4 … up to 30 minutes, as uploads
   are; 429 after `Retry-After`.
 
-The app then writes `Interface/AddOns/GoldForever_Data/` in each Forever flavour folder: a TOC with
+The app then writes `Interface/AddOns/GoldForever_Data/` in each flavour folder of the game: a TOC with
 the interface number its save names, and `Data.lua`, one table of integers under quoted market keys,
 each through a temporary file renamed into place. The server never sends Lua, so a compromised server
 could send wrong prices but could never run code in your game.
