@@ -116,13 +116,23 @@ how the app gets one.
      given once. The app saves it in its settings file (readable only by you) and never prints it.
    - A 5xx answer or no answer is waited out until the code expires.
 
-## Planned: prices into the game
+## Prices into the game
+
+Once at start, for the market in the settings (`"market"`) or `run --market`, when a Forever save is
+found:
 
 ```http
 GET /api/v1/prices?game=forever&market=forever-EU-normal-horde
 Authorization: Bearer gf_...
 ```
 
-The prices arrive as JSON: item ids and copper values. The app checks every number and writes
-`Interface/AddOns/GoldForever_Data/Data.lua` itself. The server never sends Lua, so a compromised
-server could send wrong prices but could never run code in your game.
+- 200 `{"v":1,"game":"forever","market":"…","at":<epoch s>,"items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":<epoch s>}, …]}`:
+  prices in integer copper. The app checks every field (version 1, the game and market it asked for,
+  plain integers, ids above 0, nothing negative or past 2^53, a market key of letters, digits, `-`
+  and `_`); any fault refuses the whole answer and the last good file stays.
+- 401, 403, 404 and 400 write nothing.
+
+The app then writes `Interface/AddOns/GoldForever_Data/` in each Forever flavour folder: a TOC with
+the interface number its save names, and `Data.lua`, one table of integers and one quoted market key,
+each through a temporary file renamed into place. The server never sends Lua, so a compromised server
+could send wrong prices but could never run code in your game.

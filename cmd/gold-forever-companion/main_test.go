@@ -241,3 +241,55 @@ func TestLinkThatIsDeniedSaysSoAndFails(t *testing.T) {
 		t.Errorf("code = %d, stderr = %q", code, errs.String())
 	}
 }
+
+func TestRunWritesTheMarketsPricesIntoTheForeverFlavourAtStart(t *testing.T) {
+	for _, viaFlag := range []bool{true, false} {
+		home := isolatedHome(t)
+		wow := filepath.Join(home, "World of Warcraft")
+		dir := filepath.Join(wow, "_forever_", "WTF", "Account", "A", "SavedVariables")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		save := "GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, "GoldForever.lua"), []byte(save), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		const market = "forever-BETA-normal-horde"
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/prices" && r.URL.Query().Get("market") == market {
+				_, _ = io.WriteString(w, `{"v":1,"game":"forever","market":"`+market+`","at":5,"items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":4}]}`)
+				return
+			}
+			_, _ = io.Copy(io.Discard, r.Body)
+			_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+		}))
+		cfgPath, _ := config.Path()
+		cfg := config.Config{Token: "gf_t", URL: srv.URL, Folders: []string{wow}}
+		args := []string{"run", "--market", market}
+		if !viaFlag {
+			cfg.Market, args = market, []string{"run"}
+		}
+		if err := config.Save(cfgPath, cfg); err != nil {
+			t.Fatal(err)
+		}
+		data := filepath.Join(wow, "_forever_", "Interface", "AddOns", "GoldForever_Data", "Data.lua")
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		go func() {
+			for ctx.Err() == nil {
+				if _, err := os.Stat(data); err == nil {
+					cancel()
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}()
+
+		code := run(ctx, args, os.Getenv, io.Discard, io.Discard)
+		cancel()
+		srv.Close()
+
+		lua, err := os.ReadFile(data)
+		if code != 0 || err != nil || !strings.Contains(string(lua), "[2589] = { 1234, 1100, 1, 4 },") {
+			t.Fatalf("flag %v: code = %d, Data.lua = %q, %v", viaFlag, code, lua, err)
+		}
+	}
+}
