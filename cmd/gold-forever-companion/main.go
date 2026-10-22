@@ -22,6 +22,7 @@ import (
 	"github.com/gold-forever/companion/internal/core"
 	"github.com/gold-forever/companion/internal/find"
 	"github.com/gold-forever/companion/internal/link"
+	"github.com/gold-forever/companion/internal/prices"
 	"github.com/gold-forever/companion/internal/sendlog"
 	"github.com/gold-forever/companion/internal/watch"
 )
@@ -97,6 +98,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 func watchAndUpload(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gold-forever-companion run", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	market := flags.String("market", "", "the Forever market whose prices to write into the game (default: the settings' market)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -127,6 +129,9 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: keepLogFor}
 	_ = log.Prune(time.Now())
 	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)
+	if *market == "" {
+		*market = cfg.Market
+	}
 	c := &core.Core{
 		Uploader: client(url, token),
 		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: keepCopies, Now: time.Now},
@@ -143,6 +148,7 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	for _, s := range saves {
 		fmt.Fprintln(stdout, "watching", s.Label())
 	}
+	prices.Refresh(ctx, client(url, token), saves, *market, stdout)
 	if err := c.Run(ctx, pollEvery); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

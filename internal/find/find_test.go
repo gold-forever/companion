@@ -141,3 +141,12 @@ func TestAtReadsTheSaveFromItsPath(t *testing.T) {
 		t.Fatalf("Label = %q", got.Label())
 	}
 }
+
+func TestInterfaceReadsTheClientsInterfaceNumber(t *testing.T) {
+	if got := Interface([]byte("GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n")); got != 16001 {
+		t.Errorf("Interface = %d, want 16001", got)
+	}
+	if got := Interface([]byte(`GoldForeverDB = {}`)); got != 0 {
+		t.Errorf("a save without an interface reads as 0, got %d", got)
+	}
+}

@@ -24,6 +24,7 @@ import (
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/prices"
 	"github.com/gold-forever/companion/internal/sendlog"
 	release "github.com/gold-forever/companion/internal/version"
 	"github.com/gold-forever/companion/internal/watch"
@@ -387,8 +388,10 @@ func (c *companion) loop(ctx context.Context) {
 				case <-run.Done():
 				}
 			}()
+			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
+			prices.Refresh(run, client, c.saves(), c.settings().Market, c.status)
 			loop := &core.Core{
-				Uploader: &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos},
+				Uploader: client,
 				Backups:  c.backups, Log: c.log, Watcher: watch.New(pollEvery),
 				Saves: c.saves, IsOff: c.isOff, Out: c.status,
 			}
