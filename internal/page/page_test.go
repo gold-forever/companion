@@ -181,6 +181,17 @@ func TestThePageItselfIsServed(t *testing.T) {
 	}
 }
 
+// The site's own sharing line (frontend/src/app/sharing.ts), word for word, where the player links.
+const sharingLine = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
+	"never your name. Your characters, gold and ledger stay private."
+
+func TestThePageSaysWhatEveryUploadShares(t *testing.T) {
+	rec := serve(&fakeApp{}, "GET", "/", "", nil)
+	if !strings.Contains(rec.Body.String(), sharingLine) {
+		t.Errorf("the page lacks the sharing line: %.2000s", rec.Body.String())
+	}
+}
+
 func TestLinkingByCodeStartsInTheApp(t *testing.T) {
 	app := &fakeApp{}
 	if rec := serve(app, "POST", "/api/link/device", "{}", nil); rec.Code != http.StatusOK {
