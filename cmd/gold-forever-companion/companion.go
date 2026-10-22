@@ -49,6 +49,7 @@ type companion struct {
 	log        *sendlog.Log
 	quit       func()
 	status     *lastLine
+	prices     *prices.Report // how each price fetch and write went, kept across the loop's restarts
 	// linker links by code: it shows the code, waits for the approval and saves the token with save.
 	linker func(ctx context.Context, show func(api.DeviceCode), save func(token string) error) error
 	// openURL opens a page in the player's browser.
@@ -83,6 +84,7 @@ func newCompanion(o companionOptions) *companion {
 		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: keepCopies, Now: time.Now},
 		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: keepLogFor},
 		status:  &lastLine{},
+		prices:  &prices.Report{Now: time.Now},
 		cfg:     cfg,
 		changed: make(chan struct{}),
 		games:   map[string]gameSeen{},
@@ -157,6 +159,9 @@ func (c *companion) State() page.State {
 	for _, save := range c.saves() {
 		s.Saves = append(s.Saves, page.Save{Path: save.Path, Label: save.Label(), Game: c.gameOf(save.Path), On: !cfg.IsOff(save.Path)})
 	}
+	for _, f := range c.prices.Files(c.saves()) {
+		s.Prices = append(s.Prices, priceFile(f))
+	}
 	c.mu.Lock()
 	s.Notice = c.notice
 	if c.linking != nil {
@@ -165,6 +170,29 @@ func (c *companion) State() page.State {
 	}
 	c.mu.Unlock()
 	return s
+}
+
+// priceFile is a flavour's price file as the page shows it, its folder named as saves are.
+func priceFile(f prices.File) page.PriceFile {
+	p := page.PriceFile{
+		Flavour: filepath.Base(filepath.Dir(f.Flavour)) + " › " + filepath.Base(f.Flavour),
+		Game:    f.Game, Items: f.Items, Size: f.Size, Outcome: f.Outcome, Error: f.Error,
+	}
+	for _, m := range f.Markets {
+		p.Markets = append(p.Markets, page.PriceMarket{Market: m.Key, Items: m.Items})
+	}
+	if !f.Fetched.IsZero() {
+		p.Fetched = &f.Fetched
+	}
+	return p
+}
+
+// refresher keeps the account's prices in the game, fetched with f.
+func (c *companion) refresher(f prices.Fetcher) *prices.Refresher {
+	return &prices.Refresher{
+		Fetcher: f, Saves: c.saves, Market: c.settings().Market,
+		State: filepath.Join(c.dataDir, pricesState), Out: c.status, Report: c.prices,
+	}
 }
 
 // installed says, one line each, what installing the companion put on this computer.
@@ -390,11 +418,7 @@ func (c *companion) loop(ctx context.Context) {
 			}()
 			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
 			imported, announce := prices.Trigger()
-			refresher := &prices.Refresher{
-				Fetcher: client, Saves: c.saves, Market: c.settings().Market,
-				State: filepath.Join(c.dataDir, pricesState), Out: c.status,
-			}
-			go refresher.Run(run, refreshPricesEvery, time.After, imported)
+			go c.refresher(client).Run(run, refreshPricesEvery, time.After, imported)
 			loop := &core.Core{
 				Uploader: client,
 				Backups:  c.backups, Log: c.log, Watcher: watch.New(pollEvery),

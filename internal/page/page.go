@@ -26,17 +26,36 @@ var static embed.FS
 
 // State is everything the page shows.
 type State struct {
-	Version   string   `json:"version"`
-	Site      string   `json:"site"`
-	Linked    bool     `json:"linked"`
-	Status    string   `json:"status"`
-	FirstRun  bool     `json:"firstRun"`
-	Installed []string `json:"installed"` // what installing did, one line each, for the first-run panel
-	Autostart bool     `json:"autostart"`
-	Saves     []Save   `json:"saves"`
-	Folders   []string `json:"folders"`
-	Notice    *Notice  `json:"notice,omitempty"`
-	Linking   *Linking `json:"linking,omitempty"`
+	Version   string      `json:"version"`
+	Site      string      `json:"site"`
+	Linked    bool        `json:"linked"`
+	Status    string      `json:"status"`
+	FirstRun  bool        `json:"firstRun"`
+	Installed []string    `json:"installed"` // what installing did, one line each, for the first-run panel
+	Autostart bool        `json:"autostart"`
+	Saves     []Save      `json:"saves"`
+	Folders   []string    `json:"folders"`
+	Notice    *Notice     `json:"notice,omitempty"`
+	Linking   *Linking    `json:"linking,omitempty"`
+	Prices    []PriceFile `json:"prices"`
+}
+
+// PriceFile is one flavour's GoldForever_Data/Data.lua and how the latest fetch of its game went.
+type PriceFile struct {
+	Flavour string        `json:"flavour"`
+	Game    string        `json:"game"`
+	Markets []PriceMarket `json:"markets,omitempty"`
+	Items   int           `json:"items"`
+	Size    int64         `json:"size"`              // bytes; 0 when there is no file
+	Fetched *time.Time    `json:"fetched,omitempty"` // none before the first fetch
+	Outcome string        `json:"outcome,omitempty"` // ok, not modified, or error
+	Error   string        `json:"error,omitempty"`
+}
+
+// PriceMarket is one market in a price file and its item count.
+type PriceMarket struct {
+	Market string `json:"market"`
+	Items  int    `json:"items"`
 }
 
 // Linking is a link by code in progress or just ended: waiting (the player approves UserCode at URL),

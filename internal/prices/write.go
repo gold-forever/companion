@@ -32,6 +32,7 @@ type Refresher struct {
 	Market  string // one market instead of the account's in its game (forever-…, retail-…), to try it out
 	State   string // the file holding what each game's Data.lua holds now, and its ETag
 	Out     io.Writer
+	Report  *Report // how each fetch and write went, for the page; may be nil
 }
 
 // held is what a game's Data.lua files hold: the answer asked for (a market, or "" for the account's
@@ -109,25 +110,32 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 	}
 	body, etag, err := r.Fetcher.Prices(ctx, game, ask, etag)
 	if errors.Is(err, api.ErrNotModified) {
+		r.Report.fetched(game, OutcomeNotModified, nil)
 		return nil
 	}
 	if err != nil {
 		fmt.Fprintf(r.Out, "prices for %s not fetched: %v\n", label, err)
+		r.Report.fetched(game, OutcomeError, err)
 		return err
 	}
 	a, err := Parse(body, game, ask)
 	if err != nil {
 		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
+		r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
 		return nil
 	}
 	lua, err := r.render(a)
 	if err != nil {
 		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
+		r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
 		return err
 	}
+	r.Report.fetched(game, OutcomeOK, nil)
 	state[game] = held{Ask: ask, ETag: etag}
 	for dir, iface := range flavours {
-		if err := Write(dir, iface, lua); err != nil {
+		err := Write(dir, iface, lua)
+		r.Report.wrote(dir, err)
+		if err != nil {
 			fmt.Fprintf(r.Out, "prices not written into %s: %v\n", dir, err)
 			delete(state, game) // a flavour without this answer must be fetched in full next time
 			continue
