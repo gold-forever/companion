@@ -47,6 +47,10 @@ type Answer struct {
 	Reason   string `json:"reason"`
 }
 
+// StatusImported is an upload's status when the server took new data from it; "already imported" is
+// one it had.
+const StatusImported = "imported"
+
 // ErrUnauthorized means the token is wrong or revoked: uploads stop until the player links again.
 var ErrUnauthorized = errors.New("the server does not accept this token")
 
@@ -79,6 +83,19 @@ type unavailableError struct{ cause error }
 
 func (e *unavailableError) Error() string { return "server unavailable: " + e.cause.Error() }
 func (e *unavailableError) Unwrap() error { return e.cause }
+
+const (
+	firstWait = time.Minute
+	longWait  = 30 * time.Minute
+)
+
+// NextWait doubles the wait after a failed try that is Retryable, from one minute up to thirty.
+func NextWait(wait time.Duration) time.Duration {
+	if wait == 0 {
+		return firstWait
+	}
+	return min(2*wait, longWait)
+}
 
 // Retryable says whether the same upload may succeed later without anything changing on this side.
 func Retryable(err error) bool {

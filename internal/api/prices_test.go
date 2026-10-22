@@ -8,12 +8,15 @@ import (
 )
 
 func TestPricesAsksForOneMarketWithTheToken(t *testing.T) {
-	c, seen, _ := server(t, http.StatusOK, `{"v":1}`, nil)
+	c, seen, _ := server(t, http.StatusOK, `{"v":1}`, map[string]string{"ETag": `"m-7"`})
 
-	body, err := c.Prices(context.Background(), "forever", "forever-BETA-normal-horde")
+	body, etag, err := c.Prices(context.Background(), "forever", "forever-BETA-normal-horde", "")
 
-	if err != nil || string(body) != `{"v":1}` {
-		t.Fatalf("Prices = %q, %v", body, err)
+	if err != nil || string(body) != `{"v":1}` || etag != `"m-7"` {
+		t.Fatalf("Prices = %q, %q, %v", body, etag, err)
+	}
+	if _, sent := seen.Header["If-None-Match"]; sent {
+		t.Errorf("If-None-Match sent without an ETag: %q", seen.Header.Get("If-None-Match"))
 	}
 	got := map[string]string{
 		"method":        seen.Method,
@@ -38,7 +41,7 @@ func TestPricesAsksForOneMarketWithTheToken(t *testing.T) {
 
 func TestPricesWithoutAValidTokenIsUnauthorized(t *testing.T) {
 	c, _, _ := server(t, http.StatusUnauthorized, `{"reason":"unknown token"}`, nil)
-	if _, err := c.Prices(context.Background(), "forever", "m"); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err := c.Prices(context.Background(), "forever", "m", ""); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -46,7 +49,7 @@ func TestPricesWithoutAValidTokenIsUnauthorized(t *testing.T) {
 func TestPricesForAnUnknownMarketIsRefused(t *testing.T) {
 	c, _, _ := server(t, http.StatusNotFound, `{"reason":"unknown market"}`, nil)
 	var refused *RefusedError
-	if _, err := c.Prices(context.Background(), "forever", "m"); !errors.As(err, &refused) || refused.Status != 404 {
+	if _, _, err := c.Prices(context.Background(), "forever", "m", ""); !errors.As(err, &refused) || refused.Status != 404 {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -54,7 +57,40 @@ func TestPricesForAnUnknownMarketIsRefused(t *testing.T) {
 func TestPricesRefusesAnAnswerOverTheLimit(t *testing.T) {
 	big := make([]byte, maxPricesBytes+1)
 	c, _, _ := server(t, http.StatusOK, string(big), nil)
-	if _, err := c.Prices(context.Background(), "forever", "m"); err == nil {
+	if _, _, err := c.Prices(context.Background(), "forever", "m", ""); err == nil {
 		t.Fatal("an answer over the limit is not a price list")
+	}
+}
+
+func TestPricesAsksOnlyForAChangeSinceTheETagItHolds(t *testing.T) {
+	c, seen, _ := server(t, http.StatusNotModified, "", nil)
+
+	body, etag, err := c.Prices(context.Background(), "forever", "m", `"m-7"`)
+
+	if !errors.Is(err, ErrNotModified) || body != nil || etag != `"m-7"` {
+		t.Fatalf("Prices = %q, %q, %v; want ErrNotModified and the ETag kept", body, etag, err)
+	}
+	if got := seen.Header.Get("If-None-Match"); got != `"m-7"` {
+		t.Errorf("If-None-Match = %q", got)
+	}
+}
+
+func TestPricesFailingOnTheServerIsWorthTryingAgain(t *testing.T) {
+	c, _, _ := server(t, http.StatusInternalServerError, "", nil)
+	if _, _, err := c.Prices(context.Background(), "forever", "m", `"m-7"`); !Retryable(err) {
+		t.Fatalf("err = %v, want retryable", err)
+	}
+}
+
+func TestPricesWithoutAMarketAsksForTheAccountsMarketsOfTheGame(t *testing.T) {
+	c, seen, _ := server(t, http.StatusOK, `{"v":1}`, map[string]string{"ETag": `"all-3"`})
+
+	_, etag, err := c.Prices(context.Background(), "forever", "", "")
+
+	if err != nil || etag != `"all-3"` {
+		t.Fatalf("Prices = %q, %v", etag, err)
+	}
+	if q := seen.URL.Query(); q.Get("game") != "forever" || q.Has("market") {
+		t.Errorf("query = %q, want game=forever and no market", seen.URL.RawQuery)
 	}
 }

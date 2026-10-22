@@ -118,21 +118,36 @@ how the app gets one.
 
 ## Prices into the game
 
-Once at start, for the market in the settings (`"market"`) or `run --market`, when a Forever save is
-found:
+At start, every hour, and right after one of its own uploads answers `imported`, one request per
+game a save was found for (Forever, interface 16000–16999: `game=forever`; retail, interface 110000
+and up: `game=retail`) for the markets of your account's characters in that game:
 
 ```http
-GET /api/v1/prices?game=forever&market=forever-EU-normal-horde
+GET /api/v1/prices?game=forever
 Authorization: Bearer gf_...
+If-None-Match: "<the ETag of the prices in the game>"
 ```
 
-- 200 `{"v":1,"game":"forever","market":"…","at":<epoch s>,"items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":<epoch s>}, …]}`:
-  prices in integer copper. The app checks every field (version 1, the game and market it asked for,
-  plain integers, ids above 0, nothing negative or past 2^53, a market key of letters, digits, `-`
-  and `_`); any fault refuses the whole answer and the last good file stays.
-- 401, 403, 404 and 400 write nothing.
+A market in the settings (`"market"`) or `run --market` asks for that one market instead in the game
+its key starts with (`&market=forever-EU-normal-horde`), to try a market out.
 
-The app then writes `Interface/AddOns/GoldForever_Data/` in each Forever flavour folder: a TOC with
-the interface number its save names, and `Data.lua`, one table of integers and one quoted market key,
+`If-None-Match` is sent only when every flavour of the game already has the `Data.lua` of that same
+request; what was written and its one ETag are kept per game in `prices.json` in the app's data folder.
+A failing game leaves the other's prices written.
+
+- 200 `{"v":1,"game":"forever","at":<epoch s>,"markets":[{"market":"forever-EU-normal-horde","items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":<epoch s>}, …]}, …]}`
+  (for one market: `{"v":1,"game":"forever","market":"…","at":…,"items":[…]}`): prices in integer
+  copper. The app checks every field (version 1, the game and market it asked for, plain integers,
+  ids above 0, nothing negative or past 2^53, market keys of letters, digits, `-` and `_`, none twice);
+  any fault refuses the whole answer and the last good file stays. No markets writes an empty table.
+- An answer over 4 MB, or one whose `Data.lua` would be over 1 MB, is refused and the last good
+  file stays; a market taking over 200 KB of it is written with a warning.
+- 304, no body: the prices are unchanged; nothing is written.
+- 401, 403, 404 and 400 write nothing; the next try is in an hour.
+- 5xx or no answer writes nothing and is tried again after 1, 2, 4 … up to 30 minutes, as uploads
+  are; 429 after `Retry-After`.
+
+The app then writes `Interface/AddOns/GoldForever_Data/` in each flavour folder of the game: a TOC with
+the interface number its save names, and `Data.lua`, one table of integers under quoted market keys,
 each through a temporary file renamed into place. The server never sends Lua, so a compromised server
 could send wrong prices but could never run code in your game.

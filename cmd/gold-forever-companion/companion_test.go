@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +13,9 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/install"
+	"github.com/gold-forever/companion/internal/page"
 )
 
 const validToken = "gf_0123456789abcdefghijABCDEFGHIJklmnopqrstuvw"
@@ -261,5 +266,59 @@ func TestASecondLinkWhileOneWaitsStartsNone(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if starts != 1 {
 		t.Errorf("a second press started %d links in all, want 1", starts)
+	}
+}
+
+// pricesServer answers the account's markets for every game with body.
+type pricesServer struct{ body string }
+
+func (p pricesServer) Prices(context.Context, string, string, string) ([]byte, string, error) {
+	return []byte(p.body), `"e1"`, nil
+}
+
+func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
+	c, save := fixture(t)
+	if got := c.State().Prices; len(got) != 1 || got[0].Fetched != nil || got[0].Outcome != "" || got[0].Size != 0 {
+		t.Fatalf("before a fetch: %+v", got)
+	}
+	r := c.refresher(pricesServer{`{"v":1,"game":"forever","at":5,"markets":[{"market":"forever-EU-normal-horde","items":[` +
+		`{"id":1,"value":1,"minBuyout":1,"players":1,"scannedAt":1},{"id":2,"value":1,"minBuyout":1,"players":1,"scannedAt":1}]}]}`})
+
+	if err := r.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	got := c.State().Prices
+	flavour := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(save)))))
+	lua, _ := os.ReadFile(filepath.Join(flavour, "Interface", "AddOns", "GoldForever_Data", "Data.lua"))
+	if len(got) != 1 || got[0].Flavour != "World of Warcraft › _forever_" || got[0].Game != "forever" || got[0].Items != 2 ||
+		len(got[0].Markets) != 1 || got[0].Markets[0] != (page.PriceMarket{Market: "forever-EU-normal-horde", Items: 2}) ||
+		got[0].Size != int64(len(lua)) || got[0].Fetched == nil || got[0].Outcome != "ok" {
+		t.Fatalf("after a fetch: %+v", got)
+	}
+}
+
+func TestTheUploadLoopEndsOnlyOnceItsPriceLoopHasEnded(t *testing.T) {
+	c, _ := fixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/prices" {
+			cancel()
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	defer srv.Close()
+	if err := c.update(func(cfg *config.Config) error { cfg.Token, cfg.URL = validToken, srv.URL; return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	c.loop(ctx)
+
+	if left := stillRunning(); left != "" {
+		t.Fatalf("the loop returned with its price loop still running:\n%s", left)
 	}
 }

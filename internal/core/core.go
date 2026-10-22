@@ -19,11 +19,6 @@ import (
 	"github.com/gold-forever/companion/internal/watch"
 )
 
-const (
-	firstWait = time.Minute
-	longWait  = 30 * time.Minute
-)
-
 // Uploader sends one save; api.Client is the real one.
 type Uploader interface {
 	Upload(ctx context.Context, save []byte) (api.Answer, error)
@@ -39,6 +34,7 @@ type Core struct {
 	Saves    func() []find.Save
 	IsOff    func(path string) bool
 	Out      io.Writer // one line per thing that happened, for the player
+	Imported func()    // called when the server imported an upload, so prices may have changed; may be nil
 
 	waitUntil time.Time
 	wait      time.Duration
@@ -97,6 +93,9 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 	case err == nil:
 		c.wait = 0
 		c.done(now, p, label, data, answer.Status)
+		if answer.Status == api.StatusImported && c.Imported != nil {
+			c.Imported()
+		}
 	case errors.Is(err, api.ErrUnauthorized):
 		c.say(now, "the server no longer accepts this token: link the companion again")
 		return true, err
@@ -108,7 +107,7 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 		c.say(now, "the server asked to wait %s", limited.RetryAfter)
 		return true, nil
 	case api.Retryable(err):
-		c.wait = nextBackoff(c.wait)
+		c.wait = api.NextWait(c.wait)
 		c.waitUntil = now.Add(c.wait)
 		c.say(now, "%v; trying again in %s", err, c.wait)
 		return true, nil
@@ -132,14 +131,6 @@ func (c *Core) done(now time.Time, p backup.Copy, label string, data []byte, ans
 		c.say(now, "could not write the log: %v", err)
 	}
 	c.say(now, "sent %s: %s", label, answer)
-}
-
-// nextBackoff doubles the wait after a failed try, from one minute up to thirty.
-func nextBackoff(wait time.Duration) time.Duration {
-	if wait == 0 {
-		return firstWait
-	}
-	return min(2*wait, longWait)
 }
 
 func (c *Core) say(now time.Time, format string, args ...any) {

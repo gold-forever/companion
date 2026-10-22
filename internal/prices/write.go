@@ -2,72 +2,236 @@ package prices
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/find"
 )
 
-// Fetcher gets one market's answer from the server; api.Client is the real one.
+// Fetcher gets the server's answer for game (one market's, or the account's when market is empty) and
+// its ETag, or api.ErrNotModified when etag is still current; api.Client is the real one.
 type Fetcher interface {
-	Prices(ctx context.Context, game, market string) ([]byte, error)
+	Prices(ctx context.Context, game, market, etag string) ([]byte, string, error)
 }
 
-const game = "forever"
+// The games the server has prices for, as find.Game names them; each is asked for once per refresh.
+var games = []string{"forever", "retail"}
 
-// Refresh fetches market once and writes it into every Forever flavour the saves are in. A failed
-// fetch or an answer out of shape writes nothing, so the last good files stay.
-func Refresh(ctx context.Context, f Fetcher, saves []find.Save, market string, out io.Writer) {
-	flavours := foreverFlavours(saves)
-	if market == "" || len(flavours) == 0 {
-		return
+// Refresher keeps the prices of the account's markets in every Forever and retail flavour the saves
+// are in.
+type Refresher struct {
+	Fetcher Fetcher
+	Saves   func() []find.Save
+	Market  string // one market instead of the account's in its game (forever-…, retail-…), to try it out
+	State   string // the file holding what each game's Data.lua holds now, and its ETag
+	Out     io.Writer
+	Report  *Report // how each fetch and write went, for the page; may be nil
+}
+
+// held is what a game's Data.lua files hold: the answer asked for (a market, or "" for the account's
+// markets) under its ETag.
+type held struct {
+	Ask  string `json:"ask"`
+	ETag string `json:"etag"`
+}
+
+// Run refreshes at once, then every interval and after each imported upload, until ctx ends. A server
+// that fails is asked again sooner, waiting as uploads do; after is the clock (time.After).
+func (r *Refresher) Run(ctx context.Context, every time.Duration, after func(time.Duration) <-chan time.Time, imported <-chan struct{}) {
+	var backoff time.Duration
+	for ctx.Err() == nil { // select picks among ready cases at random: a poke can win over the stop
+		wait := every
+		var limited *api.RateLimitedError
+		switch err := r.Refresh(ctx); {
+		case errors.As(err, &limited):
+			wait = limited.RetryAfter
+		case api.Retryable(err):
+			backoff = api.NextWait(backoff)
+			wait = min(backoff, every)
+		default:
+			backoff = 0
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-after(wait):
+		case <-imported:
+		}
 	}
-	body, err := f.Prices(ctx, game, market)
+}
+
+// Trigger makes the channel Run listens on and the function that pokes it without waiting: pokes
+// while a refresh runs fold into one more.
+func Trigger() (<-chan struct{}, func()) {
+	ch := make(chan struct{}, 1)
+	return ch, func() {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// Refresh asks once per game the saves are in and writes the answer into each of its flavours. A
+// failing game leaves the others written; the error is the failed fetches'.
+func (r *Refresher) Refresh(ctx context.Context) error {
+	byGame := flavoursByGame(r.Saves())
+	state := r.state()
+	var errs []error
+	for _, game := range games {
+		if len(byGame[game]) > 0 {
+			errs = append(errs, r.refreshGame(ctx, game, byGame[game], state))
+		}
+	}
+	if err := r.saveState(state); err != nil {
+		fmt.Fprintf(r.Out, "could not keep the prices' ETag: %v\n", err)
+	}
+	return errors.Join(errs...)
+}
+
+// refreshGame fetches game's answer once, asking only for a change when every flavour has the file it
+// last wrote, and writes it into each flavour. A 304, a failed fetch or an answer out of shape writes
+// nothing, so the last good files stay; the error is the fetch's.
+func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]int, state map[string]held) error {
+	ask, label := "", "the account's "+game+" markets"
+	if strings.HasPrefix(r.Market, game+"-") {
+		ask, label = r.Market, r.Market
+	}
+	etag := ""
+	if h := state[game]; h.Ask == ask && allHaveData(flavours) {
+		etag = h.ETag
+	}
+	body, etag, err := r.Fetcher.Prices(ctx, game, ask, etag)
+	if errors.Is(err, api.ErrNotModified) {
+		r.Report.fetched(game, OutcomeNotModified, nil)
+		return nil
+	}
 	if err != nil {
-		fmt.Fprintf(out, "prices for %s not fetched: %v\n", market, err)
-		return
+		fmt.Fprintf(r.Out, "prices for %s not fetched: %v\n", label, err)
+		r.Report.fetched(game, OutcomeError, err)
+		return err
 	}
-	p, err := Parse(body, game, market)
+	a, err := Parse(body, game, ask)
 	if err != nil {
-		fmt.Fprintf(out, "prices for %s refused: %v\n", market, err)
-		return
+		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
+		r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
+		return nil
 	}
+	lua, err := r.render(a)
+	if err != nil {
+		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
+		r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
+		return err
+	}
+	r.Report.fetched(game, OutcomeOK, nil)
+	state[game] = held{Ask: ask, ETag: etag}
 	for dir, iface := range flavours {
-		if err := Write(dir, iface, p); err != nil {
-			fmt.Fprintf(out, "prices not written into %s: %v\n", dir, err)
+		err := Write(dir, iface, lua)
+		r.Report.wrote(dir, err)
+		if err != nil {
+			fmt.Fprintf(r.Out, "prices not written into %s: %v\n", dir, err)
+			delete(state, game) // a flavour without this answer must be fetched in full next time
 			continue
 		}
-		fmt.Fprintf(out, "prices for %s written into %s (%d items)\n", market, dir, len(p.Items))
+		fmt.Fprintf(r.Out, "prices for %s written into %s (%d markets, %d items)\n", label, dir, len(a.Markets), items(a))
 	}
+	return nil
 }
 
-// foreverFlavours maps each Forever flavour folder to its interface number, read from its saves.
-func foreverFlavours(saves []find.Save) map[string]int {
-	out := map[string]int{}
+func items(a Answer) int {
+	n := 0
+	for _, p := range a.Markets {
+		n += len(p.Items)
+	}
+	return n
+}
+
+// render writes a's Data.lua, refusing one over maxDataBytes and warning of a market over its budget.
+func (r *Refresher) render(a Answer) ([]byte, error) {
+	for _, p := range a.Markets {
+		if part := len(marketPart(p)); part > marketBudget {
+			fmt.Fprintf(r.Out, "warning: the prices for %s take %d bytes, over the %d-byte budget of a market\n", p.Market, part, marketBudget)
+		}
+	}
+	lua := Lua(a)
+	if len(lua) > maxDataBytes {
+		return nil, fmt.Errorf("the Data.lua would be %d bytes, over the %d-byte limit; the last good one stays", len(lua), maxDataBytes)
+	}
+	return lua, nil
+}
+
+// state reads what the files hold per game; anything unreadable is nothing held, which costs one full
+// fetch.
+func (r *Refresher) state() map[string]held {
+	state := map[string]held{}
+	if data, err := os.ReadFile(r.State); err == nil {
+		_ = json.Unmarshal(data, &state)
+	}
+	return state
+}
+
+func (r *Refresher) saveState(state map[string]held) error {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(r.State), 0o700); err != nil {
+		return err
+	}
+	return replace(r.State, append(data, '\n'))
+}
+
+// allHaveData says whether every flavour already has a Data.lua, which a 304 would leave as it is.
+func allHaveData(flavours map[string]int) bool {
+	for dir := range flavours {
+		if _, err := os.Stat(filepath.Join(addonDir(dir), "Data.lua")); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// flavoursByGame maps each game to its flavour folders and their interface numbers, read from the
+// saves.
+func flavoursByGame(saves []find.Save) map[string]map[string]int {
+	out := map[string]map[string]int{}
 	for _, s := range saves {
 		data, err := os.ReadFile(s.Path)
-		if err != nil || find.Game(data) != game {
+		if err != nil {
 			continue
 		}
+		game := find.Game(data)
+		if out[game] == nil {
+			out[game] = map[string]int{}
+		}
 		dir := filepath.Join(s.Install, s.Flavour)
-		out[dir] = max(out[dir], find.Interface(data))
+		out[game][dir] = max(out[game][dir], find.Interface(data))
 	}
 	return out
 }
 
 // Write puts the data addon into a flavour folder, each file through a temporary file renamed into
 // place, so the game never loads half a file.
-func Write(flavourDir string, iface int, p Prices) error {
-	dir := filepath.Join(flavourDir, "Interface", "AddOns", "GoldForever_Data")
+func Write(flavourDir string, iface int, lua []byte) error {
+	dir := addonDir(flavourDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	if err := replace(filepath.Join(dir, "GoldForever_Data.toc"), TOC(iface)); err != nil {
 		return err
 	}
-	return replace(filepath.Join(dir, "Data.lua"), Lua(p))
+	return replace(filepath.Join(dir, "Data.lua"), lua)
+}
+
+func addonDir(flavourDir string) string {
+	return filepath.Join(flavourDir, "Interface", "AddOns", "GoldForever_Data")
 }
 
 func replace(path string, data []byte) error {
