@@ -35,10 +35,12 @@ type Prices struct {
 	Items  []Item
 }
 
-// Answer is what the server sent: when it built it, and its markets sorted by key.
+// Answer is what the server sent: when it built it, and its markets sorted by key. Dings, when not nil,
+// is the account's dings state written beside them.
 type Answer struct {
 	At      int64
 	Markets []Prices
+	Dings   *Dings
 }
 
 type rawMarket struct {

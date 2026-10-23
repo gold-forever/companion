@@ -151,3 +151,26 @@ The app then writes `Interface/AddOns/GoldForever_Data/` in each flavour folder 
 the interface number its save names, and `Data.lua`, one table of integers under quoted market keys,
 each through a temporary file renamed into place. The server never sends Lua, so a compromised server
 could send wrong prices but could never run code in your game.
+
+## The dings switch
+
+With every price refresh, one request for the site's side of the addon's *Announce dings on Discord*
+switch, the same for every game of the account:
+
+```http
+GET /api/v1/dings/state
+Authorization: Bearer gf_...
+If-None-Match: "<the ETag of the dings state held>"
+```
+
+- 200 `{"v":1,"webhook":true,"characters":{"Player-4620-006C0FC1":true}}`: whether a level-up webhook
+  is connected, and each character's choice. The app checks it (version 1, booleans only, keys of the
+  form `Player-<digits>-<hex>`, none twice); any fault keeps the last good state, as does a failed
+  request. It is kept with its ETag in `prices.json`.
+- 304: the state held is still current.
+- 404 (a server from before it): no state; `Data.lua` goes without one, and the addon leaves its switch
+  changeable.
+
+`Data.lua` carries it beside `at` as `dings = { webhook = true, characters = { ["Player-…"] = true } }`.
+A changed state rewrites `Data.lua` even when the prices answer 304; after a restart, when the prices
+written are no longer in memory, that one refresh asks for the prices without `If-None-Match`.

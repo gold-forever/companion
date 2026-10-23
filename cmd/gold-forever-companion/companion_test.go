@@ -276,13 +276,15 @@ func (p pricesServer) Prices(context.Context, string, string, string) ([]byte, s
 	return []byte(p.body), `"e1"`, nil
 }
 
+const twoItems = `{"v":1,"game":"forever","at":5,"markets":[{"market":"forever-EU-normal-horde","items":[` +
+	`{"id":1,"value":1,"minBuyout":1,"players":1,"scannedAt":1},{"id":2,"value":1,"minBuyout":1,"players":1,"scannedAt":1}]}]}`
+
 func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
 	c, save := fixture(t)
 	if got := c.State().Prices; len(got) != 1 || got[0].Fetched != nil || got[0].Outcome != "" || got[0].Size != 0 {
 		t.Fatalf("before a fetch: %+v", got)
 	}
-	r := c.refresher(pricesServer{`{"v":1,"game":"forever","at":5,"markets":[{"market":"forever-EU-normal-horde","items":[` +
-		`{"id":1,"value":1,"minBuyout":1,"players":1,"scannedAt":1},{"id":2,"value":1,"minBuyout":1,"players":1,"scannedAt":1}]}]}`})
+	r := c.refresher(pricesServer{twoItems}, nil)
 
 	if err := r.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
@@ -295,6 +297,32 @@ func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
 		len(got[0].Markets) != 1 || got[0].Markets[0] != (page.PriceMarket{Market: "forever-EU-normal-horde", Items: 2}) ||
 		got[0].Size != int64(len(lua)) || got[0].Fetched == nil || got[0].Outcome != "ok" {
 		t.Fatalf("after a fetch: %+v", got)
+	}
+	if got[0].Dings != "" {
+		t.Errorf("a file without dings shows %q", got[0].Dings)
+	}
+}
+
+// dingsServer answers the account's dings state with body.
+type dingsServer struct{ body string }
+
+func (d dingsServer) DingsState(context.Context, string) ([]byte, string, error) {
+	return []byte(d.body), `"d1"`, nil
+}
+
+func TestThePageShowsTheDingsSwitchStateEachPriceFileHolds(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"v":1,"webhook":true,"characters":{"Player-1-0A":true,"Player-1-0B":false,"Player-1-0C":true}}`: "Dings: webhook on · 2 characters on",
+		`{"v":1,"webhook":false,"characters":{"Player-1-0A":true}}`:                                       "Dings: webhook off · 1 character on",
+		`{"v":1,"webhook":true,"characters":{}}`:                                                          "Dings: webhook on · 0 characters on",
+	} {
+		c, _ := fixture(t)
+		if err := c.refresher(pricesServer{twoItems}, dingsServer{body}).Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got := c.State().Prices; len(got) != 1 || got[0].Dings != want {
+			t.Errorf("%s: shows %+v, want %q", body, got, want)
+		}
 	}
 }
 

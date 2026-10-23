@@ -13,8 +13,8 @@ import (
 // A market's prices are about 100 KB and an answer holds at most 8; far more is not one to trust.
 const maxPricesBytes = 4 << 20
 
-// ErrNotModified means the market's prices are still those of the ETag sent: the file stays as it is.
-var ErrNotModified = errors.New("the prices have not changed")
+// ErrNotModified means the answer is still that of the ETag sent: the file stays as it is.
+var ErrNotModified = errors.New("not changed since the ETag sent")
 
 // Prices fetches the pooled prices as the server sent them, with their ETag; internal/prices checks
 // them. Without a market the answer holds every market of the account's characters in game. With the
@@ -24,8 +24,13 @@ func (c *Client) Prices(ctx context.Context, game, market, etag string) ([]byte,
 	if market != "" {
 		query.Set("market", market)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		strings.TrimSuffix(c.BaseURL, "/")+"/api/v1/prices?"+query.Encode(), nil)
+	return c.conditionalGet(ctx, "/api/v1/prices?"+query.Encode(), etag, maxPricesBytes)
+}
+
+// conditionalGet fetches path with the token, sending etag as If-None-Match: a 304 is ErrNotModified
+// with etag kept, an answer over limit bytes an error, any other status that of answer.
+func (c *Client) conditionalGet(ctx context.Context, path, etag string, limit int64) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(c.BaseURL, "/")+path, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -42,7 +47,7 @@ func (c *Client) Prices(ctx context.Context, game, market, etag string) ([]byte,
 	if res.StatusCode == http.StatusNotModified {
 		return nil, etag, ErrNotModified
 	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxPricesBytes+1))
+	body, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if err != nil {
 		return nil, "", &unavailableError{err}
 	}
@@ -50,8 +55,8 @@ func (c *Client) Prices(ctx context.Context, game, market, etag string) ([]byte,
 		_, err := answer(res, body)
 		return nil, "", err
 	}
-	if len(body) > maxPricesBytes {
-		return nil, "", fmt.Errorf("the price answer is over %d bytes", maxPricesBytes)
+	if int64(len(body)) > limit {
+		return nil, "", fmt.Errorf("the answer to %s is over %d bytes", path, limit)
 	}
 	return body, res.Header.Get("ETag"), nil
 }

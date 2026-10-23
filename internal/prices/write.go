@@ -33,13 +33,29 @@ type Refresher struct {
 	State   string // the file holding what each game's Data.lua holds now, and its ETag
 	Out     io.Writer
 	Report  *Report // how each fetch and write went, for the page; may be nil
+	// Dings fetches the account's dings state, written beside the prices in every game; nil writes none.
+	Dings DingsFetcher
+
+	last map[string]written // by game: the answer its files were last written from in this run
 }
 
 // held is what a game's Data.lua files hold: the answer asked for (a market, or "" for the account's
-// markets) under its ETag.
+// markets) under its ETag, and the dings entry written with it. Under dingsKey it is the account's
+// dings state as the server sent it, under its ETag.
 type held struct {
-	Ask  string `json:"ask"`
-	ETag string `json:"etag"`
+	Ask   string          `json:"ask"`
+	ETag  string          `json:"etag"`
+	Dings string          `json:"dings,omitempty"`
+	State json.RawMessage `json:"state,omitempty"`
+}
+
+// The state file's entry for the dings state, beside the games'.
+const dingsKey = "dings"
+
+// written is an answer a game's files were written from, under the ETag it came with.
+type written struct {
+	ask, etag string
+	answer    Answer
 }
 
 // Run refreshes at once, then every interval and after each imported upload, until ctx ends. A server
@@ -84,10 +100,11 @@ func Trigger() (<-chan struct{}, func()) {
 func (r *Refresher) Refresh(ctx context.Context) error {
 	byGame := flavoursByGame(r.Saves())
 	state := r.state()
-	var errs []error
+	dings, err := r.dings(ctx, state)
+	errs := []error{err}
 	for _, game := range games {
 		if len(byGame[game]) > 0 {
-			errs = append(errs, r.refreshGame(ctx, game, byGame[game], state))
+			errs = append(errs, r.refreshGame(ctx, game, byGame[game], state, dings))
 		}
 	}
 	if err := r.saveState(state); err != nil {
@@ -96,42 +113,88 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// refreshGame fetches game's answer once, asking only for a change when every flavour has the file it
-// last wrote, and writes it into each flavour. A 304, a failed fetch or an answer out of shape writes
-// nothing, so the last good files stay; the error is the fetch's.
-func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]int, state map[string]held) error {
+// dings fetches the account's dings state under the ETag of the one held. A failed fetch or a state
+// out of shape keeps the one held; a server without it (404) has none. nil is none: the files then go
+// without a dings entry, as an older companion's.
+func (r *Refresher) dings(ctx context.Context, state map[string]held) (*Dings, error) {
+	if r.Dings == nil {
+		return nil, nil
+	}
+	var last *Dings
+	etag := ""
+	if h := state[dingsKey]; h.State != nil {
+		if d, err := ParseDings(h.State); err == nil {
+			last, etag = &d, h.ETag
+		}
+	}
+	body, etag, err := r.Dings.DingsState(ctx, etag)
+	switch {
+	case errors.Is(err, api.ErrNotModified):
+		return last, nil
+	case errors.Is(err, api.ErrNoDings):
+		delete(state, dingsKey)
+		return nil, nil
+	case err != nil:
+		fmt.Fprintf(r.Out, "dings state not fetched: %v\n", err)
+		return last, err
+	}
+	d, err := ParseDings(body)
+	if err != nil {
+		fmt.Fprintf(r.Out, "dings state refused: %v\n", err)
+		return last, nil
+	}
+	state[dingsKey] = held{ETag: etag, State: body}
+	return &d, nil
+}
+
+// refreshGame fetches game's answer once and writes it, with dings, into each flavour. It asks only for
+// a change when every flavour has the file it last wrote and that file's dings entry is current or the
+// answer is in memory to write it again. A failed fetch or an answer out of shape writes nothing, so
+// the last good files stay; the error is the fetch's.
+func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]int, state map[string]held, dings *Dings) error {
 	ask, label := "", "the account's "+game+" markets"
 	if strings.HasPrefix(r.Market, game+"-") {
 		ask, label = r.Market, r.Market
 	}
+	h, part := state[game], dingsPart(dings)
+	last, inMemory := r.last[game]
+	inMemory = inMemory && last.ask == h.Ask && last.etag == h.ETag
 	etag := ""
-	if h := state[game]; h.Ask == ask && allHaveData(flavours) {
+	if h.Ask == ask && allHaveData(flavours) && (h.Dings == part || inMemory) {
 		etag = h.ETag
 	}
 	body, etag, err := r.Fetcher.Prices(ctx, game, ask, etag)
-	if errors.Is(err, api.ErrNotModified) {
+	var a Answer
+	switch {
+	case errors.Is(err, api.ErrNotModified):
 		r.Report.fetched(game, OutcomeNotModified, nil)
-		return nil
-	}
-	if err != nil {
+		if h.Dings == part {
+			return nil
+		}
+		a = last.answer
+	case err != nil:
 		fmt.Fprintf(r.Out, "prices for %s not fetched: %v\n", label, err)
 		r.Report.fetched(game, OutcomeError, err)
 		return err
+	default:
+		if a, err = Parse(body, game, ask); err != nil {
+			fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
+			r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
+			return nil
+		}
 	}
-	a, err := Parse(body, game, ask)
-	if err != nil {
-		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
-		r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
-		return nil
-	}
+	a.Dings = dings
 	lua, err := r.render(a)
 	if err != nil {
 		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
 		r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
 		return err
 	}
-	r.Report.fetched(game, OutcomeOK, nil)
-	state[game] = held{Ask: ask, ETag: etag}
+	if body != nil {
+		r.Report.fetched(game, OutcomeOK, nil)
+	}
+	state[game] = held{Ask: ask, ETag: etag, Dings: part}
+	r.remember(game, written{ask: ask, etag: etag, answer: a})
 	for dir, iface := range flavours {
 		err := Write(dir, iface, lua)
 		r.Report.wrote(dir, err)
@@ -143,6 +206,13 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 		fmt.Fprintf(r.Out, "prices for %s written into %s (%d markets, %d items)\n", label, dir, len(a.Markets), items(a))
 	}
 	return nil
+}
+
+func (r *Refresher) remember(game string, w written) {
+	if r.last == nil {
+		r.last = map[string]written{}
+	}
+	r.last[game] = w
 }
 
 func items(a Answer) int {

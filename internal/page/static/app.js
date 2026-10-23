@@ -84,6 +84,12 @@ function showPrices(files) {
       fetched = `${new Date(f.fetched).toLocaleString()} · ${f.outcome === "error" ? "error: " + f.error : f.outcome}`;
     }
     const r = row(`${f.flavour} (${f.game})`, markets, String(f.items), size, fetched);
+    if (f.dings) {
+      const line = document.createElement("div");
+      line.className = "hint";
+      line.textContent = f.dings;
+      r.firstChild.append(line);
+    }
     if (f.outcome === "error") r.className = "failed";
     return r;
   }));

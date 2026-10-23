@@ -12,12 +12,14 @@ const (
 	marketBudget = 200 << 10
 )
 
-// Lua writes the contract's table: one global of integers and quoted market keys, nothing else.
+// Lua writes the contract's table: one global of integers, booleans and quoted keys, nothing else.
 func Lua(a Answer) []byte {
 	var b strings.Builder
 	b.WriteString("-- Written by the Gold Forever companion and replaced on every refresh: do not edit.\n")
 	b.WriteString("GoldForever_Prices = {\n  v = 1,\n")
-	fmt.Fprintf(&b, "  at = %d,\n  markets = {\n", a.At)
+	fmt.Fprintf(&b, "  at = %d,\n", a.At)
+	b.WriteString(dingsPart(a.Dings))
+	b.WriteString("  markets = {\n")
 	for _, p := range a.Markets {
 		b.Write(marketPart(p))
 	}
