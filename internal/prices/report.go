@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ type File struct {
 	Markets []Market
 	Items   int
 	Size    int64     // bytes of Data.lua; 0 when there is none
+	Dings   *Dings    // the dings state Data.lua holds; nil when it holds none
 	Fetched time.Time // zero before the first fetch
 	Outcome string    // OutcomeOK, OutcomeNotModified, OutcomeError, or empty before the first fetch
 	Error   string
@@ -100,7 +102,7 @@ func (r *Report) Files(saves []find.Save) []File {
 			f := File{Flavour: dir, Game: game}
 			if lua, err := os.ReadFile(filepath.Join(addonDir(dir), "Data.lua")); err == nil {
 				f.Size = int64(len(lua))
-				f.Markets, f.Items = contents(lua)
+				f.Markets, f.Items, f.Dings = contents(lua)
 			}
 			if last, ok := r.fetches[game]; ok {
 				f.Fetched, f.Outcome, f.Error = last.at, last.outcome, last.err
@@ -115,20 +117,34 @@ func (r *Report) Files(saves []find.Save) []File {
 	return out
 }
 
-// contents counts the markets and items of a Data.lua as Lua writes it: a market opens with
-// `    ["key"] = {`, an item is `      [id] = { … },`.
-func contents(lua []byte) ([]Market, int) {
+// contents reads a Data.lua as Lua writes it: in the markets table a market opens with
+// `    ["key"] = {` and an item is `      [id] = { … },`; in the dings table its time is `    at = n,`,
+// the webhook `    webhook = true,` and a character `      ["guid"] = true,`.
+func contents(lua []byte) ([]Market, int, *Dings) {
 	var markets []Market
-	total := 0
+	var dings *Dings
+	total, section := 0, ""
 	for line := range bytes.Lines(lua) {
 		switch {
-		case bytes.HasPrefix(line, []byte(`    ["`)):
+		case bytes.HasPrefix(line, []byte("  ")) && !bytes.HasPrefix(line, []byte("   ")):
+			section = string(bytes.TrimSpace(line))
+			if section == "dings = {" {
+				dings = &Dings{Characters: map[string]bool{}}
+			}
+		case section == "markets = {" && bytes.HasPrefix(line, []byte(`    ["`)):
 			key, _, _ := bytes.Cut(line[len(`    ["`):], []byte(`"]`))
 			markets = append(markets, Market{Key: string(key)})
-		case bytes.HasPrefix(line, []byte("      [")) && len(markets) > 0:
+		case section == "markets = {" && bytes.HasPrefix(line, []byte("      [")) && len(markets) > 0:
 			markets[len(markets)-1].Items++
 			total++
+		case section == "dings = {" && bytes.HasPrefix(line, []byte("    at = ")):
+			dings.At, _ = strconv.ParseInt(string(bytes.TrimSuffix(bytes.TrimSpace(line[len("    at = "):]), []byte(","))), 10, 64)
+		case section == "dings = {" && bytes.HasPrefix(line, []byte("    webhook = ")):
+			dings.Webhook = bytes.HasPrefix(line, []byte("    webhook = true,"))
+		case section == "dings = {" && bytes.HasPrefix(line, []byte(`      ["`)):
+			guid, choice, _ := bytes.Cut(line[len(`      ["`):], []byte(`"] = `))
+			dings.Characters[string(guid)] = bytes.HasPrefix(choice, []byte("true"))
 		}
 	}
-	return markets, total
+	return markets, total, dings
 }

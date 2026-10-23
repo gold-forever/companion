@@ -140,8 +140,9 @@ A failing game leaves the other's prices written.
   copper. The app checks every field (version 1, the game and market it asked for, plain integers,
   ids above 0, nothing negative or past 2^53, market keys of letters, digits, `-` and `_`, none twice);
   any fault refuses the whole answer and the last good file stays. No markets writes an empty table.
-- An answer over 4 MB, or one whose `Data.lua` would be over 1 MB, is refused and the last good
-  file stays; a market taking over 200 KB of it is written with a warning.
+- An answer over 4 MB (retail: 8 MB), or one whose `Data.lua` would be over 1 MB (retail: 4 MB), is
+  refused and the last good file stays; a market taking over 200 KB of it (retail: 1 MB) is written
+  with a warning. Retail's markets are realm groups of 8–13k items.
 - 304, no body: the prices are unchanged; nothing is written.
 - 401, 403, 404 and 400 write nothing; the next try is in an hour.
 - 5xx or no answer writes nothing and is tried again after 1, 2, 4 … up to 30 minutes, as uploads
@@ -151,3 +152,28 @@ The app then writes `Interface/AddOns/GoldForever_Data/` in each flavour folder 
 the interface number its save names, and `Data.lua`, one table of integers under quoted market keys,
 each through a temporary file renamed into place. The server never sends Lua, so a compromised server
 could send wrong prices but could never run code in your game.
+
+## The dings switch
+
+With every price refresh, one request for the site's side of the addon's *Announce dings on Discord*
+switch, the same for every game of the account:
+
+```http
+GET /api/v1/dings/state
+Authorization: Bearer gf_...
+If-None-Match: "<the ETag of the dings state held>"
+```
+
+- 200 `{"v":1,"at":<epoch s>,"webhook":true,"characters":{"Player-4620-006C0FC1":true}}`: when the
+  state last changed, whether a level-up webhook is connected, and each character's choice. The app
+  checks it (version 1, `at` a plain integer, booleans only, keys of the form `Player-<digits>-<hex>`,
+  none twice); any fault, a state without `at` too, keeps the last good state (or writes none), as
+  does a failed request. It is kept with its ETag in `prices.json`.
+- 304: the state held is still current.
+- 404 (a server from before it): no state; `Data.lua` goes without one, and the addon leaves its switch
+  changeable.
+
+`Data.lua` carries it beside `at` as `dings = { at = <n>, webhook = true, characters = { ["Player-…"] =
+true } }`; the addon compares its own choices against `dings.at`.
+A changed state rewrites `Data.lua` even when the prices answer 304; after a restart, when the prices
+written are no longer in memory, that one refresh asks for the prices without `If-None-Match`.

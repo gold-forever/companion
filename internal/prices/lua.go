@@ -5,19 +5,24 @@ import (
 	"strings"
 )
 
-// Data.lua's limits (D-013.9): over maxDataBytes the file is refused and the last good one stays; a
-// market over marketBudget is written with a warning.
-const (
-	maxDataBytes = 1 << 20
-	marketBudget = 200 << 10
-)
+// limit is a game's Data.lua limits (D-013.9): over data bytes the file is refused and the last good
+// one stays; a market over market bytes is written with a warning.
+type limit struct{ data, market int }
 
-// Lua writes the contract's table: one global of integers and quoted market keys, nothing else.
+// Retail's markets are realm groups of 8–13k items, about 46 bytes each in Lua.
+var limits = map[string]limit{
+	"forever": {data: 1 << 20, market: 200 << 10},
+	"retail":  {data: 4 << 20, market: 1 << 20},
+}
+
+// Lua writes the contract's table: one global of integers, booleans and quoted keys, nothing else.
 func Lua(a Answer) []byte {
 	var b strings.Builder
 	b.WriteString("-- Written by the Gold Forever companion and replaced on every refresh: do not edit.\n")
 	b.WriteString("GoldForever_Prices = {\n  v = 1,\n")
-	fmt.Fprintf(&b, "  at = %d,\n  markets = {\n", a.At)
+	fmt.Fprintf(&b, "  at = %d,\n", a.At)
+	b.WriteString(dingsPart(a.Dings))
+	b.WriteString("  markets = {\n")
 	for _, p := range a.Markets {
 		b.Write(marketPart(p))
 	}
