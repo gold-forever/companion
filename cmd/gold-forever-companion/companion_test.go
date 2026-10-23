@@ -312,9 +312,9 @@ func (d dingsServer) DingsState(context.Context, string) ([]byte, string, error)
 
 func TestThePageShowsTheDingsSwitchStateEachPriceFileHolds(t *testing.T) {
 	for body, want := range map[string]string{
-		`{"v":1,"webhook":true,"characters":{"Player-1-0A":true,"Player-1-0B":false,"Player-1-0C":true}}`: "Dings: webhook on · 2 characters on",
-		`{"v":1,"webhook":false,"characters":{"Player-1-0A":true}}`:                                       "Dings: webhook off · 1 character on",
-		`{"v":1,"webhook":true,"characters":{}}`:                                                          "Dings: webhook on · 0 characters on",
+		`{"v":1,"at":7,"webhook":true,"characters":{"Player-1-0A":true,"Player-1-0B":false,"Player-1-0C":true}}`: "Dings: webhook on · 2 characters on",
+		`{"v":1,"at":7,"webhook":false,"characters":{"Player-1-0A":true}}`:                                       "Dings: webhook off · 1 character on",
+		`{"v":1,"at":7,"webhook":true,"characters":{}}`:                                                          "Dings: webhook on · 0 characters on",
 	} {
 		c, _ := fixture(t)
 		if err := c.refresher(pricesServer{twoItems}, dingsServer{body}).Refresh(context.Background()); err != nil {

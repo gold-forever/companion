@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -117,8 +118,8 @@ func (r *Report) Files(saves []find.Save) []File {
 }
 
 // contents reads a Data.lua as Lua writes it: in the markets table a market opens with
-// `    ["key"] = {` and an item is `      [id] = { … },`; in the dings table the webhook is
-// `    webhook = true,` and a character `      ["guid"] = true,`.
+// `    ["key"] = {` and an item is `      [id] = { … },`; in the dings table its time is `    at = n,`,
+// the webhook `    webhook = true,` and a character `      ["guid"] = true,`.
 func contents(lua []byte) ([]Market, int, *Dings) {
 	var markets []Market
 	var dings *Dings
@@ -136,6 +137,8 @@ func contents(lua []byte) ([]Market, int, *Dings) {
 		case section == "markets = {" && bytes.HasPrefix(line, []byte("      [")) && len(markets) > 0:
 			markets[len(markets)-1].Items++
 			total++
+		case section == "dings = {" && bytes.HasPrefix(line, []byte("    at = ")):
+			dings.At, _ = strconv.ParseInt(string(bytes.TrimSuffix(bytes.TrimSpace(line[len("    at = "):]), []byte(","))), 10, 64)
 		case section == "dings = {" && bytes.HasPrefix(line, []byte("    webhook = ")):
 			dings.Webhook = bytes.HasPrefix(line, []byte("    webhook = true,"))
 		case section == "dings = {" && bytes.HasPrefix(line, []byte(`      ["`)):

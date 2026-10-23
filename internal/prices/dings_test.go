@@ -19,26 +19,26 @@ import (
 const (
 	me    = "Player-4620-006C0FC1"
 	alt   = "Player-4620-006C0FC2"
-	dings = `{"v":1,"webhook":true,"characters":{"` + alt + `":false,"` + me + `":true}}`
+	dings = `{"v":1,"at":1761150000,"webhook":true,"characters":{"` + alt + `":false,"` + me + `":true}}`
 )
 
-var wantDings = Dings{Webhook: true, Characters: map[string]bool{me: true, alt: false}}
+var wantDings = Dings{At: 1761150000, Webhook: true, Characters: map[string]bool{me: true, alt: false}}
 
 func TestParseDingsReadsTheContractState(t *testing.T) {
 	d, err := ParseDings([]byte(dings))
 	if err != nil || !reflect.DeepEqual(d, wantDings) {
 		t.Fatalf("ParseDings = %+v, %v", d, err)
 	}
-	d, err = ParseDings([]byte(`{"v":1,"webhook":false,"characters":{}}`))
-	if err != nil || d.Webhook || len(d.Characters) != 0 {
+	d, err = ParseDings([]byte(`{"v":1,"at":0,"webhook":false,"characters":{}}`))
+	if err != nil || d.At != 0 || d.Webhook || len(d.Characters) != 0 {
 		t.Fatalf("no webhook, no characters: %+v, %v", d, err)
 	}
 }
 
 func dingsWith(field, value string) string {
-	fields := map[string]string{"v": `1`, "webhook": `true`, "characters": `{"` + me + `":true}`}
+	fields := map[string]string{"v": `1`, "at": `1761150000`, "webhook": `true`, "characters": `{"` + me + `":true}`}
 	var parts []string
-	for _, k := range []string{"v", "webhook", "characters"} {
+	for _, k := range []string{"v", "at", "webhook", "characters"} {
 		v, ok := fields[k]
 		if k == field {
 			v, ok = value, value != ""
@@ -51,32 +51,38 @@ func dingsWith(field, value string) string {
 }
 
 var malformedDings = map[string]string{
-	"not JSON":              `{"v":1,`,
-	"an array":              `[]`,
-	"version 2":             dingsWith("v", `2`),
-	"version as a string":   dingsWith("v", `"1"`),
-	"no version":            dingsWith("v", ``),
-	"no webhook":            dingsWith("webhook", ``),
-	"webhook as a string":   dingsWith("webhook", `"true"`),
-	"webhook as a number":   dingsWith("webhook", `1`),
-	"webhook null":          dingsWith("webhook", `null`),
-	"no characters":         dingsWith("characters", ``),
-	"characters null":       dingsWith("characters", `null`),
-	"characters a list":     dingsWith("characters", `["`+me+`"]`),
-	"a choice as a number":  dingsWith("characters", `{"`+me+`":1}`),
-	"a choice as a string":  dingsWith("characters", `{"`+me+`":"true"}`),
-	"a choice null":         dingsWith("characters", `{"`+me+`":null}`),
-	"a character twice":     dingsWith("characters", `{"`+me+`":true,"`+me+`":false}`),
-	"trailing data":         dings + `{}`,
-	"a guid with a quote":   dingsWith("characters", `{"Player-1-0A\"]":true}`),
-	"a guid with a newline": dingsWith("characters", `{"Player-1-0A\n":true}`),
-	"a creature guid":       dingsWith("characters", `{"Creature-0-4620-0-12-8661-000A":true}`),
-	"a lower-case prefix":   dingsWith("characters", `{"player-4620-006C0FC1":true}`),
-	"no realm digits":       dingsWith("characters", `{"Player--006C0FC1":true}`),
-	"no hex":                dingsWith("characters", `{"Player-4620-":true}`),
-	"not hex":               dingsWith("characters", `{"Player-4620-006C0FCG":true}`),
-	"a realm too long":      dingsWith("characters", `{"Player-12345678901-0A":true}`),
-	"hex too long":          dingsWith("characters", `{"Player-1-0123456789ABCDEF0":true}`),
+	"not JSON":                `{"v":1,`,
+	"an array":                `[]`,
+	"version 2":               dingsWith("v", `2`),
+	"version as a string":     dingsWith("v", `"1"`),
+	"no version":              dingsWith("v", ``),
+	"no at (an older server)": dingsWith("at", ``),
+	"at as a string":          dingsWith("at", `"1761150000"`),
+	"at as a float":           dingsWith("at", `1761150000.5`),
+	"at negative":             dingsWith("at", `-1`),
+	"at past 2^53":            dingsWith("at", `9007199254740992`),
+	"at null":                 dingsWith("at", `null`),
+	"no webhook":              dingsWith("webhook", ``),
+	"webhook as a string":     dingsWith("webhook", `"true"`),
+	"webhook as a number":     dingsWith("webhook", `1`),
+	"webhook null":            dingsWith("webhook", `null`),
+	"no characters":           dingsWith("characters", ``),
+	"characters null":         dingsWith("characters", `null`),
+	"characters a list":       dingsWith("characters", `["`+me+`"]`),
+	"a choice as a number":    dingsWith("characters", `{"`+me+`":1}`),
+	"a choice as a string":    dingsWith("characters", `{"`+me+`":"true"}`),
+	"a choice null":           dingsWith("characters", `{"`+me+`":null}`),
+	"a character twice":       dingsWith("characters", `{"`+me+`":true,"`+me+`":false}`),
+	"trailing data":           dings + `{}`,
+	"a guid with a quote":     dingsWith("characters", `{"Player-1-0A\"]":true}`),
+	"a guid with a newline":   dingsWith("characters", `{"Player-1-0A\n":true}`),
+	"a creature guid":         dingsWith("characters", `{"Creature-0-4620-0-12-8661-000A":true}`),
+	"a lower-case prefix":     dingsWith("characters", `{"player-4620-006C0FC1":true}`),
+	"no realm digits":         dingsWith("characters", `{"Player--006C0FC1":true}`),
+	"no hex":                  dingsWith("characters", `{"Player-4620-":true}`),
+	"not hex":                 dingsWith("characters", `{"Player-4620-006C0FCG":true}`),
+	"a realm too long":        dingsWith("characters", `{"Player-12345678901-0A":true}`),
+	"hex too long":            dingsWith("characters", `{"Player-1-0123456789ABCDEF0":true}`),
 }
 
 func TestParseDingsRefusesAMalformedState(t *testing.T) {
@@ -125,18 +131,19 @@ func readDings(t *testing.T, lua []byte) *Dings {
 	}
 	block, _, found := strings.Cut(rest, "\n  },\n  markets = {\n")
 	lines := strings.Split(block, "\n")
-	if !found || len(lines) < 3 || lines[1] != "    characters = {" || lines[len(lines)-1] != "    }," {
+	if !found || len(lines) < 4 || !strings.HasPrefix(lines[0], "    at = ") || lines[2] != "    characters = {" || lines[len(lines)-1] != "    }," {
 		t.Fatalf("dings table out of shape:\n%s", lua)
 	}
 	d := &Dings{Characters: map[string]bool{}}
-	switch lines[0] {
+	d.At = atoi([]byte(strings.TrimSuffix(strings.TrimPrefix(lines[0], "    at = "), ",")))
+	switch lines[1] {
 	case "    webhook = true,":
 		d.Webhook = true
 	case "    webhook = false,":
 	default:
-		t.Fatalf("webhook line %q", lines[0])
+		t.Fatalf("webhook line %q", lines[1])
 	}
-	for _, line := range lines[2 : len(lines)-1] {
+	for _, line := range lines[3 : len(lines)-1] {
 		m := luaDingsChoice.FindStringSubmatch(line)
 		if m == nil {
 			t.Fatalf("character line %q", line)
@@ -156,13 +163,14 @@ func FuzzDingsGuidKeys(f *testing.F) {
 	}
 	guid := regexp.MustCompile(`^Player-[0-9]+-[0-9A-Fa-f]+$`)
 	f.Fuzz(func(t *testing.T, key string, on bool) {
+		const at = 1761150000
 		quoted, _ := json.Marshal(key)
 		choice, _ := json.Marshal(on)
-		d, err := ParseDings([]byte(`{"v":1,"webhook":true,"characters":{` + string(quoted) + `:` + string(choice) + `}}`))
+		d, err := ParseDings([]byte(`{"v":1,"at":1761150000,"webhook":true,"characters":{` + string(quoted) + `:` + string(choice) + `}}`))
 		if err != nil {
 			return
 		}
-		if !guid.MatchString(key) {
+		if !guid.MatchString(key) || d.At != at {
 			t.Fatalf("guid %q accepted", key)
 		}
 		a := Answer{At: 1, Dings: &d}
@@ -253,7 +261,7 @@ func TestEveryGamesFileGetsTheAccountsDingsState(t *testing.T) {
 	}
 }
 
-const changedDings = `{"v":1,"webhook":true,"characters":{"` + me + `":false}}`
+const changedDings = `{"v":1,"at":1761160000,"webhook":true,"characters":{"` + me + `":false}}`
 
 func TestAChangedDingsStateRewritesDataLuaWhileThePricesAre304(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001})
@@ -268,7 +276,7 @@ func TestAChangedDingsStateRewritesDataLuaWhileThePricesAre304(t *testing.T) {
 	if len(f.sent) != 2 || f.sent[1] != `"e1"` {
 		t.Fatalf("prices asked with %q; want the second under the file's ETag", f.sent)
 	}
-	want := Dings{Webhook: true, Characters: map[string]bool{me: false}}
+	want := Dings{At: 1761160000, Webhook: true, Characters: map[string]bool{me: false}}
 	if got := dataLua(t, install); !bytes.Equal(got, withDings(t, canned(t), &want)) {
 		t.Fatalf("Data.lua after a 304 and a changed dings state =\n%s", got)
 	}
@@ -289,7 +297,7 @@ func TestAChangedDingsStateAfterARestartFetchesThePricesInFull(t *testing.T) {
 	if len(f.sent) != 2 || f.sent[1] != "" {
 		t.Fatalf("prices asked with %q; want the second in full, to write the new dings state", f.sent)
 	}
-	want := Dings{Webhook: true, Characters: map[string]bool{me: false}}
+	want := Dings{At: 1761160000, Webhook: true, Characters: map[string]bool{me: false}}
 	if got := dataLua(t, install); !bytes.Equal(got, withDings(t, canned(t), &want)) {
 		t.Fatalf("Data.lua =\n%s", got)
 	}
@@ -360,9 +368,22 @@ func TestAServerWithoutDingsStateWritesNoDingsTable(t *testing.T) {
 	}
 }
 
+func TestAStateWithoutAtAndNoneHeldWritesNoDingsTable(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	r := refresher(&fetcher{body: canned(t), etag: `"e1"`}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	r.Dings = &dingsServer{body: strings.Replace(dings, `"at":1761150000,`, "", 1), etag: `"d1"`}
+
+	_ = r.Refresh(context.Background())
+
+	if got := dataLua(t, install); !bytes.Equal(got, Lua(mustParse(t, canned(t)))) {
+		t.Fatalf("Data.lua from a server sending no at =\n%s", got)
+	}
+}
+
 func TestAMalformedOrFailedDingsStateKeepsTheLastGoodOne(t *testing.T) {
 	for name, server := range map[string]*dingsServer{
 		"malformed":     {body: strings.Replace(dings, me, `Player-1-0A\"]`, 1), etag: `"d2"`},
+		"without at":    {body: strings.Replace(dings, `"at":1761150000,`, "", 1), etag: `"d2"`},
 		"unauthorized":  {err: api.ErrUnauthorized},
 		"server failed": {err: errors.New("status 500")},
 	} {

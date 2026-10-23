@@ -3,6 +3,7 @@ GoldForever_Prices = {
   v = 1,
   at = 1761148800,
   dings = {
+    at = 1761150000,
     webhook = true,
     characters = {
       ["Player-4620-006C0FC1"] = true,

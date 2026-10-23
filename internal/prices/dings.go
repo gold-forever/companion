@@ -19,9 +19,11 @@ type DingsFetcher interface {
 	DingsState(ctx context.Context, etag string) ([]byte, string, error)
 }
 
-// Dings is the site's side of the switch, the same for every game of the account: whether a level-up
-// webhook is connected, and each character's choice by its guid.
+// Dings is the site's side of the switch, the same for every game of the account: when it last changed
+// (epoch seconds, which the addon compares its own choices against), whether a level-up webhook is
+// connected, and each character's choice by its guid.
 type Dings struct {
+	At         int64
 	Webhook    bool
 	Characters map[string]bool
 }
@@ -31,12 +33,13 @@ var guidKey = regexp.MustCompile(`^Player-[0-9]{1,10}-[0-9A-Fa-f]{1,16}$`)
 
 type rawDings struct {
 	V          json.RawMessage `json:"v"`
+	At         json.RawMessage `json:"at"`
 	Webhook    json.RawMessage `json:"webhook"`
 	Characters json.RawMessage `json:"characters"`
 }
 
-// ParseDings checks the server's dings state: version 1, booleans only, guids of a player. Any field
-// out of shape refuses all of it.
+// ParseDings checks the server's dings state: version 1, a plain integer at, booleans only, guids of a
+// player. Any field out of shape refuses all of it; an older server's state without at too.
 func ParseDings(body []byte) (Dings, error) {
 	var raw rawDings
 	dec := json.NewDecoder(bytes.NewReader(body))
@@ -49,6 +52,10 @@ func ParseDings(body []byte) (Dings, error) {
 	if v, err := integer(raw.V, version, version); err != nil || v != version {
 		return Dings{}, fmt.Errorf("dings state version: want %d", version)
 	}
+	at, err := integer(raw.At, 0, maxExact)
+	if err != nil {
+		return Dings{}, fmt.Errorf("at: %w", err)
+	}
 	webhook, err := boolean(raw.Webhook)
 	if err != nil {
 		return Dings{}, fmt.Errorf("webhook: %w", err)
@@ -57,7 +64,7 @@ func ParseDings(body []byte) (Dings, error) {
 	if err != nil {
 		return Dings{}, fmt.Errorf("characters: %w", err)
 	}
-	return Dings{Webhook: webhook, Characters: characters}, nil
+	return Dings{At: at, Webhook: webhook, Characters: characters}, nil
 }
 
 // choices reads an object of player guids to booleans, none named twice.
@@ -107,7 +114,7 @@ func dingsPart(d *Dings) string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "  dings = {\n    webhook = %t,\n    characters = {\n", d.Webhook)
+	fmt.Fprintf(&b, "  dings = {\n    at = %d,\n    webhook = %t,\n    characters = {\n", d.At, d.Webhook)
 	guids := make([]string, 0, len(d.Characters))
 	for guid := range d.Characters {
 		guids = append(guids, guid)
