@@ -420,10 +420,13 @@ func TestOneMarketsETagIsNotSentForTheAccountsAnswerNorTheOtherWayRound(t *testi
 	}
 }
 
-// account is an answer of the given markets, each of n items with the widest numbers.
-func account(markets []string, n int) []byte {
+// account is a Forever answer of the given markets, each of n items with the widest numbers.
+func account(markets []string, n int) []byte { return accountOf("forever", markets, n) }
+
+// accountOf is game's answer of the given markets, each of n items with the widest numbers.
+func accountOf(game string, markets []string, n int) []byte {
 	var b strings.Builder
-	b.WriteString(`{"v":1,"game":"forever","at":1761148800,"markets":[`)
+	b.WriteString(`{"v":1,"game":"` + game + `","at":1761148800,"markets":[`)
 	for k, key := range markets {
 		if k > 0 {
 			b.WriteByte(',')
@@ -447,7 +450,7 @@ func TestMarketsEachWithinBudgetButTogetherOverTheFileLimitAreRefused(t *testing
 		"forever-NA-normal-alliance", "forever-EU-hardcore-horde", "forever-NA-hardcore-horde"}
 	body := account(keys, 2000)
 	a := mustParseAccount(t, body)
-	if part := len(marketPart(a.Markets[0])); part > marketBudget || len(Lua(a)) <= maxDataBytes {
+	if part := len(marketPart(a.Markets[0])); part > limits["forever"].market || len(Lua(a)) <= limits["forever"].data {
 		t.Fatalf("fixture: markets of %d bytes in a %d-byte file", part, len(Lua(a)))
 	}
 	var out bytes.Buffer
@@ -887,7 +890,7 @@ func TestADataFileOverItsLimitIsRefusedAndTheLastGoodOneKept(t *testing.T) {
 	lua := filepath.Join(dataDir(install, "_forever_"), "Data.lua")
 	before, _ := os.ReadFile(lua)
 	body, big := sized(t, 12000)
-	if len(big) <= maxDataBytes {
+	if len(big) <= limits["forever"].data {
 		t.Fatalf("fixture: %d bytes is not over the limit", len(big))
 	}
 	var out bytes.Buffer
@@ -919,7 +922,7 @@ func TestAMarketOverItsBudgetIsWrittenWithAWarning(t *testing.T) {
 		install, saves := tree(t, map[string]int{"_forever_": 16001})
 		body, lua := sized(t, c.items)
 		part := len(marketPart(mustParse(t, body).Markets[0]))
-		if (part > marketBudget) != c.warn || len(lua) > maxDataBytes {
+		if (part > limits["forever"].market) != c.warn || len(lua) > limits["forever"].data {
 			t.Fatalf("fixture: %d items render a %d-byte market in %d bytes", c.items, part, len(lua))
 		}
 		var out bytes.Buffer
@@ -1043,4 +1046,40 @@ func mustParseGame(t *testing.T, body []byte, game string) Answer {
 		t.Fatal(err)
 	}
 	return a
+}
+
+// Retail's markets are realm groups of 8–13k items: its file and market limits are its own.
+func TestRetailHasItsOwnFileLimitAndMarketBudget(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		markets, n    int
+		write, warned bool
+	}{
+		{"three markets in 1.6 MB, each over Forever's budget", 3, 6000, true, false},
+		{"a market over 1 MB", 1, 12000, true, true},
+		{"four such markets, over 4 MB", 4, 12000, false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			install, saves := tree(t, map[string]int{"_retail_": 110207})
+			keys := []string{"retail-EU", "retail-EU-Argentdawn", "retail-EU-Draenor", "retail-EU-Kazzak"}[:c.markets]
+			body := accountOf("retail", keys, c.n)
+			lua := Lua(mustParseGame(t, body, "retail"))
+			if c.write == (len(lua) > limits["retail"].data) || len(lua) <= limits["forever"].data {
+				t.Fatalf("fixture: %d bytes", len(lua))
+			}
+			var out bytes.Buffer
+			r := refresher(servers{"retail": {body: body}}, saves, "", filepath.Join(t.TempDir(), "prices.json"))
+			r.Out = &out
+
+			err := r.Refresh(context.Background())
+
+			data, _ := os.ReadFile(filepath.Join(dataDir(install, "_retail_"), "Data.lua"))
+			if written := err == nil && bytes.Equal(data, lua); written != c.write {
+				t.Errorf("written %v (err %v), want %v", written, err, c.write)
+			}
+			if warned := strings.Contains(out.String(), "warning: the prices for retail-EU take"); warned != c.warned {
+				t.Errorf("warned %v, want %v; out = %q", warned, c.warned, out.String())
+			}
+		})
+	}
 }

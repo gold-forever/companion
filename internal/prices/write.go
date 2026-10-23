@@ -184,7 +184,7 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 		}
 	}
 	a.Dings = dings
-	lua, err := r.render(a)
+	lua, err := r.render(game, a)
 	if err != nil {
 		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
 		r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
@@ -223,16 +223,18 @@ func items(a Answer) int {
 	return n
 }
 
-// render writes a's Data.lua, refusing one over maxDataBytes and warning of a market over its budget.
-func (r *Refresher) render(a Answer) ([]byte, error) {
+// render writes a's Data.lua for game, refusing one over the game's file limit and warning of a market
+// over its budget.
+func (r *Refresher) render(game string, a Answer) ([]byte, error) {
+	lim := limits[game]
 	for _, p := range a.Markets {
-		if part := len(marketPart(p)); part > marketBudget {
-			fmt.Fprintf(r.Out, "warning: the prices for %s take %d bytes, over the %d-byte budget of a market\n", p.Market, part, marketBudget)
+		if part := len(marketPart(p)); part > lim.market {
+			fmt.Fprintf(r.Out, "warning: the prices for %s take %d bytes, over the %d-byte budget of a market\n", p.Market, part, lim.market)
 		}
 	}
 	lua := Lua(a)
-	if len(lua) > maxDataBytes {
-		return nil, fmt.Errorf("the Data.lua would be %d bytes, over the %d-byte limit; the last good one stays", len(lua), maxDataBytes)
+	if len(lua) > lim.data {
+		return nil, fmt.Errorf("the Data.lua would be %d bytes, over the %d-byte limit; the last good one stays", len(lua), lim.data)
 	}
 	return lua, nil
 }

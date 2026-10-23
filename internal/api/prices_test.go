@@ -55,7 +55,7 @@ func TestPricesForAnUnknownMarketIsRefused(t *testing.T) {
 }
 
 func TestPricesRefusesAnAnswerOverTheLimit(t *testing.T) {
-	big := make([]byte, maxPricesBytes+1)
+	big := make([]byte, 4<<20+1)
 	c, _, _ := server(t, http.StatusOK, string(big), nil)
 	if _, _, err := c.Prices(context.Background(), "forever", "m", ""); err == nil {
 		t.Fatal("an answer over the limit is not a price list")
@@ -92,5 +92,21 @@ func TestPricesWithoutAMarketAsksForTheAccountsMarketsOfTheGame(t *testing.T) {
 	}
 	if q := seen.URL.Query(); q.Get("game") != "forever" || q.Has("market") {
 		t.Errorf("query = %q, want game=forever and no market", seen.URL.RawQuery)
+	}
+}
+
+// Three retail realm-group markets of 8–13k items come to about 3.5 MB of JSON: retail may send twice
+// Forever's 4 MB.
+func TestRetailPricesMayBeTwiceForeversLimit(t *testing.T) {
+	for _, c := range []struct {
+		game string
+		size int
+		ok   bool
+	}{{"forever", 4 << 20, true}, {"forever", 4<<20 + 1, false}, {"retail", 8 << 20, true}, {"retail", 8<<20 + 1, false}} {
+		srv, _, _ := server(t, http.StatusOK, string(make([]byte, c.size)), nil)
+		body, _, err := srv.Prices(context.Background(), c.game, "", "")
+		if (err == nil && len(body) == c.size) != c.ok {
+			t.Errorf("%s answer of %d bytes: err %v, want taken %v", c.game, c.size, err, c.ok)
+		}
 	}
 }

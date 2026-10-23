@@ -5,12 +5,15 @@ import (
 	"strings"
 )
 
-// Data.lua's limits (D-013.9): over maxDataBytes the file is refused and the last good one stays; a
-// market over marketBudget is written with a warning.
-const (
-	maxDataBytes = 1 << 20
-	marketBudget = 200 << 10
-)
+// limit is a game's Data.lua limits (D-013.9): over data bytes the file is refused and the last good
+// one stays; a market over market bytes is written with a warning.
+type limit struct{ data, market int }
+
+// Retail's markets are realm groups of 8–13k items, about 46 bytes each in Lua.
+var limits = map[string]limit{
+	"forever": {data: 1 << 20, market: 200 << 10},
+	"retail":  {data: 4 << 20, market: 1 << 20},
+}
 
 // Lua writes the contract's table: one global of integers, booleans and quoted keys, nothing else.
 func Lua(a Answer) []byte {
