@@ -227,7 +227,8 @@ func TestLuaIsTheContractTable(t *testing.T) {
 
 // LuaJIT is not in the build container; the host runs testdata/check.lua on testdata/Data.lua and
 // testdata/check_markets.lua on testdata/markets.lua, testdata/check_dings.lua on
-// testdata/dings.lua and testdata/check_shared.lua on testdata/shared.lua, which the golden tests keep equal to the writer's output.
+// testdata/dings.lua, testdata/check_shared.lua on testdata/shared.lua and testdata/check_week.lua on
+// testdata/week.lua, which the golden tests keep equal to the writer's output.
 func TestDataLoadsInLuaJIT(t *testing.T) {
 	luajit, err := exec.LookPath("luajit")
 	if err != nil {
@@ -238,6 +239,7 @@ func TestDataLoadsInLuaJIT(t *testing.T) {
 		"check_markets.lua": mustParseAccount(t, cannedMarkets(t)),
 		"check_dings.lua":   withDingsAnswer(t),
 		"check_shared.lua":  withSharedAnswer(t),
+		"check_week.lua":    weekAnswer(t),
 	} {
 		path := filepath.Join(t.TempDir(), "Data.lua")
 		if err := os.WriteFile(path, Lua(a), 0o644); err != nil {
@@ -247,6 +249,61 @@ func TestDataLoadsInLuaJIT(t *testing.T) {
 		if err != nil || strings.TrimSpace(string(out)) != "ok" {
 			t.Fatalf("luajit %s: %v\n%s", check, err, out)
 		}
+	}
+}
+
+func weekAnswer(t *testing.T) Answer {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("testdata", "week.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mustParseGame(t, body, "retail")
+}
+
+func TestParseReadsTheWeekMeanWhereTheServerSentOne(t *testing.T) {
+	a := weekAnswer(t)
+
+	want := []Item{
+		{ID: 2589, Value: 1234, MinBuyout: 1100, Players: 1, ScannedAt: 1761140000, Week: 1250},
+		{ID: 2592, Value: 9007199254740991, MinBuyout: 5, Players: 12, ScannedAt: 1761148799, Week: 9007199254740991},
+		{ID: 2996, Value: 40, MinBuyout: 38, Players: 2, ScannedAt: 1761148000},
+		{ID: 14047, Value: 0, MinBuyout: 0, Players: 3, ScannedAt: 1761100000},
+	}
+	if !slices.Equal(a.Markets[0].Items, want) {
+		t.Fatalf("items = %+v, want %+v", a.Markets[0].Items, want)
+	}
+}
+
+// One odd week mean must not cost the market its prices: it is read as no mean for that item.
+func TestAnOddWeekMeanIsReadAsNone(t *testing.T) {
+	for _, week := range []string{`0`, `-1`, `12.5`, `12.0`, `1e3`, `"1250"`, `null`, `true`, `{}`, `[]`, `9007199254740992`} {
+		body := strings.Replace(answerWith("v", `1`), `"scannedAt":1761140000`, `"scannedAt":1761140000,"week":`+week, 1)
+		a, err := Parse([]byte(body), "forever", market)
+		if err != nil {
+			t.Errorf("week %s: refused: %v", week, err)
+			continue
+		}
+		if a.Markets[0].Items[0] != (Item{ID: 2589, Value: 1234, MinBuyout: 1100, Players: 1, ScannedAt: 1761140000}) {
+			t.Errorf("week %s: item = %+v", week, a.Markets[0].Items[0])
+		}
+	}
+}
+
+func TestLuaWritesTheWeekMeanFifthAndOnlyWhereThereIsOne(t *testing.T) {
+	got := Lua(weekAnswer(t))
+	golden := filepath.Join("testdata", "week.lua")
+	if *update {
+		if err := os.WriteFile(golden, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("Lua differs from testdata/week.lua (go test -update rewrites it):\n%s", got)
 	}
 }
 
@@ -726,6 +783,7 @@ func assertOnly(t *testing.T, dir string, names ...string) {
 func FuzzParseAndLua(f *testing.F) {
 	f.Add([]byte(answerWith("v", `1`)), market)
 	f.Add([]byte(answerWith("market", `"a\"]b"`)), `a"]b`)
+	f.Add([]byte(strings.Replace(answerWith("v", `1`), `"scannedAt":1761140000`, `"scannedAt":1761140000,"week":1250`, 1)), market)
 	for _, body := range malformed {
 		f.Add([]byte(body), market)
 	}
@@ -797,7 +855,7 @@ func unquote(q string) (string, bool) {
 var (
 	luaHeader = regexp.MustCompile(`(?s)^-- [^\n]*\nGoldForever_Prices = \{\n  v = 1,\n  at = (\d+),\n  markets = \{\n(.*)  \},\n\}\n$`)
 	luaMarket = regexp.MustCompile(`^    \[("(?:[^"\\]|\\.)*")\] = \{$`)
-	luaItem   = regexp.MustCompile(`^      \[(\d+)\] = \{ (\d+), (\d+), (\d+), (\d+) \},$`)
+	luaItem   = regexp.MustCompile(`^      \[(\d+)\] = \{ (\d+), (\d+), (\d+), (\d+)(?:, ([1-9]\d*))? \},$`)
 )
 
 // readBack reads a Data.lua of the shape Lua writes back into Prices, or says it is not one.
@@ -824,7 +882,7 @@ func readBack(lua []byte) (Answer, bool) {
 			return Answer{}, false
 		}
 		p := &a.Markets[len(a.Markets)-1]
-		p.Items = append(p.Items, Item{atoi([]byte(f[1])), atoi([]byte(f[2])), atoi([]byte(f[3])), atoi([]byte(f[4])), atoi([]byte(f[5]))})
+		p.Items = append(p.Items, Item{atoi([]byte(f[1])), atoi([]byte(f[2])), atoi([]byte(f[3])), atoi([]byte(f[4])), atoi([]byte(f[5])), atoi([]byte(f[6]))})
 	}
 	return a, true
 }

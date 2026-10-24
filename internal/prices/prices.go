@@ -24,9 +24,10 @@ const maxExact = 1<<53 - 1
 // A market key as the server names one (forever-EU-normal-horde): nothing a Lua string needs escaped.
 var marketKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
-// Item is one item's pooled figures: copper, contributors, and the newest scan in epoch seconds.
+// Item is one item's pooled figures: copper, contributors, the newest scan in epoch seconds, and the
+// 7-day mean of daily values in copper, 0 when the server sent none.
 type Item struct {
-	ID, Value, MinBuyout, Players, ScannedAt int64
+	ID, Value, MinBuyout, Players, ScannedAt, Week int64
 }
 
 // Prices is one market's items, sorted by id.
@@ -52,6 +53,7 @@ type rawMarket struct {
 		MinBuyout json.RawMessage `json:"minBuyout"`
 		Players   json.RawMessage `json:"players"`
 		ScannedAt json.RawMessage `json:"scannedAt"`
+		Week      json.RawMessage `json:"week"`
 	} `json:"items"`
 }
 
@@ -139,6 +141,7 @@ func parseMarket(m rawMarket) (Prices, error) {
 				return Prices{}, fmt.Errorf("market %s item %d %s: %w", m.Market, i, f.name, err)
 			}
 		}
+		it.Week = optional(raw.Week, 1, maxExact)
 		if seen[it.ID] {
 			return Prices{}, fmt.Errorf("market %s: item %d named twice", m.Market, it.ID)
 		}
@@ -147,6 +150,16 @@ func parseMarket(m rawMarket) (Prices, error) {
 	}
 	slices.SortFunc(p.Items, func(a, b Item) int { return cmp.Compare(a.ID, b.ID) })
 	return p, nil
+}
+
+// optional reads a field a server may leave out: one absent or out of shape is 0, none, so a single
+// odd value cannot refuse a whole market.
+func optional(n json.RawMessage, min, max int64) int64 {
+	v, err := integer(n, min, max)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // integer reads a JSON value written as a plain integer between min and max: 1.0, 1e3, "1" and null
