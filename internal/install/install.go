@@ -236,12 +236,13 @@ func autostartEntry(exe string) []byte {
 		"\nExec=" + quoteExec(exe) + " --autostart\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
 }
 
-// quoteExec quotes a path for a desktop entry's Exec key, escaping the characters the desktop entry
-// specification reserves inside quotes.
+// quoteExec quotes a path for a desktop entry's Exec key. The specification unescapes the value as a
+// string first, so each backslash its quoting rule adds is itself written twice; % starts a field code.
 func quoteExec(path string) string {
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", `$`, `\$`)
-	return `"` + r.Replace(path) + `"`
+	return `"` + execEscapes.Replace(path) + `"`
 }
+
+var execEscapes = strings.NewReplacer(`\`, `\\\\`, `"`, `\\"`, "`", "\\\\`", `$`, `\\$`, `%`, `%%`)
 
 func launchAgent(exe string) []byte {
 	return []byte(`<?xml version="1.0" encoding="UTF-8"?>

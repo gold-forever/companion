@@ -78,9 +78,20 @@ func TestLinuxInstallCopiesTheBinaryAddsALauncherAndStartsWithTheComputer(t *tes
 	}
 }
 
+// The Desktop Entry spec unescapes a value as a string before it applies the quoting rules, so a
+// reserved character inside quotes takes two backslashes, a backslash four, and % is written %%.
 func TestExecQuotesWhatTheDesktopSpecReserves(t *testing.T) {
-	if got := quoteExec(`/home/a "b"/$x`); got != `"/home/a \"b\"/\$x"` {
-		t.Errorf("quoteExec = %s", got)
+	cases := map[string]string{
+		`/home/a "b"/x`: `"/home/a \\"b\\"/x"`,
+		`/home/$x`:      `"/home/\\$x"`,
+		"/home/`x`":     "\"/home/\\\\`x\\\\`\"",
+		`/home/a\b`:     `"/home/a\\\\b"`,
+		`/home/100%`:    `"/home/100%%"`,
+	}
+	for path, want := range cases {
+		if got := quoteExec(path); got != want {
+			t.Errorf("quoteExec(%s) = %s, want %s", path, got, want)
+		}
 	}
 }
 
