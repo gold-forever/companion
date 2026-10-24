@@ -277,17 +277,48 @@ func TestStoppingMidUploadLeavesTheSavePendingWithoutWaiting(t *testing.T) {
 	}
 }
 
-func TestAForbiddenAccountStopsTheCompanionAndKeepsTheSave(t *testing.T) {
-	f := setup(t, http.StatusForbidden)
+// A suspension can be lifted, or the token's rights changed, without the player touching the companion.
+func TestAForbiddenAccountKeepsTheSaveAndTriesAgainLater(t *testing.T) {
+	f := setup(t, http.StatusForbidden, http.StatusOK)
+	var out strings.Builder
+	f.core.Out = &out
 
-	_ = f.core.Step(context.Background(), start)
-	err := f.core.Step(context.Background(), start.Add(2*time.Second))
-
-	var forbidden *api.ForbiddenError
-	if !errors.As(err, &forbidden) {
-		t.Fatalf("err = %v, want a ForbiddenError", err)
-	}
+	f.settle(t) // 403 at start+2s
 	if pending, _ := f.core.Backups.Pending(); len(pending) != 1 {
 		t.Fatal("the save was dropped; it should wait until the account may upload again")
+	}
+	if !strings.Contains(out.String(), "uploads wait until the account may upload again") {
+		t.Errorf("the player is not told why: %q", out.String())
+	}
+	at := start.Add(2 * time.Second)
+	if err := f.core.Step(context.Background(), at.Add(29*time.Minute)); err != nil || f.uploads() != 1 {
+		t.Fatalf("err = %v, uploads = %d: tried again too soon", err, f.uploads())
+	}
+	if err := f.core.Step(context.Background(), at.Add(30*time.Minute)); err != nil || f.uploads() != 2 {
+		t.Fatalf("err = %v, uploads = %d: not tried again after 30 minutes", err, f.uploads())
+	}
+	if pending, _ := f.core.Backups.Pending(); len(pending) != 0 {
+		t.Fatalf("still pending once the account may upload: %+v", pending)
+	}
+}
+
+func TestBackupsThatCannotBeListedAreSaidAndTriedAgain(t *testing.T) {
+	f := setup(t, http.StatusOK)
+	var out strings.Builder
+	f.core.Out = &out
+	notAFolder := filepath.Join(t.TempDir(), "backups")
+	if err := os.WriteFile(notAFolder, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.core.Backups.Dir = notAFolder
+
+	if err := f.core.Step(context.Background(), start); err != nil {
+		t.Fatalf("a folder that cannot be read stopped the uploads: %v", err)
+	}
+	if !strings.Contains(out.String(), "could not list the copies to send") {
+		t.Errorf("the player is not told: %q", out.String())
+	}
+	if !f.core.waitUntil.After(start) {
+		t.Error("it must wait before trying again")
 	}
 }

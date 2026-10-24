@@ -65,7 +65,8 @@ func (c *Core) Step(ctx context.Context, now time.Time) error {
 	}
 	pending, err := c.Backups.Pending()
 	if err != nil {
-		return err
+		c.say(now, "could not list the copies to send: %v; trying again in %s", err, c.backOff(now))
+		return nil
 	}
 	for _, p := range pending {
 		if c.IsOff(p.Source) {
@@ -79,7 +80,7 @@ func (c *Core) Step(ctx context.Context, now time.Time) error {
 }
 
 // send uploads one copy. It reports whether the rest must wait (stop), and an error when they must
-// wait for the player.
+// wait for the player to link again.
 func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop bool, err error) {
 	data, err := os.ReadFile(p.Path)
 	if err != nil {
@@ -101,16 +102,16 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 		c.say(now, "the server no longer accepts this token: link the companion again")
 		return true, err
 	case errors.As(err, &forbidden):
-		c.say(now, "%s: uploads wait until the account may upload again", forbidden.Reason)
-		return true, err
+		// Nothing on this side can change it, but the server can: a suspension ends, a token's rights change.
+		c.waitUntil = now.Add(longWait)
+		c.say(now, "%s: uploads wait until the account may upload again; trying again in %s", forbidden.Reason, longWait)
+		return true, nil
 	case errors.As(err, &limited):
 		c.waitUntil = now.Add(limited.RetryAfter)
 		c.say(now, "the server asked to wait %s", limited.RetryAfter)
 		return true, nil
 	case api.Retryable(err):
-		c.wait = nextBackoff(c.wait)
-		c.waitUntil = now.Add(c.wait)
-		c.say(now, "%v; trying again in %s", err, c.wait)
+		c.say(now, "%v; trying again in %s", err, c.backOff(now))
 		return true, nil
 	case errors.As(err, &refused):
 		c.done(now, p, label, data, "refused: "+refused.Reason)
@@ -132,6 +133,13 @@ func (c *Core) done(now time.Time, p backup.Copy, label string, data []byte, ans
 		c.say(now, "could not write the log: %v", err)
 	}
 	c.say(now, "sent %s: %s", label, answer)
+}
+
+// backOff waits longer than after the last failed try, and returns how long.
+func (c *Core) backOff(now time.Time) time.Duration {
+	c.wait = nextBackoff(c.wait)
+	c.waitUntil = now.Add(c.wait)
+	return c.wait
 }
 
 // nextBackoff doubles the wait after a failed try, from one minute up to thirty.

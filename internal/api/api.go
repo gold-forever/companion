@@ -54,7 +54,7 @@ var ErrUnauthorized = errors.New("the server does not accept this token")
 var ErrTooLarge = errors.New("the save is too large for the server")
 
 // ForbiddenError means the account may not upload now (suspended, or a token without upload rights):
-// uploads stop until that changes on the server.
+// uploads wait until that changes on the server.
 type ForbiddenError struct{ Reason string }
 
 func (e *ForbiddenError) Error() string { return "the server refuses uploads: " + e.Reason }
