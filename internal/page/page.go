@@ -50,7 +50,8 @@ type PriceFile struct {
 	Fetched *time.Time    `json:"fetched,omitempty"` // none before the first fetch
 	Outcome string        `json:"outcome,omitempty"` // ok, not modified, or error
 	Error   string        `json:"error,omitempty"`
-	Dings   string        `json:"dings,omitempty"` // the in-game dings switch the file carries; none from an older companion or server
+	Dings   string        `json:"dings,omitempty"`  // the in-game dings switch the file carries; none from an older companion or server
+	Shared  string        `json:"shared,omitempty"` // how many lists and profiles the file carries; none from an older companion or server
 }
 
 // PriceMarket is one market in a price file and its item count.

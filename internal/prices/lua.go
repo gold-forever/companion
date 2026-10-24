@@ -21,6 +21,7 @@ func Lua(a Answer) []byte {
 	b.WriteString("-- Written by the Gold Forever companion and replaced on every refresh: do not edit.\n")
 	b.WriteString("GoldForever_Prices = {\n  v = 1,\n")
 	fmt.Fprintf(&b, "  at = %d,\n", a.At)
+	b.WriteString(sharedPart(a.Shared))
 	b.WriteString(dingsPart(a.Dings))
 	b.WriteString("  markets = {\n")
 	for _, p := range a.Markets {
