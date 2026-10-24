@@ -36,7 +36,7 @@ for byte.
 
    ```sh
    git clone https://github.com/gold-forever/companion
-   cd gold-forever-companion
+   cd companion
    git checkout v0.1.0
    gh release download v0.1.0 --pattern SHA256SUMS
    ```
