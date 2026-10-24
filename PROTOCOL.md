@@ -140,6 +140,9 @@ A failing game leaves the other's prices written.
   copper. The app checks every field (version 1, the game and market it asked for, plain integers,
   ids above 0, nothing negative or past 2^53, market keys of letters, digits, `-` and `_`, none twice);
   any fault refuses the whole answer and the last good file stays. No markets writes an empty table.
+  An item may also carry `"week"`, the 7-day mean of its daily values in copper, absent when the
+  server has too little history; one that is not an integer from 1 to 2^53−1 is read as absent for
+  that item and refuses nothing.
 - An answer over 4 MB (retail: 8 MB), or one whose `Data.lua` would be over 1 MB (retail: 4 MB), is
   refused and the last good file stays; a market taking over 200 KB of it (retail: 1 MB) is written
   with a warning. Retail's markets are realm groups of 8–13k items.
@@ -149,7 +152,8 @@ A failing game leaves the other's prices written.
   are; 429 after `Retry-After`.
 
 The app then writes `Interface/AddOns/GoldForever_Data/` in each flavour folder of the game: a TOC with
-the interface number its save names, and `Data.lua`, one table of integers under quoted market keys,
+the interface number its save names, and `Data.lua`, one table of integers under quoted market keys
+(`[itemId] = { value, minBuyout, players, scannedAt }`, with `week` fifth when the item has one),
 each through a temporary file renamed into place. The server never sends Lua, so a compromised server
 could send wrong prices but could never run code in your game.
 
