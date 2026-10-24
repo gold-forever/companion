@@ -16,6 +16,7 @@ import (
 	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/refused"
 )
 
 const validToken = "gf_0123456789abcdefghijABCDEFGHIJklmnopqrstuvw"
@@ -97,6 +98,24 @@ func TestSavesAreFoundWithTheirGameAndCanBeSwitchedOff(t *testing.T) {
 	}
 	if err := c.SetSaveOn("/etc/passwd", false); err == nil {
 		t.Error("only a save the companion found can be switched")
+	}
+}
+
+func TestASaveRefusedAsTooLargeSaysItIsRetriedDaily(t *testing.T) {
+	c, save := fixture(t)
+	if note := c.State().Saves[0].Note; note != "" {
+		t.Fatalf("note before any refusal: %q", note)
+	}
+
+	if err := c.refused.Refuse(save, "0123", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	if note := c.State().Saves[0].Note; note != "refused as too large, retrying daily" {
+		t.Fatalf("note = %q", note)
+	}
+	if !refused.Load(filepath.Join(c.dataDir, refusedFile)).Holds(save) {
+		t.Fatal("the refusal is not kept in the data folder for the next start")
 	}
 }
 

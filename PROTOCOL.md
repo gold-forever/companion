@@ -47,7 +47,7 @@ curl -H "Authorization: Bearer $GF_TOKEN" -H 'Content-Type: application/octet-st
 | 400 | `{"status":"unknown game","reason":"unknown game version 30403"}` | Shows the reason; doesn't resend |
 | 401 | `{"status":"unauthorized"}` | Stops; the token is wrong or revoked |
 | 403 | `{"status":"…"}` (account suspended, or a token without upload rights) | Stops |
-| 413 | `{"status":"too large"}` | Shows it; doesn't resend |
+| 413 | `{"status":"too large"}` | Shows it; sends the same save again at the next start and once a day, until it goes through or a newer save replaces it |
 | 415 | `{"status":"send the file as application/octet-stream"}` | A client bug |
 | 422 | `{"status":"rejected","reason":"…"}` (not readable as a save) | Waits for the next save |
 | 429 | `Retry-After: <seconds>` (planned) | Waits that long, then tries again |
