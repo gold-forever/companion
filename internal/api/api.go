@@ -21,6 +21,12 @@ const saveName = "GoldForever.lua"
 // A 429 without Retry-After waits this long.
 const defaultRetryAfter = time.Minute
 
+// The statuses of a 200: the save is the server's now.
+const (
+	statusImported        = "imported"
+	statusAlreadyImported = "already imported"
+)
+
 // The server's answers are small JSON objects; anything longer is not one.
 const maxAnswerBytes = 64 << 10
 
@@ -106,11 +112,16 @@ func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
 	return answer(res, body)
 }
 
+// answer reads the server's answer. Only the answers PROTOCOL.md names as final settle a save; any
+// other, such as a proxy's 404 mid-deploy or a captive portal's 200, is tried again.
 func answer(res *http.Response, body []byte) (Answer, error) {
 	var a Answer
-	_ = json.Unmarshal(body, &a)
+	unreadable := json.Unmarshal(body, &a) != nil
 	switch {
 	case res.StatusCode == http.StatusOK:
+		if unreadable || (a.Status != statusImported && a.Status != statusAlreadyImported) {
+			return a, &unavailableError{errors.New("an answer that is not the server's")}
+		}
 		return a, nil
 	case res.StatusCode == http.StatusUnauthorized:
 		return a, ErrUnauthorized
@@ -120,10 +131,13 @@ func answer(res *http.Response, body []byte) (Answer, error) {
 		return a, ErrTooLarge
 	case res.StatusCode == http.StatusTooManyRequests:
 		return a, &RateLimitedError{retryAfter(res.Header.Get("Retry-After"))}
+	case res.StatusCode == http.StatusBadRequest, res.StatusCode == http.StatusUnsupportedMediaType,
+		res.StatusCode == http.StatusUnprocessableEntity:
+		return a, &RefusedError{res.StatusCode, reasonOf(a)}
 	case res.StatusCode >= 500:
 		return a, &unavailableError{fmt.Errorf("status %d", res.StatusCode)}
 	default:
-		return a, &RefusedError{res.StatusCode, reasonOf(a)}
+		return a, &unavailableError{fmt.Errorf("unexpected answer %d", res.StatusCode)}
 	}
 }
 

@@ -112,11 +112,10 @@ func (c *Client) pollToken(ctx context.Context, deviceCode string) (token, verdi
 		return reply.AccessToken, "", nil
 	case res.StatusCode == http.StatusBadRequest && reply.Error != "":
 		return "", reply.Error, nil
+	case res.StatusCode == http.StatusOK:
+		return "", "", errors.New("the server answered without a token")
 	default:
 		_, err := answer(res, body)
-		if err == nil {
-			err = errors.New("the server answered without a token")
-		}
 		return "", "", err
 	}
 }

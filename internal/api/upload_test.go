@@ -175,3 +175,41 @@ func TestTheBaseURLMayEndWithASlash(t *testing.T) {
 		t.Errorf("path = %q", seen.URL.Path)
 	}
 }
+
+// A proxy or ingress mid-deploy, or a wrong url in the settings, is not the server's last word on a save.
+func TestAnUnexpectedClientErrorIsRetried(t *testing.T) {
+	for _, status := range []int{404, 405, 408, 409, 421} {
+		c, _, _ := server(t, status, `<html>not here</html>`, nil)
+
+		_, err := c.Upload(context.Background(), []byte("x"))
+
+		var refused *RefusedError
+		if !Retryable(err) || errors.As(err, &refused) {
+			t.Errorf("%d: err = %v, retryable = %v", status, err, Retryable(err))
+		}
+	}
+}
+
+func TestAWrongContentTypeIsRefusedForGood(t *testing.T) {
+	c, _, _ := server(t, 415, `{"status":"send the file as application/octet-stream"}`, nil)
+
+	_, err := c.Upload(context.Background(), []byte("x"))
+
+	var refused *RefusedError
+	if !errors.As(err, &refused) || Retryable(err) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A captive portal or a proxy answers 200 too; only the server's own answer means the save arrived.
+func TestA200ThatIsNotTheServersAnswerIsRetried(t *testing.T) {
+	for _, body := range []string{`<html>portal</html>`, `{"status":"maybe"}`, ``} {
+		c, _, _ := server(t, 200, body, nil)
+
+		_, err := c.Upload(context.Background(), []byte("x"))
+
+		if !Retryable(err) {
+			t.Errorf("%q: err = %v, retryable = %v", body, err, Retryable(err))
+		}
+	}
+}

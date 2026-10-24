@@ -229,6 +229,19 @@ func TestARefusedSaveIsLoggedAndNotSentAgain(t *testing.T) {
 	}
 }
 
+func TestAnUnexpectedAnswerKeepsTheSavePending(t *testing.T) {
+	f := setup(t, http.StatusNotFound, http.StatusOK)
+
+	f.settle(t)
+	if pending, _ := f.core.Backups.Pending(); len(pending) != 1 {
+		t.Fatal("a 404 is not the server's answer about the save: it must stay pending")
+	}
+	_ = f.core.Step(context.Background(), start.Add(2*time.Second+time.Minute))
+	if pending, _ := f.core.Backups.Pending(); f.uploads() != 2 || len(pending) != 0 {
+		t.Fatalf("uploads = %d, pending = %+v: not sent again after the wait", f.uploads(), pending)
+	}
+}
+
 func TestPendingSavesAreSentOldestFirst(t *testing.T) {
 	f := setup(t, http.StatusServiceUnavailable, http.StatusOK)
 	f.settle(t) // save 1 waits after a 503
