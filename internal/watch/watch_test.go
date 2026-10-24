@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,6 +77,30 @@ func TestAnIncompleteSaveWaitsForTheNextChange(t *testing.T) {
 	w.Poll(start.Add(5*time.Second), []string{path})
 	if got := w.Poll(start.Add(7*time.Second), []string{path}); len(got) != 1 {
 		t.Fatalf("the finished save was not reported: %v", got)
+	}
+}
+
+// A scanner or backup tool holding the file (a sharing violation on Windows) must not cost the save
+// until the game next writes it.
+func TestASaveThatCouldNotBeReadIsReadAgainAtTheNextPoll(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "GoldForever.lua")
+	write(t, path, complete, start)
+	w := New(2 * time.Second)
+	failures := 1
+	w.read = func(p string) ([]byte, error) {
+		if failures > 0 {
+			failures--
+			return nil, errors.New("the process cannot access the file because it is being used by another process")
+		}
+		return os.ReadFile(p)
+	}
+
+	w.Poll(start, []string{path})
+	if got := w.Poll(start.Add(2*time.Second), []string{path}); len(got) != 0 {
+		t.Fatalf("reported a save it could not read: %v", got)
+	}
+	if got := w.Poll(start.Add(4*time.Second), []string{path}); len(got) != 1 || string(got[0].Data) != complete {
+		t.Fatalf("not read again after a failed read: %v", got)
 	}
 }
 

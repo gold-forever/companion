@@ -37,7 +37,8 @@ func New(settle time.Duration) *Watcher {
 }
 
 // Poll looks at every path once and returns the saves that settled since the last poll. A file that
-// settles incomplete is not read again until it changes, so a broken file is never retried in a loop.
+// settles incomplete is not read again until it changes, so a broken file is never retried in a loop;
+// one that could not be read at all is.
 func (w *Watcher) Poll(now time.Time, paths []string) []Settled {
 	var out []Settled
 	for _, path := range paths {
@@ -54,9 +55,12 @@ func (w *Watcher) Poll(now time.Time, paths []string) []Settled {
 		if s.read || now.Sub(s.changedAt) < w.settle {
 			continue
 		}
-		s.read = true
 		data, err := w.read(path)
-		if err == nil && Complete(data) {
+		if err != nil {
+			continue // held by another program for now: the next poll tries again
+		}
+		s.read = true
+		if Complete(data) {
 			out = append(out, Settled{path, data})
 		}
 	}
