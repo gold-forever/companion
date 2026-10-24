@@ -248,9 +248,16 @@ func TestUninstallLeavesSharedFoldersAndRemovesOnlyItsOwn(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".local", "bin")); err != nil {
 		t.Error("~/.local/bin is shared with other programs and the PATH: it stays, even empty")
 	}
-	w, _ := env(t, "windows")
+	w, whome := env(t, "windows")
 	wl := For(w)
+	if own := winJoin(filepath.Join(whome, "AppData", "Local"), "Gold Forever"); wl.OwnDir != own {
+		t.Fatalf("OwnDir = %q, want %q", wl.OwnDir, own)
+	}
 	if err := wl.Install(downloaded(t)); err != nil {
+		t.Fatal(err)
+	}
+	// On Windows installing makes the folder; here the \-joined path is one name, so the test does.
+	if err := os.MkdirAll(wl.OwnDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := wl.Uninstall(downloaded(t), false); err != nil {

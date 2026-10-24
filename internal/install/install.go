@@ -67,6 +67,7 @@ func For(e Env) Layout {
 		return Layout{
 			GOOS:        e.GOOS,
 			Exe:         winJoin(dir, "GoldForever-Companion.exe"),
+			OwnDir:      dir,
 			Shortcut:    winJoin(roaming, `Microsoft\Windows\Start Menu\Programs`, appName+".lnk"),
 			Autostart:   e.RunKey,
 			AutostartAt: `the Run key in your user's registry (HKEY_CURRENT_USER\` + runPath + `)`,
