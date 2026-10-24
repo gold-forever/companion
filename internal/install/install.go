@@ -10,7 +10,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/gold-forever/companion/internal/config"
 )
 
 const (
@@ -46,7 +49,7 @@ type Layout struct {
 	Autostart Autostart
 	// AutostartAt says where autostart is recorded, for the first-run panel.
 	AutostartAt string
-	Config      string   // the settings folder: always removed on Uninstall, as it holds the token
+	Config      string   // the settings folder: its settings file, with the token, always goes on Uninstall
 	Data        []string // backups and the upload log: kept on Uninstall when the player asks
 	// MoveAside removes a binary that may be running. Windows cannot delete one, so there it is moved
 	// into the temporary folder instead.
@@ -163,13 +166,22 @@ func (l Layout) Uninstall(running string, keepData bool) error {
 	if l.OwnDir != "" {
 		_ = os.Remove(l.OwnDir) // only when empty: a binary moved aside beside it stays visible
 	}
-	errs = append(errs, os.RemoveAll(l.Config))
+	errs = append(errs, l.removeSettings(keepData))
 	if !keepData {
 		for _, dir := range l.Data {
 			errs = append(errs, os.RemoveAll(dir))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// removeSettings removes the settings folder, as it holds the token. Where the data shares it (macOS)
+// and the player keeps the data, only the settings file goes.
+func (l Layout) removeSettings(keepData bool) error {
+	if keepData && slices.Contains(l.Data, l.Config) {
+		return removeIfThere(filepath.Join(l.Config, config.FileName))
+	}
+	return os.RemoveAll(l.Config)
 }
 
 // copyBinary writes the binary next to its destination first and renames it into place, so a

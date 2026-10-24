@@ -84,31 +84,41 @@ func TestExecQuotesWhatTheDesktopSpecReserves(t *testing.T) {
 	}
 }
 
+// On macOS the settings and the data share one folder, so keeping the data must not remove it.
 func TestUninstallRemovesEverythingAndKeepsBackupsOnlyWhenAsked(t *testing.T) {
-	for _, keep := range []bool{true, false} {
-		e, home := env(t, "linux")
-		l := For(e)
-		if err := l.Install(downloaded(t)); err != nil {
-			t.Fatal(err)
-		}
-		for _, dir := range append([]string{l.Config}, l.Data...) {
-			if err := os.MkdirAll(dir, 0o700); err != nil {
+	for _, goos := range []string{"linux", "windows", "darwin"} {
+		for _, keep := range []bool{true, false} {
+			e, _ := env(t, goos)
+			l := For(e)
+			l.MoveAside = os.Remove
+			download := downloaded(t)
+			if err := l.Install(download); err != nil {
 				t.Fatal(err)
 			}
-			os.WriteFile(filepath.Join(dir, "file"), []byte("x"), 0o600)
-		}
-		if err := l.Uninstall(l.Exe, keep); err != nil {
-			t.Fatal(err)
-		}
-		for _, gone := range []string{l.Exe, l.Shortcut, filepath.Join(home, ".config", "autostart", "gold-forever-companion.desktop"), l.Config} {
-			if _, err := os.Stat(gone); !os.IsNotExist(err) {
-				t.Errorf("keep=%v: %s is still there", keep, gone)
+			running := l.Target(download)
+			settings := filepath.Join(l.Config, "config.json")
+			for path, text := range map[string]string{settings: `{"token":"gf_x"}`, filepath.Join(l.Data[0], "sent.jsonl"): "{}\n"} {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		for _, dir := range l.Data {
-			_, err := os.Stat(dir)
+			if err := l.Uninstall(running, keep); err != nil {
+				t.Fatal(err)
+			}
+			for _, gone := range []string{l.Exe, l.Shortcut, settings} {
+				if _, err := os.Stat(gone); gone != "" && !os.IsNotExist(err) {
+					t.Errorf("%s keep=%v: %s is still there", goos, keep, gone)
+				}
+			}
+			if l.Autostart.Enabled() {
+				t.Errorf("%s keep=%v: autostart is still on", goos, keep)
+			}
+			_, err := os.Stat(filepath.Join(l.Data[0], "sent.jsonl"))
 			if kept := err == nil; kept != keep {
-				t.Errorf("keep=%v: data folder %s kept=%v", keep, dir, kept)
+				t.Errorf("%s keep=%v: the upload log kept=%v", goos, keep, kept)
 			}
 		}
 	}

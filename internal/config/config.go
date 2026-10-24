@@ -23,13 +23,16 @@ type Config struct {
 // IsOff says whether the player switched the save at path off.
 func (c Config) IsOff(path string) bool { return slices.Contains(c.Off, path) }
 
+// FileName is the settings file's name in its folder.
+const FileName = "config.json"
+
 // Path is the settings file in the operating system's per-user config folder.
 func Path() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "gold-forever-companion", "config.json"), nil
+	return filepath.Join(dir, "gold-forever-companion", FileName), nil
 }
 
 // Load reads the settings; a missing file is an empty Config.
