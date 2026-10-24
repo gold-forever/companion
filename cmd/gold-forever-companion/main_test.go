@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/config"
+	"github.com/gold-forever/companion/internal/link"
 )
 
 func save(t *testing.T) string {
@@ -201,9 +202,7 @@ func TestLinkShowsTheCodeAndSavesTheApprovedTokenWithoutPrintingIt(t *testing.T)
 	if code != 0 {
 		t.Fatalf("code = %d, out = %q", code, out.String())
 	}
-	sharing := "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
-		"never your name. Your characters, gold and ledger stay private."
-	for _, want := range []string{"BCDF-GHJK", "https://gf/link?code=BCDF-GHJK", sharing} {
+	for _, want := range []string{"BCDF-GHJK", "https://gf/link?code=BCDF-GHJK", link.SharingLine} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q: %q", want, out.String())
 		}

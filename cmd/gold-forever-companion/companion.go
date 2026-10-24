@@ -147,6 +147,7 @@ func (c *companion) State() page.State {
 		Version:   c.version,
 		Site:      c.url(),
 		Linked:    cfg.Token != "",
+		Sharing:   link.SharingLine,
 		Status:    c.status.String(),
 		FirstRun:  !cfg.Welcomed,
 		Installed: c.installed(),

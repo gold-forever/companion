@@ -77,3 +77,12 @@ func TestLinkLeavesTheSettingsAloneWhenDenied(t *testing.T) {
 		t.Errorf("token = %q, want the old one kept", cfg.Token)
 	}
 }
+
+// The site says it in frontend/src/app/sharing.ts; a change there is a change here, word for word.
+func TestTheSharingLineIsTheSitesOwn(t *testing.T) {
+	const site = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
+		"never your name. Your characters, gold and ledger stay private."
+	if SharingLine != site {
+		t.Errorf("SharingLine = %q", SharingLine)
+	}
+}

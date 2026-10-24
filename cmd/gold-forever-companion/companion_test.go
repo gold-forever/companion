@@ -11,6 +11,7 @@ import (
 
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/install"
+	"github.com/gold-forever/companion/internal/link"
 )
 
 const validToken = "gf_0123456789abcdefghijABCDEFGHIJklmnopqrstuvw"
@@ -63,6 +64,13 @@ func TestLinkTakesOnlyATokenAndKeepsItForItsOwner(t *testing.T) {
 	case <-before:
 	default:
 		t.Error("linking must restart the upload loop with the new token")
+	}
+}
+
+func TestThePageSaysWhatEveryUploadShares(t *testing.T) {
+	c, _ := fixture(t)
+	if got := c.State().Sharing; got != link.SharingLine {
+		t.Errorf("sharing = %q", got)
 	}
 }
 

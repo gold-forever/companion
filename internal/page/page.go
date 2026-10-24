@@ -29,6 +29,7 @@ type State struct {
 	Version   string   `json:"version"`
 	Site      string   `json:"site"`
 	Linked    bool     `json:"linked"`
+	Sharing   string   `json:"sharing"` // what every upload shares, shown where the player links
 	Status    string   `json:"status"`
 	FirstRun  bool     `json:"firstRun"`
 	Installed []string `json:"installed"` // what installing did, one line each, for the first-run panel
