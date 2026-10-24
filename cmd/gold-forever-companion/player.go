@@ -31,8 +31,8 @@ func init() { runtime.LockOSThread() }
 
 // player is what a double-click does. A download installs itself and starts the installed copy; the
 // installed copy shows the running one's page if there is one, and otherwise runs: the page, the
-// tray and the uploads. mode is "" for a double-click, --installed right after installing, and
-// --autostart at login, which stays quiet in the tray.
+// tray and the uploads. mode is "" for a double-click, --installed when a download starts the
+// installed copy, and --autostart at login, which stays quiet in the tray.
 func player(ctx context.Context, mode string) int {
 	exe, err := os.Executable()
 	if err == nil {
@@ -76,7 +76,7 @@ func installFromDownload(l install.Layout, exe string, other instance.Info, aliv
 		if alive {
 			return openBrowser(instance.PageURL(other))
 		}
-		return start(l.Exe)
+		return start(l.Exe, "--installed")
 	}
 	if alive {
 		if err := instance.Quit(other); err != nil {

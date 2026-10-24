@@ -20,6 +20,10 @@ func env(t *testing.T, goos string) (Env, string) {
 	return Env{GOOS: goos, Home: home, Getenv: func(k string) string { return vars[k] }, RunKey: &fakeRunKey{}}, home
 }
 
+type vars map[string]string
+
+func (v vars) get(k string) string { return v[k] }
+
 type fakeRunKey struct{ value string }
 
 func (k *fakeRunKey) Enable(exe string) error { k.value = `"` + exe + `" --autostart`; return nil }
@@ -162,6 +166,22 @@ func TestWindowsComparesPathsWithoutCase(t *testing.T) {
 	l := For(e)
 	if l.NeedsInstall(strings.ToUpper(l.Exe)) {
 		t.Error(`C:\USERS\… and C:\Users\… are the same file on Windows`)
+	}
+}
+
+func TestWindowsComparesTwoSpellingsOfOnePath(t *testing.T) {
+	e := Env{GOOS: "windows", Getenv: vars{"LOCALAPPDATA": `C:\Users\A\AppData\Local\`}.get}
+	l := For(e)
+	for _, running := range []string{
+		`C:\Users\A\AppData\Local\Gold Forever\GoldForever-Companion.exe`,
+		`C:/Users/A/AppData/Local/Gold Forever/GoldForever-Companion.exe`,
+	} {
+		if l.NeedsInstall(running) {
+			t.Errorf("%s is the installed copy %s", running, l.Exe)
+		}
+	}
+	if !l.NeedsInstall(`C:\Users\A\Downloads\GoldForever-Companion.exe`) {
+		t.Error("a download must still install itself")
 	}
 }
 
