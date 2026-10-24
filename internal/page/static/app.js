@@ -89,10 +89,11 @@ function showPrices(files) {
       fetched = `${new Date(f.fetched).toLocaleString()} · ${f.outcome === "error" ? "error: " + f.error : f.outcome}`;
     }
     const r = row(`${f.flavour} (${f.game})`, markets, String(f.items), size, fetched);
-    if (f.dings) {
+    for (const text of [f.dings, f.shared]) {
+      if (!text) continue;
       const line = document.createElement("div");
       line.className = "hint";
-      line.textContent = f.dings;
+      line.textContent = text;
       r.firstChild.append(line);
     }
     if (f.outcome === "error") r.className = "failed";

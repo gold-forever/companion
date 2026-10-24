@@ -177,3 +177,28 @@ If-None-Match: "<the ETag of the dings state held>"
 true } }`; the addon compares its own choices against `dings.at`.
 A changed state rewrites `Data.lua` even when the prices answer 304; after a restart, when the prices
 written are no longer in memory, that one refresh asks for the prices without `If-None-Match`.
+
+## Shopping lists and sale profiles
+
+With every price refresh, one request for the account's shopping lists and sale profiles, the same for
+every game of the account:
+
+```http
+GET /api/v1/shared/state
+Authorization: Bearer gf_...
+If-None-Match: "<the ETag of the shared state held>"
+```
+
+- 200 `{"v":1,"at":<epoch s>,"lists":[{"id":"…","edited":<epoch s>,"string":"GFL1:…"}],"profiles":[{"id":"…","edited":<epoch s>,"string":"GFP1:…"}]}`:
+  when the account's set last changed, and each list and profile with its id and last edit. The app
+  checks it (version 1, plain integers, at most 50 lists and 50 profiles, ids of 1–64 `A-Z a-z 0-9 _ -`
+  none twice in a kind, strings starting `GFL1:` or `GFP1:` of printable ASCII only); any fault keeps
+  the last good state (or writes none), as does a failed request. Up to 1 MB; it is kept with its ETag
+  in `prices.json`. 401 and 403 are as for prices.
+- 304: the state held is still current.
+- 404 (a server from before it): no state; `Data.lua` goes without one, and the addon keeps its own.
+
+`Data.lua` carries it beside `dings` as `shared = { at = <n>, lists = { { id = "…", edited = <n>,
+string = "GFL1:…" } }, profiles = { { id = "…", edited = <n>, string = "GFP1:…" } } }`, counted in the
+game's file limit; the addon merges it by id, the newer `edited` winning. A changed state rewrites
+`Data.lua` even when the prices answer 304, as the dings state does.

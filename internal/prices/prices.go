@@ -41,6 +41,7 @@ type Answer struct {
 	At      int64
 	Markets []Prices
 	Dings   *Dings
+	Shared  *Shared
 }
 
 type rawMarket struct {

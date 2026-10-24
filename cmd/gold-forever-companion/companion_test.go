@@ -303,7 +303,7 @@ func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
 	if got := c.State().Prices; len(got) != 1 || got[0].Fetched != nil || got[0].Outcome != "" || got[0].Size != 0 {
 		t.Fatalf("before a fetch: %+v", got)
 	}
-	r := c.refresher(pricesServer{twoItems}, nil)
+	r := c.refresher(pricesServer{twoItems}, nil, nil)
 
 	if err := r.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
@@ -317,8 +317,8 @@ func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
 		got[0].Size != int64(len(lua)) || got[0].Fetched == nil || got[0].Outcome != "ok" {
 		t.Fatalf("after a fetch: %+v", got)
 	}
-	if got[0].Dings != "" {
-		t.Errorf("a file without dings shows %q", got[0].Dings)
+	if got[0].Dings != "" || got[0].Shared != "" {
+		t.Errorf("a file without dings or shared state shows %q, %q", got[0].Dings, got[0].Shared)
 	}
 }
 
@@ -336,10 +336,32 @@ func TestThePageShowsTheDingsSwitchStateEachPriceFileHolds(t *testing.T) {
 		`{"v":1,"at":7,"webhook":true,"characters":{}}`:                                                          "Dings: webhook on · 0 characters on",
 	} {
 		c, _ := fixture(t)
-		if err := c.refresher(pricesServer{twoItems}, dingsServer{body}).Refresh(context.Background()); err != nil {
+		if err := c.refresher(pricesServer{twoItems}, dingsServer{body}, nil).Refresh(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if got := c.State().Prices; len(got) != 1 || got[0].Dings != want {
+			t.Errorf("%s: shows %+v, want %q", body, got, want)
+		}
+	}
+}
+
+// sharedServer answers the account's shared lists and profiles with body.
+type sharedServer struct{ body string }
+
+func (s sharedServer) SharedState(context.Context, string) ([]byte, string, error) {
+	return []byte(s.body), `"s1"`, nil
+}
+
+func TestThePageCountsTheListsAndProfilesEachPriceFileHolds(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"v":1,"at":7,"lists":[{"id":"a","edited":1,"string":"GFL1:x"},{"id":"b","edited":1,"string":"GFL1:y"}],"profiles":[{"id":"a","edited":1,"string":"GFP1:z"}]}`: "Lists: 2 · Profiles: 1",
+		`{"v":1,"at":7,"lists":[],"profiles":[]}`: "Lists: 0 · Profiles: 0",
+	} {
+		c, _ := fixture(t)
+		if err := c.refresher(pricesServer{twoItems}, nil, sharedServer{body}).Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got := c.State().Prices; len(got) != 1 || got[0].Shared != want {
 			t.Errorf("%s: shows %+v, want %q", body, got, want)
 		}
 	}

@@ -197,6 +197,9 @@ func priceFile(f prices.File) page.PriceFile {
 	if f.Dings != nil {
 		p.Dings = dingsLine(*f.Dings)
 	}
+	if f.Shared != nil {
+		p.Shared = fmt.Sprintf("Lists: %d · Profiles: %d", f.Shared.Lists, f.Shared.Profiles)
+	}
 	return p
 }
 
@@ -218,10 +221,11 @@ func dingsLine(d prices.Dings) string {
 	return fmt.Sprintf("Dings: webhook %s · %d %s on", webhook, on, characters)
 }
 
-// refresher keeps the account's prices and dings state in the game, fetched with f and d.
-func (c *companion) refresher(f prices.Fetcher, d prices.DingsFetcher) *prices.Refresher {
+// refresher keeps the account's prices, dings state and shared lists and profiles in the game, fetched
+// with f, d and s.
+func (c *companion) refresher(f prices.Fetcher, d prices.DingsFetcher, s prices.SharedFetcher) *prices.Refresher {
 	return &prices.Refresher{
-		Fetcher: f, Dings: d, Saves: c.saves, Market: c.settings().Market,
+		Fetcher: f, Dings: d, Shared: s, Saves: c.saves, Market: c.settings().Market,
 		State: filepath.Join(c.dataDir, pricesState), Out: c.status, Report: c.prices,
 	}
 }
@@ -450,7 +454,7 @@ func (c *companion) loop(ctx context.Context) {
 			})
 			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
 			imported, announce := prices.Trigger()
-			refresher := c.refresher(client, client)
+			refresher := c.refresher(client, client, client)
 			started.Go(func() { refresher.Run(run, refreshPricesEvery, time.After, imported) })
 			loop := &core.Core{
 				Uploader: client,

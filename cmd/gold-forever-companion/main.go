@@ -159,7 +159,7 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	}
 	server := client(url, token)
 	refresher := &prices.Refresher{
-		Fetcher: server, Dings: server, Saves: c.Saves, Market: *market,
+		Fetcher: server, Dings: server, Shared: server, Saves: c.Saves, Market: *market,
 		State: filepath.Join(data, pricesState), Out: stdout,
 	}
 	ctx, stop := context.WithCancel(ctx)

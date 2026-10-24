@@ -35,22 +35,32 @@ type Refresher struct {
 	Report  *Report // how each fetch and write went, for the page; may be nil
 	// Dings fetches the account's dings state, written beside the prices in every game; nil writes none.
 	Dings DingsFetcher
+	// Shared fetches the account's lists and profiles, written beside the prices in every game; nil
+	// writes none.
+	Shared SharedFetcher
 
 	last map[string]written // by game: the answer its files were last written from in this run
 }
 
 // held is what a game's Data.lua files hold: the answer asked for (a market, or "" for the account's
-// markets) under its ETag, and the dings entry written with it. Under dingsKey it is the account's
-// dings state as the server sent it, under its ETag.
+// markets) under its ETag, and the dings and shared entries written with it. Under dingsKey and
+// sharedKey it is the account's dings or shared state as the server sent it, under its ETag.
 type held struct {
-	Ask   string          `json:"ask"`
-	ETag  string          `json:"etag"`
-	Dings string          `json:"dings,omitempty"`
-	State json.RawMessage `json:"state,omitempty"`
+	Ask    string          `json:"ask"`
+	ETag   string          `json:"etag"`
+	Dings  string          `json:"dings,omitempty"`
+	Shared string          `json:"shared,omitempty"`
+	State  json.RawMessage `json:"state,omitempty"`
 }
 
 // The state file's entry for the dings state, beside the games'.
 const dingsKey = "dings"
+
+// extras is what every game's Data.lua carries beside its prices, the same for the account.
+type extras struct {
+	dings  *Dings
+	shared *Shared
+}
 
 // written is an answer a game's files were written from, under the ETag it came with.
 type written struct {
@@ -100,11 +110,18 @@ func Trigger() (<-chan struct{}, func()) {
 func (r *Refresher) Refresh(ctx context.Context) error {
 	byGame := flavoursByGame(r.Saves())
 	state := r.state()
-	dings, err := r.dings(ctx, state)
-	errs := []error{err}
+	var x extras
+	var dingsErr, sharedErr error
+	if r.Dings != nil {
+		x.dings, dingsErr = accountState(ctx, r, state, dingsKey, "dings state", r.Dings.DingsState, ParseDings, api.ErrNoDings)
+	}
+	if r.Shared != nil {
+		x.shared, sharedErr = accountState(ctx, r, state, sharedKey, "shared lists and profiles", r.Shared.SharedState, ParseShared, api.ErrNoShared)
+	}
+	errs := []error{dingsErr, sharedErr}
 	for _, game := range games {
 		if len(byGame[game]) > 0 {
-			errs = append(errs, r.refreshGame(ctx, game, byGame[game], state, dings))
+			errs = append(errs, r.refreshGame(ctx, game, byGame[game], state, x))
 		}
 	}
 	if err := r.saveState(state); err != nil {
@@ -113,54 +130,53 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// dings fetches the account's dings state under the ETag of the one held. A failed fetch or a state
-// out of shape keeps the one held; a server without it (404) has none. nil is none: the files then go
-// without a dings entry, as an older companion's.
-func (r *Refresher) dings(ctx context.Context, state map[string]held) (*Dings, error) {
-	if r.Dings == nil {
-		return nil, nil
-	}
-	var last *Dings
+// accountState fetches the account's state under key (the dings or shared state) with the ETag of the
+// one held. A failed fetch or a state out of shape keeps the one held; a server without it (none, a
+// 404) has none. nil is none: the files then go without that entry, as an older companion's.
+func accountState[T any](ctx context.Context, r *Refresher, state map[string]held, key, label string,
+	fetch func(context.Context, string) ([]byte, string, error), parse func([]byte) (T, error), none error) (*T, error) {
+	var last *T
 	etag := ""
-	if h := state[dingsKey]; h.State != nil {
-		if d, err := ParseDings(h.State); err == nil {
-			last, etag = &d, h.ETag
+	if h := state[key]; h.State != nil {
+		if v, err := parse(h.State); err == nil {
+			last, etag = &v, h.ETag
 		}
 	}
-	body, etag, err := r.Dings.DingsState(ctx, etag)
+	body, etag, err := fetch(ctx, etag)
 	switch {
 	case errors.Is(err, api.ErrNotModified):
 		return last, nil
-	case errors.Is(err, api.ErrNoDings):
-		delete(state, dingsKey)
+	case errors.Is(err, none):
+		delete(state, key)
 		return nil, nil
 	case err != nil:
-		fmt.Fprintf(r.Out, "dings state not fetched: %v\n", err)
+		fmt.Fprintf(r.Out, "%s not fetched: %v\n", label, err)
 		return last, err
 	}
-	d, err := ParseDings(body)
+	v, err := parse(body)
 	if err != nil {
-		fmt.Fprintf(r.Out, "dings state refused: %v\n", err)
+		fmt.Fprintf(r.Out, "%s refused: %v\n", label, err)
 		return last, nil
 	}
-	state[dingsKey] = held{ETag: etag, State: body}
-	return &d, nil
+	state[key] = held{ETag: etag, State: body}
+	return &v, nil
 }
 
-// refreshGame fetches game's answer once and writes it, with dings, into each flavour. It asks only for
-// a change when every flavour has the file it last wrote and that file's dings entry is current or the
-// answer is in memory to write it again. A failed fetch or an answer out of shape writes nothing, so
+// refreshGame fetches game's answer once and writes it, with the extras, into each flavour. It asks
+// only for a change when every flavour has the file it last wrote and that file's dings and shared
+// entries are current or the answer is in memory to write it again. A failed fetch or an answer out of shape writes nothing, so
 // the last good files stay; the error is the fetch's.
-func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]int, state map[string]held, dings *Dings) error {
+func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]int, state map[string]held, x extras) error {
 	ask, label := "", "the account's "+game+" markets"
 	if strings.HasPrefix(r.Market, game+"-") {
 		ask, label = r.Market, r.Market
 	}
-	h, part := state[game], dingsPart(dings)
+	h, dings, shared := state[game], dingsPart(x.dings), sharedPart(x.shared)
+	current := h.Dings == dings && h.Shared == shared
 	last, inMemory := r.last[game]
 	inMemory = inMemory && last.ask == h.Ask && last.etag == h.ETag
 	etag := ""
-	if h.Ask == ask && allHaveData(flavours) && (h.Dings == part || inMemory) {
+	if h.Ask == ask && allHaveData(flavours) && (current || inMemory) {
 		etag = h.ETag
 	}
 	body, etag, err := r.Fetcher.Prices(ctx, game, ask, etag)
@@ -168,7 +184,7 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 	switch {
 	case errors.Is(err, api.ErrNotModified):
 		r.Report.fetched(game, OutcomeNotModified, nil)
-		if h.Dings == part {
+		if current {
 			return nil
 		}
 		a = last.answer
@@ -183,7 +199,7 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 			return nil
 		}
 	}
-	a.Dings = dings
+	a.Dings, a.Shared = x.dings, x.shared
 	lua, err := r.render(game, a)
 	if err != nil {
 		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
@@ -193,7 +209,7 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 	if body != nil {
 		r.Report.fetched(game, OutcomeOK, nil)
 	}
-	state[game] = held{Ask: ask, ETag: etag, Dings: part}
+	state[game] = held{Ask: ask, ETag: etag, Dings: dings, Shared: shared}
 	r.remember(game, written{ask: ask, etag: etag, answer: a})
 	for dir, iface := range flavours {
 		err := Write(dir, iface, lua)
