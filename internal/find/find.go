@@ -4,6 +4,7 @@
 package find
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,8 +63,7 @@ func Candidates(goos, home string, getenv func(string) string, registry func() s
 	default:
 		var out []string
 		for _, prefix := range linuxPrefixes {
-			drives, _ := filepath.Glob(filepath.Join(home, prefix))
-			for _, drive := range drives {
+			for _, drive := range globUnder(home, prefix) {
 				for _, programs := range programFolders {
 					out = append(out, filepath.Join(drive, programs, wowFolder))
 				}
@@ -94,13 +94,22 @@ func Installs(candidates []string) []string {
 func Saves(installs []string) []Save {
 	var out []Save
 	for _, install := range Installs(installs) {
-		paths, _ := filepath.Glob(filepath.Join(install, "_*_", "WTF", "Account", "*", "SavedVariables", "GoldForever.lua"))
-		for _, path := range paths {
+		for _, path := range globUnder(install, "_*_/WTF/Account/*/SavedVariables/GoldForever.lua") {
 			out = append(out, At(path))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// globUnder matches pattern, slash-separated, under dir. Only pattern is a pattern: a folder named
+// "Games [SSD]" is matched as it is.
+func globUnder(dir, pattern string) []string {
+	matches, _ := fs.Glob(os.DirFS(dir), pattern)
+	for i, m := range matches {
+		matches[i] = filepath.Join(dir, filepath.FromSlash(m))
+	}
+	return matches
 }
 
 // At reads which install, flavour and account a save belongs to from its path:
