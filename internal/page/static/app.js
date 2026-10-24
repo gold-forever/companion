@@ -58,6 +58,11 @@ function showState(s) {
     game.className = "game"; game.textContent = ` (${save.game})`;
     const label = document.createElement("label");
     label.append(box, " ", save.label, game);
+    if (save.note) {
+      const note = document.createElement("span");
+      note.className = "game"; note.textContent = ` — ${save.note}`;
+      label.append(note);
+    }
     return li(label);
   }));
   if (!(s.saves || []).length) $("saves").replaceChildren(li("None yet. Log in to World of Warcraft once with the Gold Forever addon, or add your WoW folder below."));

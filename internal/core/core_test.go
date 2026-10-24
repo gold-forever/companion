@@ -16,6 +16,7 @@ import (
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/backup"
 	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	"github.com/gold-forever/companion/internal/watch"
 )
@@ -73,10 +74,11 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
 }
 
 type fixture struct {
-	core *Core
-	srv  *server
-	save string
-	log  *sendlog.Log
+	core    *Core
+	srv     *server
+	save    string
+	log     *sendlog.Log
+	refused string // the refused list's file
 }
 
 func setup(t *testing.T, answers ...int) *fixture {
@@ -96,16 +98,18 @@ func setup(t *testing.T, answers ...int) *fixture {
 	data := t.TempDir()
 	clock := start
 	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: 30 * 24 * time.Hour}
+	refusedAt := filepath.Join(data, "refused.json")
 	c := &Core{
 		Uploader: &api.Client{BaseURL: ts.URL, Token: "gf_t", Version: "0.1.0", OS: "linux"},
 		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: 10, Now: func() time.Time { return clock }},
 		Log:      log,
+		Refused:  refused.Load(refusedAt),
 		Watcher:  watch.New(2 * time.Second),
 		Saves:    func() []find.Save { return find.Saves([]string{filepath.Join(root, "World of Warcraft")}) },
 		IsOff:    func(string) bool { return false },
 		Out:      io.Discard,
 	}
-	return &fixture{core: c, srv: srv, save: path, log: log}
+	return &fixture{core: c, srv: srv, save: path, log: log, refused: refusedAt}
 }
 
 // settle runs the steps that see a save and then find it settled, ending at start+2s.
@@ -307,5 +311,112 @@ func TestAnImportedUploadIsAnnounced(t *testing.T) {
 		if f.uploads() != 1 || announced != want {
 			t.Errorf("answer %d: %d uploads, announced %d times, want %d", status, f.uploads(), announced, want)
 		}
+	}
+}
+
+// stepUntil steps every hour from start up to end and returns the times at which an upload went out.
+func (f *fixture) stepUntil(t *testing.T, end time.Duration) []time.Duration {
+	t.Helper()
+	var sent []time.Duration
+	for at := time.Hour; at <= end; at += time.Hour {
+		before := f.uploads()
+		if err := f.core.Step(context.Background(), start.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+		if f.uploads() > before {
+			sent = append(sent, at)
+		}
+	}
+	return sent
+}
+
+func TestASaveRefusedAsTooLargeIsSentAgainADayLater(t *testing.T) {
+	f := setup(t, http.StatusRequestEntityTooLarge, http.StatusOK)
+
+	f.settle(t)
+	sent := f.stepUntil(t, 4*24*time.Hour)
+
+	if len(sent) != 1 || sent[0] < refused.Every {
+		t.Fatalf("sent again at %v, want once, a day or more after the refusal", sent)
+	}
+	if f.srv.bodies[1] != saveText("1") {
+		t.Fatalf("sent again: %q", f.srv.bodies[1])
+	}
+	entries, _ := f.log.Read()
+	if len(entries) != 2 || entries[0].Answer != "refused: too large" || entries[1].Answer != "imported" {
+		t.Fatalf("log = %+v", entries)
+	}
+}
+
+func TestASaveAlwaysTooLargeIsTriedOnlyOnceADay(t *testing.T) {
+	f := setup(t, http.StatusRequestEntityTooLarge)
+
+	f.settle(t)
+	sent := f.stepUntil(t, 4*24*time.Hour)
+
+	if len(sent) != 3 {
+		t.Fatalf("tried again at %v, want once a day for three days", sent)
+	}
+	last := 2 * time.Second
+	for _, at := range sent {
+		if at-last < refused.Every {
+			t.Fatalf("tried again at %v, less than a day after %v", at, last)
+		}
+		last = at
+	}
+	if !f.core.Refused.Holds(f.save) {
+		t.Fatal("a save refused again is no longer held for the daily try")
+	}
+}
+
+func TestANewSaveReplacesOneRefusedAsTooLarge(t *testing.T) {
+	f := setup(t, http.StatusRequestEntityTooLarge, http.StatusOK)
+	f.settle(t)
+
+	if err := os.WriteFile(f.save, []byte(saveText("2")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(f.save, start.Add(time.Minute), start.Add(time.Minute))
+	_ = f.core.Step(context.Background(), start.Add(10*time.Second))
+	_ = f.core.Step(context.Background(), start.Add(12*time.Second))
+	sent := f.stepUntil(t, 4*24*time.Hour)
+
+	if f.uploads() != 2 || f.srv.bodies[1] != saveText("2") || len(sent) != 0 {
+		t.Fatalf("bodies = %q, later uploads at %v; want the new save once and the old one never again", f.srv.bodies, sent)
+	}
+	if f.core.Refused.Holds(f.save) {
+		t.Fatal("the old refusal is still held")
+	}
+}
+
+func TestASaveRefusedAsTooLargeIsTriedOnceAtTheNextStart(t *testing.T) {
+	f := setup(t, http.StatusRequestEntityTooLarge, http.StatusOK)
+	f.settle(t)
+
+	restarted := *f.core
+	restarted.Refused = refused.Load(f.refused)
+	restarted.Watcher = watch.New(2 * time.Second)
+	f.core = &restarted
+	_ = f.core.Step(context.Background(), start.Add(time.Hour))
+
+	if f.uploads() != 2 || f.srv.bodies[1] != saveText("1") {
+		t.Fatalf("bodies = %q, want the refused save sent again at the start", f.srv.bodies)
+	}
+	if f.core.Refused.Holds(f.save) {
+		t.Fatal("a save the server took is still held")
+	}
+}
+
+func TestARefusalOfASaveThatHasChangedSinceIsDroppedUnsent(t *testing.T) {
+	f := setup(t, http.StatusOK)
+	f.settle(t) // the save as it is now went through
+	if err := f.core.Refused.Refuse(f.save, "an older save's sha256", start.Add(-refused.Every)); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = f.core.Step(context.Background(), start.Add(time.Hour))
+
+	if f.uploads() != 1 || f.core.Refused.Holds(f.save) {
+		t.Fatalf("uploads = %d, held = %v; want the stale refusal dropped and nothing sent", f.uploads(), f.core.Refused.Holds(f.save))
 	}
 }

@@ -114,6 +114,8 @@ What `run` does, in order:
    the computer shuts down first.
 4. **Sends pending copies, oldest first.** A server that is down is tried again after 1 minute, then
    2, 4 … up to 30. A 429 waits as long as it says. A refused token or account (401, 403) stops it.
+   A save refused as too large (413) is sent again at the next start and once a day, since the
+   server's limit may be raised, until it goes through or a newer save replaces it.
 5. **Logs every answer** in `sent.jsonl` next to the backups: time, save, size, SHA-256 and the
    answer, kept 30 days.
 

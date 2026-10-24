@@ -25,6 +25,7 @@ import (
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/page"
 	"github.com/gold-forever/companion/internal/prices"
+	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	release "github.com/gold-forever/companion/internal/version"
 	"github.com/gold-forever/companion/internal/watch"
@@ -34,6 +35,9 @@ import (
 var tokenShape = regexp.MustCompile(`^gf_[0-9A-Za-z]{43}$`)
 
 const checkVersionEvery = 24 * time.Hour
+
+// refusedFile, in the data folder, lists the saves the server refused as too large.
+const refusedFile = "refused.json"
 
 // companion is the running app: what the settings page and the tray show and change, and the upload
 // loop, which starts again whenever the token or the folders change.
@@ -47,6 +51,7 @@ type companion struct {
 	candidates []string
 	backups    *backup.Store
 	log        *sendlog.Log
+	refused    *refused.List
 	quit       func()
 	status     *lastLine
 	prices     *prices.Report // how each price fetch and write went, kept across the loop's restarts
@@ -83,6 +88,7 @@ func newCompanion(o companionOptions) *companion {
 		cfgPath: o.cfgPath, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
 		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: keepCopies, Now: time.Now},
 		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: keepLogFor},
+		refused: refused.Load(filepath.Join(o.dataDir, refusedFile)),
 		status:  &lastLine{},
 		prices:  &prices.Report{Now: time.Now},
 		cfg:     cfg,
@@ -157,7 +163,11 @@ func (c *companion) State() page.State {
 		Folders:   cfg.Folders,
 	}
 	for _, save := range c.saves() {
-		s.Saves = append(s.Saves, page.Save{Path: save.Path, Label: save.Label(), Game: c.gameOf(save.Path), On: !cfg.IsOff(save.Path)})
+		p := page.Save{Path: save.Path, Label: save.Label(), Game: c.gameOf(save.Path), On: !cfg.IsOff(save.Path)}
+		if c.refused.Holds(save.Path) {
+			p.Note = "refused as too large, retrying daily"
+		}
+		s.Saves = append(s.Saves, p)
 	}
 	for _, f := range c.prices.Files(c.saves()) {
 		s.Prices = append(s.Prices, priceFile(f))
@@ -444,7 +454,7 @@ func (c *companion) loop(ctx context.Context) {
 			started.Go(func() { refresher.Run(run, refreshPricesEvery, time.After, imported) })
 			loop := &core.Core{
 				Uploader: client,
-				Backups:  c.backups, Log: c.log, Watcher: watch.New(pollEvery),
+				Backups:  c.backups, Log: c.log, Refused: c.refused, Watcher: watch.New(pollEvery),
 				Saves: c.saves, IsOff: c.isOff, Out: c.status, Imported: announce,
 			}
 			err := loop.Run(run, pollEvery)

@@ -24,6 +24,7 @@ import (
 	"github.com/gold-forever/companion/internal/find"
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/prices"
+	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	"github.com/gold-forever/companion/internal/watch"
 )
@@ -142,6 +143,7 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		Uploader: client(url, token),
 		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: keepCopies, Now: time.Now},
 		Log:      log,
+		Refused:  refused.Load(filepath.Join(data, refusedFile)),
 		Watcher:  watch.New(pollEvery),
 		Saves:    func() []find.Save { return find.Saves(installs) },
 		IsOff:    cfg.IsOff,

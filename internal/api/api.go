@@ -54,7 +54,8 @@ const StatusImported = "imported"
 // ErrUnauthorized means the token is wrong or revoked: uploads stop until the player links again.
 var ErrUnauthorized = errors.New("the server does not accept this token")
 
-// ErrTooLarge means the save is over the server's limit; sending it again changes nothing.
+// ErrTooLarge means the save is over the server's limit; sending it again helps only once the limit
+// is raised.
 var ErrTooLarge = errors.New("the save is too large for the server")
 
 // ForbiddenError means the account may not upload now (suspended, or a token without upload rights):

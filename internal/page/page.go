@@ -74,6 +74,7 @@ type Save struct {
 	Label string `json:"label"`
 	Game  string `json:"game"`
 	On    bool   `json:"on"`
+	Note  string `json:"note,omitempty"` // what the companion is doing about it, when not the usual
 }
 
 // Notice says a newer release exists; the player downloads it themselves.
