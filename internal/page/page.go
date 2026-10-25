@@ -37,6 +37,7 @@ type State struct {
 	Saves     []Save   `json:"saves"`
 	Folders   []string `json:"folders"`
 	Notice    *Notice  `json:"notice,omitempty"`
+	Warning   string   `json:"warning,omitempty"` // a problem with the settings the player must know of
 	Linking   *Linking `json:"linking,omitempty"`
 }
 

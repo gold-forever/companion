@@ -56,6 +56,7 @@ type companion struct {
 	mu      sync.Mutex
 	cfg     config.Config
 	notice  *page.Notice
+	warning string // what the page must tell the player about their settings
 	linking *page.Linking
 	changed chan struct{} // closed and replaced on every change the loop must see
 	games   map[string]gameSeen
@@ -75,7 +76,11 @@ type companionOptions struct {
 }
 
 func newCompanion(o companionOptions) *companion {
-	cfg, _ := config.Load(o.cfgPath) // an unreadable file is an unlinked companion, which the page shows
+	cfg, err := config.Load(o.cfgPath)
+	var warning string
+	if err != nil {
+		warning = setAsideSettings(o.cfgPath, err)
+	}
 	c := &companion{
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
 		cfgPath: o.cfgPath, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
@@ -83,6 +88,7 @@ func newCompanion(o companionOptions) *companion {
 		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: keepLogFor},
 		status:  &lastLine{},
 		cfg:     cfg,
+		warning: warning,
 		changed: make(chan struct{}),
 		games:   map[string]gameSeen{},
 		openURL: func(string) {},
@@ -93,6 +99,16 @@ func newCompanion(o companionOptions) *companion {
 		return link.Run(ctx, client, hostname, show, save)
 	}
 	return c
+}
+
+// setAsideSettings keeps an unreadable settings file aside, so the next save cannot overwrite the
+// token, folders and switched-off saves it may still hold, and says so for the page.
+func setAsideSettings(path string, readErr error) string {
+	aside, err := config.SetAside(path)
+	if err != nil {
+		return fmt.Sprintf("Your settings file %s could not be read (%v), nor moved aside (%v): the companion starts unlinked.", path, readErr, err)
+	}
+	return fmt.Sprintf("Your settings file could not be read (%v). It is kept as %s; the companion starts unlinked, so link this computer again.", readErr, aside)
 }
 
 // changes is closed at the next change the upload loop must see.
@@ -148,6 +164,7 @@ func (c *companion) State() page.State {
 		Site:      c.url(),
 		Linked:    cfg.Token != "",
 		Sharing:   link.SharingLine,
+		Warning:   c.warning,
 		Status:    c.status.String(),
 		FirstRun:  !cfg.Welcomed,
 		Installed: c.installed(),

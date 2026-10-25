@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/gold-forever/companion/internal/atomicfile"
 )
 
 // Config is everything the player sets.
@@ -48,20 +50,20 @@ func Load(path string) (Config, error) {
 	return c, json.Unmarshal(data, &c)
 }
 
-// Save writes the settings, readable by their owner only.
+// SetAside moves an unreadable settings file out of the way, so the next save cannot overwrite what
+// it held, and returns where it is now.
+func SetAside(path string) (string, error) {
+	aside := path + ".bad"
+	return aside, os.Rename(path, aside)
+}
+
+// Save writes the settings, readable by their owner only, replacing the file whole.
 func Save(path string, c Config) error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	// WriteFile keeps an existing file's mode: make sure an older, looser file is tightened.
-	return os.Chmod(path, 0o600)
+	return atomicfile.Write(path, append(data, '\n'))
 }
 
 // DataDir is where the companion keeps its backups and log on goos: the system's place for an

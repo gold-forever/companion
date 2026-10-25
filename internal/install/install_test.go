@@ -112,7 +112,9 @@ func TestUninstallRemovesEverythingAndKeepsBackupsOnlyWhenAsked(t *testing.T) {
 			}
 			running := l.Target(download)
 			settings := filepath.Join(l.Config, "config.json")
-			for path, text := range map[string]string{settings: `{"token":"gf_x"}`, filepath.Join(l.Data[0], "sent.jsonl"): "{}\n"} {
+			setAside := filepath.Join(l.Config, "config.json.bad")
+			files := map[string]string{settings: `{"token":"gf_x"}`, setAside: `{"token":"gf_y"`, filepath.Join(l.Data[0], "sent.jsonl"): "{}\n"}
+			for path, text := range files {
 				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 					t.Fatal(err)
 				}
@@ -123,7 +125,7 @@ func TestUninstallRemovesEverythingAndKeepsBackupsOnlyWhenAsked(t *testing.T) {
 			if err := l.Uninstall(running, keep); err != nil {
 				t.Fatal(err)
 			}
-			for _, gone := range []string{l.Exe, l.Shortcut, settings} {
+			for _, gone := range []string{l.Exe, l.Shortcut, settings, setAside} {
 				if _, err := os.Stat(gone); gone != "" && !os.IsNotExist(err) {
 					t.Errorf("%s keep=%v: %s is still there", goos, keep, gone)
 				}

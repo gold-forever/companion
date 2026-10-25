@@ -177,12 +177,22 @@ func (l Layout) Uninstall(running string, keepData bool) error {
 }
 
 // removeSettings removes the settings folder, as it holds the token. Where the data shares it (macOS)
-// and the player keeps the data, only the settings file goes.
+// and the player keeps the data, only the settings files go: the file, one set aside, a temporary one.
 func (l Layout) removeSettings(keepData bool) error {
-	if keepData && slices.Contains(l.Data, l.Config) {
-		return removeIfThere(filepath.Join(l.Config, config.FileName))
+	if !keepData || !slices.Contains(l.Data, l.Config) {
+		return os.RemoveAll(l.Config)
 	}
-	return os.RemoveAll(l.Config)
+	entries, err := os.ReadDir(l.Config)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var errs []error
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), config.FileName) {
+			errs = append(errs, removeIfThere(filepath.Join(l.Config, e.Name())))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // copyBinary writes the binary next to its destination first and renames it into place, so a

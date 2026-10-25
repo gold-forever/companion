@@ -42,6 +42,8 @@ function showState(s) {
     a.href = s.notice.url; a.textContent = "Download it"; a.target = "_blank"; a.rel = "noreferrer";
     notice.append(a, " and run it: it replaces this one.");
   }
+  $("warning").hidden = !s.warning;
+  $("warning").textContent = s.warning || "";
   $("sharing").textContent = s.sharing;
   $("welcome").hidden = !s.firstRun;
   $("installed").replaceChildren(...(s.installed || []).map((line) => li(line)));
