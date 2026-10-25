@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/gold-forever/companion/internal/atomicfile"
 )
 
 // Entry is one upload and the server's answer.
@@ -80,5 +82,5 @@ func (l *Log) Prune(now time.Time) error {
 		line, _ := json.Marshal(e)
 		kept.Write(append(line, '\n'))
 	}
-	return os.WriteFile(l.Path, kept.Bytes(), 0o600)
+	return atomicfile.Write(l.Path, kept.Bytes())
 }

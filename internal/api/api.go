@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,18 @@ const saveName = "GoldForever.lua"
 
 // A 429 without Retry-After waits this long.
 const defaultRetryAfter = time.Minute
+
+// The statuses of a 200: the save is the server's now.
+const (
+	statusImported        = "imported"
+	statusAlreadyImported = "already imported"
+)
+
+// How long the server may take to answer once the request is sent, and the whole of a small call.
+const answerTimeout = 2 * time.Minute
+
+// The slowest uplink a save is given time for, in bytes per second: 32 MiB then takes 34 minutes.
+const minUploadRate = 16 << 10
 
 // The server's answers are small JSON objects; anything longer is not one.
 const maxAnswerBytes = 64 << 10
@@ -32,7 +45,8 @@ type Client struct {
 	// Version and OS make the User-Agent, so the server can tell the companion's uploads apart.
 	Version string
 	OS      string
-	// HTTP is the client used; nil means one with a two-minute timeout.
+	// HTTP is the client used; nil means one with a two-minute timeout, and for an upload one whose
+	// deadline grows with the save (uploadDeadline).
 	HTTP *http.Client
 	// Now and Sleep pace the wait for a link; nil means the real clock.
 	Now   func() time.Time
@@ -58,8 +72,14 @@ var ErrUnauthorized = errors.New("the server does not accept this token")
 // is raised.
 var ErrTooLarge = errors.New("the save is too large for the server")
 
+// TooLargeError is ErrTooLarge with the server's reason, which names the limit; "" when it gave none.
+type TooLargeError struct{ Reason string }
+
+func (e *TooLargeError) Error() string        { return withReason(ErrTooLarge.Error(), e.Reason).Error() }
+func (e *TooLargeError) Is(target error) bool { return target == ErrTooLarge }
+
 // ForbiddenError means the account may not upload now (suspended, or a token without upload rights):
-// uploads stop until that changes on the server.
+// uploads wait until that changes on the server.
 type ForbiddenError struct{ Reason string }
 
 func (e *ForbiddenError) Error() string { return "the server refuses uploads: " + e.Reason }
@@ -79,8 +99,12 @@ func (e *RateLimitedError) Error() string {
 	return fmt.Sprintf("rate limited, retry after %s", e.RetryAfter)
 }
 
-// unavailableError is the server down, unreachable or failing: worth trying again later.
-type unavailableError struct{ cause error }
+// unavailableError is the server down, unreachable or failing: worth trying again later, and not
+// before retryAfter when the server named a wait (a paused server says 600 s).
+type unavailableError struct {
+	cause      error
+	retryAfter time.Duration
+}
 
 func (e *unavailableError) Error() string { return "server unavailable: " + e.cause.Error() }
 func (e *unavailableError) Unwrap() error { return e.cause }
@@ -105,8 +129,19 @@ func Retryable(err error) bool {
 	return errors.As(err, &limited) || errors.As(err, &unavailable)
 }
 
+// RetryAfter is how long the server asked a failed try to wait before the next: 0 when it named no wait.
+func RetryAfter(err error) time.Duration {
+	var unavailable *unavailableError
+	if errors.As(err, &unavailable) {
+		return unavailable.retryAfter
+	}
+	return 0
+}
+
 // Upload sends one save, byte for byte, as the game wrote it.
 func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
+	ctx, cancel := context.WithTimeout(ctx, uploadDeadline(len(save)))
+	defer cancel()
 	url := strings.TrimSuffix(c.BaseURL, "/") + "/api/v1/saves?name=" + saveName
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(save))
 	if err != nil {
@@ -115,33 +150,46 @@ func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("User-Agent", c.userAgent())
-	res, err := c.httpClient().Do(req)
+	res, err := c.uploadClient().Do(req)
 	if err != nil {
-		return Answer{}, &unavailableError{err}
+		return Answer{}, &unavailableError{cause: err}
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, maxAnswerBytes))
 	return answer(res, body)
 }
 
+// answer reads the server's answer. Only the answers PROTOCOL.md names as final settle a save; any
+// other, such as a proxy's 404 mid-deploy or a captive portal's 200, is tried again.
 func answer(res *http.Response, body []byte) (Answer, error) {
 	var a Answer
-	_ = json.Unmarshal(body, &a)
+	unreadable := json.Unmarshal(body, &a) != nil
 	switch {
 	case res.StatusCode == http.StatusOK:
+		if unreadable || (a.Status != statusImported && a.Status != statusAlreadyImported) {
+			return a, &unavailableError{cause: errors.New("an answer that is not the server's")}
+		}
 		return a, nil
 	case res.StatusCode == http.StatusUnauthorized:
 		return a, ErrUnauthorized
 	case res.StatusCode == http.StatusForbidden:
 		return a, &ForbiddenError{reasonOf(a)}
 	case res.StatusCode == http.StatusRequestEntityTooLarge:
-		return a, ErrTooLarge
+		return a, &TooLargeError{a.Reason}
 	case res.StatusCode == http.StatusTooManyRequests:
-		return a, &RateLimitedError{retryAfter(res.Header.Get("Retry-After"))}
-	case res.StatusCode >= 500:
-		return a, &unavailableError{fmt.Errorf("status %d", res.StatusCode)}
-	default:
+		wait, ok := retryAfter(res.Header.Get("Retry-After"))
+		if !ok {
+			wait = defaultRetryAfter
+		}
+		return a, &RateLimitedError{wait}
+	case res.StatusCode == http.StatusBadRequest, res.StatusCode == http.StatusUnsupportedMediaType,
+		res.StatusCode == http.StatusUnprocessableEntity:
 		return a, &RefusedError{res.StatusCode, reasonOf(a)}
+	case res.StatusCode >= 500:
+		wait, _ := retryAfter(res.Header.Get("Retry-After"))
+		return a, &unavailableError{withReason(fmt.Sprintf("status %d", res.StatusCode), a.Reason), wait}
+	default:
+		return a, &unavailableError{cause: fmt.Errorf("unexpected answer %d", res.StatusCode)}
 	}
 }
 
@@ -153,20 +201,47 @@ func reasonOf(a Answer) string {
 	return a.Status
 }
 
-// retryAfter reads Retry-After in seconds, the only form the server sends.
-func retryAfter(header string) time.Duration {
-	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
-		return time.Duration(seconds) * time.Second
+// withReason is what failed, with the server's own words when it gave them.
+func withReason(what, reason string) error {
+	if reason == "" {
+		return errors.New(what)
 	}
-	return defaultRetryAfter
+	return fmt.Errorf("%s: %s", what, reason)
+}
+
+// retryAfter reads Retry-After in seconds, the only form the server sends; false when there is none.
+func retryAfter(header string) (time.Duration, bool) {
+	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second, true
+	}
+	return 0, false
 }
 
 func (c *Client) userAgent() string {
 	return fmt.Sprintf("gold-forever-companion/%s (%s)", c.Version, c.OS)
 }
 
+// uploadDeadline bounds one upload of size bytes: sending it at minUploadRate, then the answer.
+func uploadDeadline(size int) time.Duration {
+	return answerTimeout + time.Duration(size/minUploadRate)*time.Second
+}
+
+// uploadTransport bounds each phase of an upload rather than the whole: a slow uplink still finishes.
+var uploadTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = answerTimeout
+	return t
+}()
+
+func (c *Client) uploadClient() *http.Client {
+	if c.HTTP != nil {
+		return c.httpClient()
+	}
+	return &http.Client{Transport: uploadTransport, CheckRedirect: carryToken}
+}
+
 func (c *Client) httpClient() *http.Client {
-	client := http.Client{Timeout: 2 * time.Minute}
+	client := http.Client{Timeout: answerTimeout}
 	if c.HTTP != nil {
 		client = *c.HTTP
 	}
@@ -189,6 +264,40 @@ func carryToken(req *http.Request, via []*http.Request) error {
 		req.Header.Set("Authorization", auth)
 	}
 	return nil
+}
+
+// The companion's own releases, the one other place a release notice may link to.
+const releasesHost, releasesPath = "github.com", "/gold-forever/companion/releases/"
+
+// onSite says whether link is a web page of the site at base, or of the public site: the companion
+// opens a link from the server with the system's URL handler, which also runs files and other schemes.
+func onSite(base, link string) bool {
+	b, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	l, ok := webPage(link)
+	if !ok {
+		return false
+	}
+	return (l.Scheme == "https" && l.Host == PublicHost) || (l.Scheme == b.Scheme && strings.EqualFold(l.Host, b.Host))
+}
+
+// releasePage says whether link is one of the companion's releases, or a page of the site.
+func releasePage(base, link string) bool {
+	if l, ok := webPage(link); ok && l.Scheme == "https" && l.Host == releasesHost && strings.HasPrefix(l.Path, releasesPath) {
+		return true
+	}
+	return onSite(base, link)
+}
+
+// webPage parses an absolute http or https address with no user in it.
+func webPage(link string) (*url.URL, bool) {
+	l, err := url.Parse(link)
+	if err != nil || (l.Scheme != "https" && l.Scheme != "http") || l.User != nil || l.Host == "" {
+		return nil, false
+	}
+	return l, true
 }
 
 // Release is the newest companion the server knows of.
@@ -215,6 +324,9 @@ func (c *Client) Latest(ctx context.Context) (Release, error) {
 	switch res.StatusCode {
 	case http.StatusOK:
 		err = json.NewDecoder(io.LimitReader(res.Body, maxAnswerBytes)).Decode(&r)
+		if err == nil && r.URL != "" && !releasePage(c.BaseURL, r.URL) {
+			r, err = Release{}, fmt.Errorf("the version check named a page that is not a release: %q", r.URL)
+		}
 	case http.StatusNotFound:
 	default:
 		err = fmt.Errorf("the version check answered %d", res.StatusCode)

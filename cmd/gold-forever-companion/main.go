@@ -22,6 +22,7 @@ import (
 	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/core"
 	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/instance"
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/prices"
 	"github.com/gold-forever/companion/internal/refused"
@@ -46,10 +47,6 @@ const (
 		"       gold-forever-companion run    (watch every WoW install and upload each new save)\n" +
 		"       gold-forever-companion --once --file <GoldForever.lua>"
 )
-
-// sharingLine is the site's own line on what an upload shares, said where the player links.
-const sharingLine = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
-	"never your name. Your characters, gold and ledger stay private."
 
 // pollSleep paces the wait for a link; nil is the real clock. Tests make it instant.
 var pollSleep func(ctx context.Context, d time.Duration) error
@@ -132,6 +129,17 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	}
 	home, _ := os.UserHomeDir()
 	data := config.DataDir(runtime.GOOS, home, getenv)
+	// One copy per user, as the tray app: two would share one backups folder and log.
+	release, err := instance.Claim(data)
+	if errors.Is(err, instance.ErrRunning) {
+		fmt.Fprintln(stderr, "another copy of the companion is already running (the app, or another run): quit it first")
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "could not make sure only one companion runs: %v\n", err)
+		return 1
+	}
+	defer release()
 	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: keepLogFor}
 	_ = log.Prune(time.Now())
 	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)
@@ -195,7 +203,7 @@ func linkAccount(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	show := func(code api.DeviceCode) {
 		fmt.Fprintf(stdout, "Open %s\nand approve the code %s (it is valid for %d minutes).\n",
 			code.VerificationURIComplete, code.UserCode, code.ExpiresIn/60)
-		fmt.Fprintln(stdout, sharingLine)
+		fmt.Fprintln(stdout, link.SharingLine)
 	}
 	if err := link.Link(ctx, c, hostname, cfgPath, show); err != nil {
 		fmt.Fprintln(stderr, "not linked:", err)

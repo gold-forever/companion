@@ -21,8 +21,8 @@ func site(t *testing.T, status int, body string) *api.Client {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		if r.URL.Path == "/api/v1/device/code" {
-			_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"BCDF-GHJK","verification_uri":"https://gf/link",`+
-				`"verification_uri_complete":"https://gf/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
+			_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"BCDF-GHJK","verification_uri":"https://gold-forever.app/link",`+
+				`"verification_uri_complete":"https://gold-forever.app/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
 			return
 		}
 		w.WriteHeader(status)
@@ -50,7 +50,7 @@ func TestLinkSavesTheApprovedTokenAndKeepsTheOtherSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("link: %v", err)
 	}
-	if shown.UserCode != "BCDF-GHJK" || shown.VerificationURIComplete != "https://gf/link?code=BCDF-GHJK" {
+	if shown.UserCode != "BCDF-GHJK" || shown.VerificationURIComplete != "https://gold-forever.app/link?code=BCDF-GHJK" {
 		t.Errorf("shown = %+v", shown)
 	}
 	cfg, _ := config.Load(path)
@@ -75,5 +75,14 @@ func TestLinkLeavesTheSettingsAloneWhenDenied(t *testing.T) {
 	}
 	if cfg, _ := config.Load(path); cfg.Token != "gf_old" {
 		t.Errorf("token = %q, want the old one kept", cfg.Token)
+	}
+}
+
+// The site says it in frontend/src/app/sharing.ts; a change there is a change here, word for word.
+func TestTheSharingLineIsTheSitesOwn(t *testing.T) {
+	const site = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
+		"never your name. Your characters, gold and ledger stay private."
+	if SharingLine != site {
+		t.Errorf("SharingLine = %q", SharingLine)
 	}
 }

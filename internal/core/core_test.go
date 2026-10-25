@@ -34,6 +34,7 @@ func saveText(n string) string {
 type server struct {
 	mu       sync.Mutex
 	answers  []int
+	paused   string // when set, a 503 is the server's pause, with this reason
 	headers  []string
 	bodies   []string
 	requests []string
@@ -65,6 +66,15 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
 	case http.StatusTooManyRequests:
 		w.Header().Set("Retry-After", "90")
 		w.WriteHeader(status)
+	case http.StatusServiceUnavailable:
+		if s.paused != "" {
+			w.Header().Set("Retry-After", "600")
+		}
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, `{"status":"paused","reason":"`+s.paused+`"}`)
+	case http.StatusRequestEntityTooLarge:
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, `{"status":"too large","reason":"a forever save may be at most 10 MB"}`)
 	case http.StatusBadRequest:
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, `{"status":"unknown game","reason":"unknown game version 11507"}`)
@@ -182,6 +192,27 @@ func TestAnOfflineServerIsRetriedWithGrowingWaits(t *testing.T) {
 	}
 }
 
+func TestAPausedServerIsAskedAgainWhenItSaysAndItsReasonShown(t *testing.T) {
+	f := setup(t, http.StatusServiceUnavailable, http.StatusOK)
+	f.srv.paused = "maintenance until 20:00"
+	var out strings.Builder
+	f.core.Out = &out
+
+	f.settle(t)
+	at := start.Add(2 * time.Second)
+	_ = f.core.Step(context.Background(), at.Add(time.Minute))
+	if f.uploads() != 1 {
+		t.Fatalf("sent the whole save again before Retry-After: %d uploads", f.uploads())
+	}
+	if !strings.Contains(out.String(), "maintenance until 20:00") {
+		t.Errorf("the operator's reason is not shown: %q", out.String())
+	}
+	_ = f.core.Step(context.Background(), at.Add(10*time.Minute))
+	if f.uploads() != 2 {
+		t.Fatalf("not sent again once Retry-After passed: %d uploads", f.uploads())
+	}
+}
+
 func TestARateLimitWaitsForRetryAfter(t *testing.T) {
 	f := setup(t, http.StatusTooManyRequests, http.StatusOK)
 
@@ -222,6 +253,30 @@ func TestARefusedSaveIsLoggedAndNotSentAgain(t *testing.T) {
 	}
 	entries, _ := f.log.Read()
 	if len(entries) != 1 || !strings.Contains(entries[0].Answer, "unknown game version 11507") {
+		t.Fatalf("log = %+v", entries)
+	}
+}
+
+func TestAnUnexpectedAnswerKeepsTheSavePending(t *testing.T) {
+	f := setup(t, http.StatusNotFound, http.StatusOK)
+
+	f.settle(t)
+	if pending, _ := f.core.Backups.Pending(); len(pending) != 1 {
+		t.Fatal("a 404 is not the server's answer about the save: it must stay pending")
+	}
+	_ = f.core.Step(context.Background(), start.Add(2*time.Second+time.Minute))
+	if pending, _ := f.core.Backups.Pending(); f.uploads() != 2 || len(pending) != 0 {
+		t.Fatalf("uploads = %d, pending = %+v: not sent again after the wait", f.uploads(), pending)
+	}
+}
+
+func TestATooLargeSaveIsLoggedWithTheServersLimit(t *testing.T) {
+	f := setup(t, http.StatusRequestEntityTooLarge)
+
+	f.settle(t)
+
+	entries, _ := f.log.Read()
+	if len(entries) != 1 || entries[0].Answer != "refused: too large: a forever save may be at most 10 MB" {
 		t.Fatalf("log = %+v", entries)
 	}
 }
@@ -274,18 +329,49 @@ func TestStoppingMidUploadLeavesTheSavePendingWithoutWaiting(t *testing.T) {
 	}
 }
 
-func TestAForbiddenAccountStopsTheCompanionAndKeepsTheSave(t *testing.T) {
-	f := setup(t, http.StatusForbidden)
+// A suspension can be lifted, or the token's rights changed, without the player touching the companion.
+func TestAForbiddenAccountKeepsTheSaveAndTriesAgainLater(t *testing.T) {
+	f := setup(t, http.StatusForbidden, http.StatusOK)
+	var out strings.Builder
+	f.core.Out = &out
 
-	_ = f.core.Step(context.Background(), start)
-	err := f.core.Step(context.Background(), start.Add(2*time.Second))
-
-	var forbidden *api.ForbiddenError
-	if !errors.As(err, &forbidden) {
-		t.Fatalf("err = %v, want a ForbiddenError", err)
-	}
+	f.settle(t) // 403 at start+2s
 	if pending, _ := f.core.Backups.Pending(); len(pending) != 1 {
 		t.Fatal("the save was dropped; it should wait until the account may upload again")
+	}
+	if !strings.Contains(out.String(), "uploads wait until the account may upload again") {
+		t.Errorf("the player is not told why: %q", out.String())
+	}
+	at := start.Add(2 * time.Second)
+	if err := f.core.Step(context.Background(), at.Add(29*time.Minute)); err != nil || f.uploads() != 1 {
+		t.Fatalf("err = %v, uploads = %d: tried again too soon", err, f.uploads())
+	}
+	if err := f.core.Step(context.Background(), at.Add(30*time.Minute)); err != nil || f.uploads() != 2 {
+		t.Fatalf("err = %v, uploads = %d: not tried again after 30 minutes", err, f.uploads())
+	}
+	if pending, _ := f.core.Backups.Pending(); len(pending) != 0 {
+		t.Fatalf("still pending once the account may upload: %+v", pending)
+	}
+}
+
+func TestBackupsThatCannotBeListedAreSaidAndTriedAgain(t *testing.T) {
+	f := setup(t, http.StatusOK)
+	var out strings.Builder
+	f.core.Out = &out
+	notAFolder := filepath.Join(t.TempDir(), "backups")
+	if err := os.WriteFile(notAFolder, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.core.Backups.Dir = notAFolder
+
+	if err := f.core.Step(context.Background(), start); err != nil {
+		t.Fatalf("a folder that cannot be read stopped the uploads: %v", err)
+	}
+	if !strings.Contains(out.String(), "could not list the copies to send") {
+		t.Errorf("the player is not told: %q", out.String())
+	}
+	if !f.core.waitUntil.After(start) {
+		t.Error("it must wait before trying again")
 	}
 }
 
@@ -343,7 +429,7 @@ func TestASaveRefusedAsTooLargeIsSentAgainADayLater(t *testing.T) {
 		t.Fatalf("sent again: %q", f.srv.bodies[1])
 	}
 	entries, _ := f.log.Read()
-	if len(entries) != 2 || entries[0].Answer != "refused: too large" || entries[1].Answer != "imported" {
+	if len(entries) != 2 || entries[0].Answer != "refused: too large: a forever save may be at most 10 MB" || entries[1].Answer != "imported" {
 		t.Fatalf("log = %+v", entries)
 	}
 }

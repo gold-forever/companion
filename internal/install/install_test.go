@@ -20,11 +20,16 @@ func env(t *testing.T, goos string) (Env, string) {
 	return Env{GOOS: goos, Home: home, Getenv: func(k string) string { return vars[k] }, RunKey: &fakeRunKey{}}, home
 }
 
+type vars map[string]string
+
+func (v vars) get(k string) string { return v[k] }
+
 type fakeRunKey struct{ value string }
 
-func (k *fakeRunKey) Enable(exe string) error { k.value = `"` + exe + `" --autostart`; return nil }
-func (k *fakeRunKey) Disable() error          { k.value = ""; return nil }
-func (k *fakeRunKey) Enabled() bool           { return k.value != "" }
+func (k *fakeRunKey) Enable(exe string) error  { k.value = `"` + exe + `" --autostart`; return nil }
+func (k *fakeRunKey) Disable() error           { k.value = ""; return nil }
+func (k *fakeRunKey) Enabled() bool            { return k.value != "" }
+func (k *fakeRunKey) StartsAt(exe string) bool { return k.value == `"`+exe+`" --autostart` }
 
 // downloaded writes a stand-in for the binary the player double-clicked.
 func downloaded(t *testing.T) string {
@@ -78,37 +83,60 @@ func TestLinuxInstallCopiesTheBinaryAddsALauncherAndStartsWithTheComputer(t *tes
 	}
 }
 
+// The Desktop Entry spec unescapes a value as a string before it applies the quoting rules, so a
+// reserved character inside quotes takes two backslashes, a backslash four, and % is written %%.
 func TestExecQuotesWhatTheDesktopSpecReserves(t *testing.T) {
-	if got := quoteExec(`/home/a "b"/$x`); got != `"/home/a \"b\"/\$x"` {
-		t.Errorf("quoteExec = %s", got)
+	cases := map[string]string{
+		`/home/a "b"/x`: `"/home/a \\"b\\"/x"`,
+		`/home/$x`:      `"/home/\\$x"`,
+		"/home/`x`":     "\"/home/\\\\`x\\\\`\"",
+		`/home/a\b`:     `"/home/a\\\\b"`,
+		`/home/100%`:    `"/home/100%%"`,
+	}
+	for path, want := range cases {
+		if got := quoteExec(path); got != want {
+			t.Errorf("quoteExec(%s) = %s, want %s", path, got, want)
+		}
 	}
 }
 
+// On macOS the settings and the data share one folder, so keeping the data must not remove it.
 func TestUninstallRemovesEverythingAndKeepsBackupsOnlyWhenAsked(t *testing.T) {
-	for _, keep := range []bool{true, false} {
-		e, home := env(t, "linux")
-		l := For(e)
-		if err := l.Install(downloaded(t)); err != nil {
-			t.Fatal(err)
-		}
-		for _, dir := range append([]string{l.Config}, l.Data...) {
-			if err := os.MkdirAll(dir, 0o700); err != nil {
+	for _, goos := range []string{"linux", "windows", "darwin"} {
+		for _, keep := range []bool{true, false} {
+			e, _ := env(t, goos)
+			l := For(e)
+			l.MoveAside = os.Remove
+			download := downloaded(t)
+			if err := l.Install(download); err != nil {
 				t.Fatal(err)
 			}
-			os.WriteFile(filepath.Join(dir, "file"), []byte("x"), 0o600)
-		}
-		if err := l.Uninstall(l.Exe, keep); err != nil {
-			t.Fatal(err)
-		}
-		for _, gone := range []string{l.Exe, l.Shortcut, filepath.Join(home, ".config", "autostart", "gold-forever-companion.desktop"), l.Config} {
-			if _, err := os.Stat(gone); !os.IsNotExist(err) {
-				t.Errorf("keep=%v: %s is still there", keep, gone)
+			running := l.Target(download)
+			settings := filepath.Join(l.Config, "config.json")
+			setAside := filepath.Join(l.Config, "config.json.bad")
+			files := map[string]string{settings: `{"token":"gf_x"}`, setAside: `{"token":"gf_y"`, filepath.Join(l.Data[0], "sent.jsonl"): "{}\n"}
+			for path, text := range files {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		for _, dir := range l.Data {
-			_, err := os.Stat(dir)
+			if err := l.Uninstall(running, keep); err != nil {
+				t.Fatal(err)
+			}
+			for _, gone := range []string{l.Exe, l.Shortcut, settings, setAside} {
+				if _, err := os.Stat(gone); gone != "" && !os.IsNotExist(err) {
+					t.Errorf("%s keep=%v: %s is still there", goos, keep, gone)
+				}
+			}
+			if l.Autostart.Enabled() {
+				t.Errorf("%s keep=%v: autostart is still on", goos, keep)
+			}
+			_, err := os.Stat(filepath.Join(l.Data[0], "sent.jsonl"))
 			if kept := err == nil; kept != keep {
-				t.Errorf("keep=%v: data folder %s kept=%v", keep, dir, kept)
+				t.Errorf("%s keep=%v: the upload log kept=%v", goos, keep, kept)
 			}
 		}
 	}
@@ -141,6 +169,22 @@ func TestWindowsComparesPathsWithoutCase(t *testing.T) {
 	l := For(e)
 	if l.NeedsInstall(strings.ToUpper(l.Exe)) {
 		t.Error(`C:\USERS\… and C:\Users\… are the same file on Windows`)
+	}
+}
+
+func TestWindowsComparesTwoSpellingsOfOnePath(t *testing.T) {
+	e := Env{GOOS: "windows", Getenv: vars{"LOCALAPPDATA": `C:\Users\A\AppData\Local\`}.get}
+	l := For(e)
+	for _, running := range []string{
+		`C:\Users\A\AppData\Local\Gold Forever\GoldForever-Companion.exe`,
+		`C:/Users/A/AppData/Local/Gold Forever/GoldForever-Companion.exe`,
+	} {
+		if l.NeedsInstall(running) {
+			t.Errorf("%s is the installed copy %s", running, l.Exe)
+		}
+	}
+	if !l.NeedsInstall(`C:\Users\A\Downloads\GoldForever-Companion.exe`) {
+		t.Error("a download must still install itself")
 	}
 }
 
@@ -238,9 +282,16 @@ func TestUninstallLeavesSharedFoldersAndRemovesOnlyItsOwn(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".local", "bin")); err != nil {
 		t.Error("~/.local/bin is shared with other programs and the PATH: it stays, even empty")
 	}
-	w, _ := env(t, "windows")
+	w, whome := env(t, "windows")
 	wl := For(w)
+	if own := winJoin(filepath.Join(whome, "AppData", "Local"), "Gold Forever"); wl.OwnDir != own {
+		t.Fatalf("OwnDir = %q, want %q", wl.OwnDir, own)
+	}
 	if err := wl.Install(downloaded(t)); err != nil {
+		t.Fatal(err)
+	}
+	// On Windows installing makes the folder; here the \-joined path is one name, so the test does.
+	if err := os.MkdirAll(wl.OwnDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := wl.Uninstall(downloaded(t), false); err != nil {
@@ -269,5 +320,67 @@ func TestTheInstalledCopyIsRecognisedThroughASymlinkedHome(t *testing.T) {
 	resolved := filepath.Join(real, ".local", "bin", "gold-forever-companion")
 	if l.NeedsInstall(resolved) {
 		t.Error("the installed copy, seen through the symlink's target, must not install itself again")
+	}
+}
+
+const (
+	inApplications = "/Applications/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+	inDownloads    = "/Users/a/Downloads/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+	onDiskImage    = "/Volumes/Gold Forever Companion/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+	translocated   = "/private/var/folders/x/T/AppTranslocation/0A1B/d/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+)
+
+func TestMacOSTurnsAutostartOnAtTheFirstRunOnly(t *testing.T) {
+	e, _ := env(t, "darwin")
+	l := For(e)
+	if err := l.FollowApp(inApplications, false); err != nil || l.Autostart.Enabled() {
+		t.Fatalf("a player who turned it off keeps it off: %v", err)
+	}
+	if err := l.FollowApp(inApplications, true); err != nil || !l.Autostart.Enabled() || !l.Autostart.StartsAt(inApplications) {
+		t.Fatalf("the first run turns it on for the app: %v", err)
+	}
+}
+
+// Opened once from Downloads and then dragged to Applications, the app must start from where it is now.
+func TestMacOSAutostartFollowsTheAppWhenItMoves(t *testing.T) {
+	e, _ := env(t, "darwin")
+	l := For(e)
+	if err := l.Autostart.Enable(inDownloads); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := l.FollowApp(inApplications, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if !l.Autostart.StartsAt(inApplications) {
+		t.Error("autostart still starts the app where it was")
+	}
+}
+
+func TestMacOSRecordsNoAutostartForAnAppThatIsGoneAtTheNextLogin(t *testing.T) {
+	for _, running := range []string{onDiskImage, translocated} {
+		e, _ := env(t, "darwin")
+		l := For(e)
+		if !l.Transient(running) {
+			t.Errorf("%s is not where the app stays", running)
+		}
+		if err := l.FollowApp(running, true); err != nil || l.Autostart.Enabled() {
+			t.Errorf("%s: autostart recorded for a path gone at the next login (%v)", running, err)
+		}
+	}
+	if l := For(Env{GOOS: "darwin"}); l.Transient(inApplications) {
+		t.Error("Applications is where the app stays")
+	}
+	if l := For(Env{GOOS: "linux", Getenv: vars{}.get}); l.Transient("/Volumes/x/gold-forever-companion") {
+		t.Error("only macOS mounts disk images under /Volumes")
+	}
+}
+
+func TestInstalledSystemsLeaveAutostartToInstalling(t *testing.T) {
+	e, _ := env(t, "linux")
+	l := For(e)
+	if err := l.FollowApp(l.Exe, true); err != nil || l.Autostart.Enabled() {
+		t.Errorf("Install turns autostart on where there is an install step: %v", err)
 	}
 }

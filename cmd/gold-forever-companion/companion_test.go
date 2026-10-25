@@ -15,6 +15,7 @@ import (
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/install"
+	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/page"
 	"github.com/gold-forever/companion/internal/refused"
 )
@@ -46,6 +47,47 @@ func fixture(t *testing.T) (*companion, string) {
 	return c, save
 }
 
+// The next change of a setting would write an empty config over the token, the folders and the
+// switched-off saves; the unreadable file is kept aside instead, and the page says so.
+func TestAnUnreadableSettingsFileIsKeptAsideAndThePageSaysSo(t *testing.T) {
+	home := t.TempDir()
+	layout := install.For(install.Env{GOOS: "linux", Home: home, Getenv: func(string) string { return "" }})
+	cfgPath := filepath.Join(layout.Config, "config.json")
+	damaged := `{"token":"gf_x","folders":["/games/World of Warcraft"`
+	if err := os.MkdirAll(layout.Config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte(damaged), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newCompanion(companionOptions{running: layout.Exe, layout: layout, cfgPath: cfgPath, dataDir: layout.Data[0], quit: func() {}})
+	if err := c.Welcomed(); err != nil {
+		t.Fatal(err)
+	}
+
+	if data, _ := os.ReadFile(cfgPath + ".bad"); string(data) != damaged {
+		t.Errorf("the damaged settings were not kept: %q", data)
+	}
+	if w := c.State().Warning; !strings.Contains(w, cfgPath+".bad") {
+		t.Errorf("the page does not say where they are: %q", w)
+	}
+}
+
+func TestAMacAppOnItsDiskImageSaysToMoveItAndRecordsNoAutostart(t *testing.T) {
+	home := t.TempDir()
+	layout := install.For(install.Env{GOOS: "darwin", Home: home, Getenv: func(string) string { return "" }})
+	onDiskImage := "/Volumes/Gold Forever Companion/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+	c := newCompanion(companionOptions{running: onDiskImage, layout: layout, cfgPath: filepath.Join(home, "config.json"), dataDir: layout.Data[0], quit: func() {}})
+
+	if err := c.SetAutostart(true); err == nil || layout.Autostart.Enabled() {
+		t.Errorf("autostart recorded for a disk image: %v", err)
+	}
+	if !strings.Contains(strings.Join(c.State().Installed, "\n"), "Drag the app to Applications") {
+		t.Errorf("the first-run panel does not say to move the app: %q", c.State().Installed)
+	}
+}
+
 func TestLinkTakesOnlyATokenAndKeepsItForItsOwner(t *testing.T) {
 	c, _ := fixture(t)
 	var bad interface{ Error() string }
@@ -69,6 +111,13 @@ func TestLinkTakesOnlyATokenAndKeepsItForItsOwner(t *testing.T) {
 	case <-before:
 	default:
 		t.Error("linking must restart the upload loop with the new token")
+	}
+}
+
+func TestThePageSaysWhatEveryUploadShares(t *testing.T) {
+	c, _ := fixture(t)
+	if got := c.State().Sharing; got != link.SharingLine {
+		t.Errorf("sharing = %q", got)
 	}
 }
 

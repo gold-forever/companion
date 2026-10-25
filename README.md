@@ -100,7 +100,8 @@ Instead of `link`, you can make a token at /me/tokens and set `GF_TOKEN`, which 
 shell history (PowerShell: `$env:GF_TOKEN = "gf_..."`). `run` reads its
 settings from `config.json` in your system's config folder (`~/.config/gold-forever-companion/` on
 Linux): `token`, `url`, `folders` (WoW folders it doesn't find by itself) and `off` (saves to skip, by
-path). The file is readable by you only.
+path). The file is readable by you only. Like the app, `run` is one copy per user: while the app or
+another `run` is running, it says so and exits with an error.
 
 What `run` does, in order:
 
@@ -112,10 +113,12 @@ What `run` does, in order:
 3. **Keeps a copy** in your data folder (`~/.local/share/gold-forever-companion/backups` on Linux), the
    last 10 per save. A copy is pending until the server has answered for it, so nothing is lost if
    the computer shuts down first.
-4. **Sends pending copies, oldest first.** A server that is down is tried again after 1 minute, then
-   2, 4 … up to 30. A 429 waits as long as it says. A refused token or account (401, 403) stops it.
-   A save refused as too large (413) is sent again at the next start and once a day, since the
-   server's limit may be raised, until it goes through or a newer save replaces it.
+4. **Sends pending copies, oldest first.** A server that is down, or any answer that is not the
+   server's own, is tried again after 1 minute, then 2, 4 … up to 30, and never sooner than a
+   `Retry-After` it sent. A 429 waits as long as it says. An account that may not upload (403) is
+   asked again every 30 minutes. A refused token (401) stops it until you link again. A save refused
+   as too large (413) is sent again at the next start and once a day, since the server's limit may be
+   raised, until it goes through or a newer save replaces it.
 5. **Logs every answer** in `sent.jsonl` next to the backups: time, save, size, SHA-256 and the
    answer, kept 30 days.
 

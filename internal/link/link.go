@@ -10,6 +10,11 @@ import (
 	"github.com/gold-forever/companion/internal/config"
 )
 
+// SharingLine is the site's own line on what an upload shares (frontend/src/app/sharing.ts, word for
+// word), said wherever the player links.
+const SharingLine = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
+	"never your name. Your characters, gold and ledger stay private."
+
 // Link asks the site for a code naming hostname, hands it to show for the player to approve, waits
 // for the approval, and saves the token into the settings at cfgPath. Nothing is saved on failure.
 func Link(ctx context.Context, c *api.Client, hostname, cfgPath string, show func(api.DeviceCode)) error {

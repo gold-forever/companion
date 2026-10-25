@@ -85,8 +85,8 @@ func TestAnotherCopyOfTheCompanionMaySendTheSecretAsAHeader(t *testing.T) {
 		r.Header.Del("Cookie")
 		r.Header.Set(instance.SecretHeader, secret)
 	}
-	if rec := serve(&fakeApp{}, "GET", "/api/ping", "", header); rec.Code != http.StatusOK {
-		t.Errorf("ping with the secret header: %d", rec.Code)
+	if rec := serve(&fakeApp{}, "GET", "/api/state", "", header); rec.Code != http.StatusOK {
+		t.Errorf("the state with the secret header: %d", rec.Code)
 	}
 }
 
@@ -186,14 +186,11 @@ func TestThePageItselfIsServed(t *testing.T) {
 	}
 }
 
-// The site's own sharing line (frontend/src/app/sharing.ts), word for word, where the player links.
-const sharingLine = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
-	"never your name. Your characters, gold and ledger stay private."
-
-func TestThePageSaysWhatEveryUploadShares(t *testing.T) {
-	rec := serve(&fakeApp{}, "GET", "/", "", nil)
-	if !strings.Contains(rec.Body.String(), sharingLine) {
-		t.Errorf("the page lacks the sharing line: %.2000s", rec.Body.String())
+func TestThePageHasAPlaceForWhatEveryUploadShares(t *testing.T) {
+	page := serve(&fakeApp{}, "GET", "/", "", nil).Body.String()
+	script := serve(&fakeApp{}, "GET", "/app.js", "", nil).Body.String()
+	if !strings.Contains(page, `id="sharing"`) || !strings.Contains(script, `$("sharing").textContent = s.sharing`) {
+		t.Errorf("the page does not show the state's sharing line where the player links")
 	}
 }
 
@@ -220,6 +217,25 @@ func TestLinkingByCodeKeepsThePageRules(t *testing.T) {
 	}
 }
 
+// A launch asks whether the copy its file names still runs: the real client against the real page.
+func TestAnotherLaunchFindsTheRunningCopyWithoutSendingItsSecret(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := ln.Addr().(*net.TCPAddr).Port
+	srv := &http.Server{Handler: New(&fakeApp{}, secret, live)}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+
+	if !instance.Alive(instance.Info{Port: live, Secret: secret}) {
+		t.Error("the running copy was not recognised")
+	}
+	if instance.Alive(instance.Info{Port: live, Secret: "another copy's secret"}) {
+		t.Error("a copy with another secret was taken for this one")
+	}
+}
+
 // A newer download asks the running copy to quit with instance.Quit before replacing it: the real
 // client against the real page. In v0.1.0-rc.2 the client sent no body, the page wanted JSON, and so
 // every update failed with "the running companion answered 400".
@@ -235,6 +251,21 @@ func TestANewerDownloadCanAskTheRunningCopyToQuit(t *testing.T) {
 
 	if err := instance.Quit(instance.Info{Port: live, Secret: secret}); err != nil {
 		t.Errorf("the running copy refused to quit: %v", err)
+	}
+}
+
+// Unlink forgets the token on this computer only: the server keeps it live until it is revoked.
+func TestUnlinkSaysTheTokenStaysLiveUntilRevoked(t *testing.T) {
+	page := serve(&fakeApp{}, "GET", "/", "", nil).Body.String()
+	script := serve(&fakeApp{}, "GET", "/app.js", "", nil).Body.String()
+	if !strings.Contains(page, "keeps working until you revoke it") || !strings.Contains(page, `id="revoke"`) {
+		t.Error("the page does not say that an unlinked token stays live")
+	}
+	if !strings.Contains(script, `$("revoke").href = s.site + "/me/tokens"`) {
+		t.Error("the revoke link does not go to the tokens page")
+	}
+	if !strings.Contains(script, "an account keeps at most 20 tokens") {
+		t.Error("an expired code does not mention the limit on live tokens")
 	}
 }
 

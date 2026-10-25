@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -32,8 +33,8 @@ func init() { runtime.LockOSThread() }
 
 // player is what a double-click does. A download installs itself and starts the installed copy; the
 // installed copy shows the running one's page if there is one, and otherwise runs: the page, the
-// tray and the uploads. mode is "" for a double-click, --installed right after installing, and
-// --autostart at login, which stays quiet in the tray.
+// tray and the uploads. mode is "" for a double-click, --installed when a download starts the
+// installed copy, and --autostart at login, which stays quiet in the tray.
 func player(ctx context.Context, mode string) int {
 	exe, err := os.Executable()
 	if err == nil {
@@ -55,7 +56,7 @@ func player(ctx context.Context, mode string) int {
 	case alive:
 		err = openBrowser(instance.PageURL(other))
 	default:
-		err = serve(ctx, layout, exe, home, dataDir, instancePath, mode)
+		err = serveAlone(ctx, layout, exe, home, dataDir, instancePath, mode)
 	}
 	if err != nil {
 		alert("Gold Forever Companion", err.Error())
@@ -77,7 +78,7 @@ func installFromDownload(l install.Layout, exe string, other instance.Info, aliv
 		if alive {
 			return openBrowser(instance.PageURL(other))
 		}
-		return start(l.Exe)
+		return start(l.Exe, "--installed")
 	}
 	if alive {
 		if err := instance.Quit(other); err != nil {
@@ -111,6 +112,31 @@ func versionOf(exe string) string {
 	return fields[1]
 }
 
+// How long a launch waits for another copy that holds the claim: to show its page once it is up, or to
+// take over once it has quit for an update.
+const claimWait = 15 * time.Second
+
+// serveAlone serves while holding the one-copy claim. Two launches at once (autostart and a click)
+// both find no running copy; the one without the claim opens the other's page instead.
+func serveAlone(ctx context.Context, layout install.Layout, exe, home, dataDir, instancePath, mode string) error {
+	for deadline := time.Now().Add(claimWait); ; time.Sleep(200 * time.Millisecond) {
+		release, err := instance.Claim(dataDir)
+		if err == nil {
+			defer release()
+			return serve(ctx, layout, exe, home, dataDir, instancePath, mode)
+		}
+		if !errors.Is(err, instance.ErrRunning) {
+			return fmt.Errorf("could not make sure only one companion runs: %w", err)
+		}
+		if other, err := instance.Read(instancePath); err == nil && instance.Alive(other) {
+			return openBrowser(instance.PageURL(other))
+		}
+		if time.Now().After(deadline) {
+			return errors.New("another copy of the companion is starting but does not answer: try again in a moment")
+		}
+	}
+}
+
 // serve runs the installed companion until Quit, Uninstall or ctx's end.
 func serve(ctx context.Context, layout install.Layout, exe, home, dataDir, instancePath, mode string) error {
 	ctx, stop := context.WithCancel(ctx)
@@ -134,10 +160,7 @@ func serve(ctx context.Context, layout install.Layout, exe, home, dataDir, insta
 	c.status.out = os.Stdout
 	c.openURL = func(url string) { _ = openBrowser(url) }
 	_ = c.log.Prune(time.Now())
-	// macOS has no install step: autostart is turned on at the first run, as installing does elsewhere.
-	if layout.Exe == "" && !c.settings().Welcomed && !layout.Autostart.Enabled() {
-		_ = layout.Autostart.Enable(exe)
-	}
+	_ = layout.FollowApp(exe, !c.settings().Welcomed)
 
 	info := instance.Info{PID: os.Getpid(), Port: port, Secret: hex.EncodeToString(secret), Version: version}
 	srv := &http.Server{Handler: page.New(c, info.Secret, port), ReadHeaderTimeout: 10 * time.Second}

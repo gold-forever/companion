@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/config"
+	"github.com/gold-forever/companion/internal/instance"
+	"github.com/gold-forever/companion/internal/link"
 )
 
 func save(t *testing.T) string {
@@ -171,6 +173,49 @@ func TestRunFindsTheSavesInAConfiguredFolderAndUploadsThem(t *testing.T) {
 	}
 }
 
+// The tray app and run share one backups folder and log: run must not start beside a running copy (CO-07).
+func TestRunDoesNotStartWhileAnotherCopyHoldsTheClaim(t *testing.T) {
+	home := isolatedHome(t)
+	var uploads int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		uploads++
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	t.Cleanup(srv.Close)
+	cfgPath, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Save(cfgPath, config.Config{Token: "gf_t", URL: srv.URL}); err != nil {
+		t.Fatal(err)
+	}
+	release, err := instance.Claim(config.DataDir(runtime.GOOS, home, os.Getenv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var errs bytes.Buffer
+
+	code := run(ctx, []string{"run"}, os.Getenv, io.Discard, &errs)
+
+	if code == 0 || !strings.Contains(errs.String(), "already running") {
+		t.Fatalf("code = %d, stderr = %q", code, errs.String())
+	}
+	if ctx.Err() != nil {
+		t.Error("run kept running beside the other copy until the test stopped it")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if uploads != 0 {
+		t.Errorf("%d requests reached the server", uploads)
+	}
+}
+
 func TestVersionPrintsTheBuildVersion(t *testing.T) {
 	var out bytes.Buffer
 
@@ -186,8 +231,8 @@ func TestLinkShowsTheCodeAndSavesTheApprovedTokenWithoutPrintingIt(t *testing.T)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		if r.URL.Path == "/api/v1/device/code" {
-			_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"BCDF-GHJK","verification_uri":"https://gf/link",`+
-				`"verification_uri_complete":"https://gf/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
+			_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"BCDF-GHJK","verification_uri":"https://gold-forever.app/link",`+
+				`"verification_uri_complete":"https://gold-forever.app/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
 			return
 		}
 		_, _ = io.WriteString(w, `{"access_token":"gf_new_secret"}`)
@@ -202,9 +247,7 @@ func TestLinkShowsTheCodeAndSavesTheApprovedTokenWithoutPrintingIt(t *testing.T)
 	if code != 0 {
 		t.Fatalf("code = %d, out = %q", code, out.String())
 	}
-	sharing := "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
-		"never your name. Your characters, gold and ledger stay private."
-	for _, want := range []string{"BCDF-GHJK", "https://gf/link?code=BCDF-GHJK", sharing} {
+	for _, want := range []string{"BCDF-GHJK", "https://gold-forever.app/link?code=BCDF-GHJK", link.SharingLine} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q: %q", want, out.String())
 		}

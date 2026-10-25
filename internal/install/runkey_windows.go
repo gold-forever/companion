@@ -19,8 +19,10 @@ func (runKey) Enable(exe string) error {
 		return err
 	}
 	defer k.Close()
-	return k.SetStringValue(runValue, `"`+exe+`" --autostart`)
+	return k.SetStringValue(runValue, runCommand(exe))
 }
+
+func runCommand(exe string) string { return `"` + exe + `" --autostart` }
 
 func (runKey) Disable() error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runPath, registry.SET_VALUE)
@@ -32,6 +34,16 @@ func (runKey) Disable() error {
 		return err
 	}
 	return nil
+}
+
+func (runKey) StartsAt(exe string) bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, runPath, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	value, _, err := k.GetStringValue(runValue)
+	return err == nil && value == runCommand(exe)
 }
 
 func (runKey) Enabled() bool {

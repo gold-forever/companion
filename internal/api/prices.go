@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,7 +35,8 @@ func (c *Client) Prices(ctx context.Context, game, market, etag string) ([]byte,
 }
 
 // conditionalGet fetches path with the token, sending etag as If-None-Match: a 304 is ErrNotModified
-// with etag kept, an answer over limit bytes an error, any other status that of answer.
+// with etag kept, an answer over limit bytes an error, a 404 a RefusedError, any other status that of
+// answer.
 func (c *Client) conditionalGet(ctx context.Context, path, etag string, limit int64) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(c.BaseURL, "/")+path, nil)
 	if err != nil {
@@ -47,7 +49,7 @@ func (c *Client) conditionalGet(ctx context.Context, path, etag string, limit in
 	}
 	res, err := c.httpClient().Do(req)
 	if err != nil {
-		return nil, "", &unavailableError{err}
+		return nil, "", &unavailableError{cause: err}
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotModified {
@@ -55,7 +57,13 @@ func (c *Client) conditionalGet(ctx context.Context, path, etag string, limit in
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if err != nil {
-		return nil, "", &unavailableError{err}
+		return nil, "", &unavailableError{cause: err}
+	}
+	if res.StatusCode == http.StatusNotFound {
+		// For a GET a 404 is the server's word: no such market, or a server from before the request.
+		var a Answer
+		_ = json.Unmarshal(body, &a)
+		return nil, "", &RefusedError{res.StatusCode, reasonOf(a)}
 	}
 	if res.StatusCode != http.StatusOK {
 		_, err := answer(res, body)

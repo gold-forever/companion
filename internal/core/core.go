@@ -42,6 +42,9 @@ type Core struct {
 	wait      time.Duration
 }
 
+// longWait is how long uploads wait after a 403 before the next try.
+const longWait = 30 * time.Minute
+
 // Step looks once: it keeps a copy of every save that settled, then sends what is pending and the
 // refused saves that are due again, unless the server asked it to wait. It returns an error only when
 // uploads must stop: a token the server refuses.
@@ -64,7 +67,8 @@ func (c *Core) Step(ctx context.Context, now time.Time) error {
 	}
 	pending, err := c.Backups.Pending()
 	if err != nil {
-		return err
+		c.say(now, "could not list the copies to send: %v; trying again in %s", err, c.backOff(now, 0))
+		return nil
 	}
 	for _, p := range pending {
 		if c.IsOff(p.Source) {
@@ -105,7 +109,7 @@ func (c *Core) retry(ctx context.Context, now time.Time) error {
 }
 
 // send uploads one copy. It reports whether the rest must wait (stop), and an error when they must
-// wait for the player.
+// wait for the player to link again.
 func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop bool, err error) {
 	data, err := os.ReadFile(p.Path)
 	if err != nil {
@@ -121,6 +125,7 @@ func (c *Core) upload(ctx context.Context, now time.Time, p backup.Copy, data []
 	var limited *api.RateLimitedError
 	var refused *api.RefusedError
 	var forbidden *api.ForbiddenError
+	var tooLarge *api.TooLargeError
 	switch {
 	case ctx.Err() != nil:
 		// The companion is stopping: the copy stays pending for the next start.
@@ -135,21 +140,21 @@ func (c *Core) upload(ctx context.Context, now time.Time, p backup.Copy, data []
 		c.say(now, "the server no longer accepts this token: link the companion again")
 		return true, err
 	case errors.As(err, &forbidden):
-		c.say(now, "%s: uploads wait until the account may upload again", forbidden.Reason)
-		return true, err
+		// Nothing on this side can change it, but the server can: a suspension ends, a token's rights change.
+		c.waitUntil = now.Add(longWait)
+		c.say(now, "%s: uploads wait until the account may upload again; trying again in %s", forbidden.Reason, longWait)
+		return true, nil
 	case errors.As(err, &limited):
 		c.waitUntil = now.Add(limited.RetryAfter)
 		c.say(now, "the server asked to wait %s", limited.RetryAfter)
 		return true, nil
 	case api.Retryable(err):
-		c.wait = api.NextWait(c.wait)
-		c.waitUntil = now.Add(c.wait)
-		c.say(now, "%v; trying again in %s", err, c.wait)
+		c.say(now, "%v; trying again in %s", err, c.backOff(now, api.RetryAfter(err)))
 		return true, nil
 	case errors.As(err, &refused):
 		c.done(now, p, label, data, "refused: "+refused.Reason)
-	case errors.Is(err, api.ErrTooLarge):
-		c.done(now, p, label, data, "refused: too large")
+	case errors.As(err, &tooLarge):
+		c.done(now, p, label, data, withReason("refused: too large", tooLarge.Reason))
 		if err := c.Refused.Refuse(p.Source, sha(data), now); err != nil {
 			c.say(now, "could not keep %s for a daily try: %v", label, err)
 		}
@@ -172,6 +177,15 @@ func (c *Core) done(now time.Time, p backup.Copy, label string, data []byte, ans
 	c.say(now, "sent %s: %s", label, answer)
 }
 
+// backOff waits longer than after the last failed try, and at least as long as atLeast, the server's
+// own Retry-After; it returns how long.
+func (c *Core) backOff(now time.Time, atLeast time.Duration) time.Duration {
+	c.wait = api.NextWait(c.wait)
+	wait := max(c.wait, atLeast)
+	c.waitUntil = now.Add(wait)
+	return wait
+}
+
 func (c *Core) dropRefused(now time.Time, source string) {
 	if err := c.Refused.Drop(source); err != nil {
 		c.say(now, "could not update the refused saves: %v", err)
@@ -181,6 +195,13 @@ func (c *Core) dropRefused(now time.Time, source string) {
 func sha(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func withReason(what, reason string) string {
+	if reason == "" {
+		return what
+	}
+	return what + ": " + reason
 }
 
 func (c *Core) say(now time.Time, format string, args ...any) {

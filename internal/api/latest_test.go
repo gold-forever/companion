@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -24,5 +25,24 @@ func TestNoLatestReleaseIsNoNotice(t *testing.T) {
 	c, _, _ := server(t, http.StatusNotFound, ``, nil)
 	if got, err := c.Latest(context.Background()); err != nil || got.Version != "" {
 		t.Errorf("a 404 means the server names no release: %+v, %v", got, err)
+	}
+}
+
+func TestANoticeLinksOnlyToTheCompanionsReleases(t *testing.T) {
+	for link, ok := range map[string]bool{
+		"https://github.com/gold-forever/companion/releases/tag/v0.2.0": true,
+		"https://gold-forever.app/companion":                            true,
+		"https://github.com/someone/else/releases/tag/v0.2.0":           false,
+		"search-ms:query=GoldForever":                                   false,
+		`\\host\share\GoldForever-Companion.exe`:                        false,
+	} {
+		payload, _ := json.Marshal(Release{Version: "v0.2.0", URL: link})
+		c, _, _ := server(t, http.StatusOK, string(payload), nil)
+
+		_, err := c.Latest(context.Background())
+
+		if (err == nil) != ok {
+			t.Errorf("%s: err = %v", link, err)
+		}
 	}
 }

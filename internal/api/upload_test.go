@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -112,12 +113,13 @@ func TestASaveTheServerRefusesCarriesItsReason(t *testing.T) {
 	}
 }
 
-func TestATooLargeSaveIsNotRetried(t *testing.T) {
-	c, _, _ := server(t, 413, `{"status":"too large"}`, nil)
+func TestATooLargeSaveIsNotRetriedAndCarriesTheLimit(t *testing.T) {
+	c, _, _ := server(t, 413, `{"status":"too large","reason":"a forever save may be at most 10 MB"}`, nil)
 
 	_, err := c.Upload(context.Background(), []byte("x"))
 
-	if !errors.Is(err, ErrTooLarge) || Retryable(err) {
+	var tooLarge *TooLargeError
+	if !errors.Is(err, ErrTooLarge) || Retryable(err) || !errors.As(err, &tooLarge) || tooLarge.Reason != "a forever save may be at most 10 MB" {
 		t.Fatalf("err = %v, retryable = %v", err, Retryable(err))
 	}
 }
@@ -173,6 +175,82 @@ func TestTheBaseURLMayEndWithASlash(t *testing.T) {
 	}
 	if seen.URL.Path != "/api/v1/saves" {
 		t.Errorf("path = %q", seen.URL.Path)
+	}
+}
+
+// A proxy or ingress mid-deploy, or a wrong url in the settings, is not the server's last word on a save.
+func TestAnUnexpectedClientErrorIsRetried(t *testing.T) {
+	for _, status := range []int{404, 405, 408, 409, 421} {
+		c, _, _ := server(t, status, `<html>not here</html>`, nil)
+
+		_, err := c.Upload(context.Background(), []byte("x"))
+
+		var refused *RefusedError
+		if !Retryable(err) || errors.As(err, &refused) {
+			t.Errorf("%d: err = %v, retryable = %v", status, err, Retryable(err))
+		}
+	}
+}
+
+func TestAWrongContentTypeIsRefusedForGood(t *testing.T) {
+	c, _, _ := server(t, 415, `{"status":"send the file as application/octet-stream"}`, nil)
+
+	_, err := c.Upload(context.Background(), []byte("x"))
+
+	var refused *RefusedError
+	if !errors.As(err, &refused) || Retryable(err) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A captive portal or a proxy answers 200 too; only the server's own answer means the save arrived.
+func TestA200ThatIsNotTheServersAnswerIsRetried(t *testing.T) {
+	for _, body := range []string{`<html>portal</html>`, `{"status":"maybe"}`, ``} {
+		c, _, _ := server(t, 200, body, nil)
+
+		_, err := c.Upload(context.Background(), []byte("x"))
+
+		if !Retryable(err) {
+			t.Errorf("%q: err = %v, retryable = %v", body, err, Retryable(err))
+		}
+	}
+}
+
+// While the operator pauses uploads the server answers 503 with Retry-After and why.
+func TestAPausedServerSaysHowLongToWaitAndWhy(t *testing.T) {
+	c, _, _ := server(t, 503, `{"status":"paused","reason":"maintenance until 20:00"}`, map[string]string{"Retry-After": "600"})
+
+	_, err := c.Upload(context.Background(), []byte("x"))
+
+	if !Retryable(err) || RetryAfter(err) != 600*time.Second || !strings.Contains(err.Error(), "maintenance until 20:00") {
+		t.Fatalf("err = %v, retryable = %v, retry after %s", err, Retryable(err), RetryAfter(err))
+	}
+}
+
+func TestAServerErrorWithoutRetryAfterLeavesTheWaitToTheClient(t *testing.T) {
+	c, _, _ := server(t, 502, `bad gateway`, nil)
+
+	_, err := c.Upload(context.Background(), []byte("x"))
+
+	if RetryAfter(err) != 0 {
+		t.Fatalf("retry after %s, want none", RetryAfter(err))
+	}
+}
+
+// A 14 MB retail save needs 0.95 Mbit/s to go up in two minutes; a slower uplink must still get there.
+func TestALargeSaveOnASlowUplinkIsGivenTimeToArrive(t *testing.T) {
+	c := &Client{BaseURL: "https://gold-forever.app"}
+	if timeout := c.uploadClient().Timeout; timeout != 0 {
+		t.Errorf("an upload has a whole-request timeout of %s", timeout)
+	}
+	if got := uploadDeadline(32 << 20); got < 30*time.Minute {
+		t.Errorf("a 32 MiB save gets %s", got)
+	}
+	if got := uploadDeadline(1 << 10); got != 2*time.Minute {
+		t.Errorf("a small save gets %s, want the two minutes an answer may take", got)
+	}
+	if got := uploadTransport.ResponseHeaderTimeout; got != 2*time.Minute {
+		t.Errorf("the server's answer may take %s", got)
 	}
 }
 

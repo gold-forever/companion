@@ -12,6 +12,7 @@
   <h1>Gold Forever Companion</h1>
   <p id="status" class="status"></p>
   <p id="notice" class="notice" hidden></p>
+  <p id="warning" class="notice" hidden></p>
 </header>
 <main>
   <section id="welcome" hidden>
@@ -25,7 +26,7 @@
 
   <section>
     <h2>Your account</h2>
-    <p class="hint">Every upload adds its auction scans, item details and loot counts to the shared prices, never your name. Your characters, gold and ledger stay private.</p>
+    <p id="sharing" class="hint"></p>
     <div id="unlinked" hidden>
       <p><button id="device">Link this computer</button></p>
       <p id="linking" class="linking" hidden></p>
@@ -38,6 +39,7 @@
     <div id="linked" hidden>
       <p>Linked. Your saves go to <a id="site" target="_blank" rel="noreferrer"></a>.</p>
       <button id="unlink" class="quiet">Unlink</button>
+      <p class="hint">Unlinking removes the token from this computer only: it keeps working until you revoke it on <a id="revoke" target="_blank" rel="noreferrer">your tokens page</a>.</p>
     </div>
   </section>
 

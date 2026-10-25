@@ -57,7 +57,15 @@ func (c *Client) StartLink(ctx context.Context, hostname string) (DeviceCode, er
 		_, err := answer(res, body)
 		return code, err
 	}
-	return code, json.Unmarshal(body, &code)
+	if err := json.Unmarshal(body, &code); err != nil {
+		return DeviceCode{}, err
+	}
+	for _, link := range []string{code.VerificationURI, code.VerificationURIComplete} {
+		if link != "" && !onSite(c.BaseURL, link) {
+			return DeviceCode{}, fmt.Errorf("the server sent a link to another site, which is not opened: %q", link)
+		}
+	}
+	return code, nil
 }
 
 // WaitForToken polls until the player approves code, then returns the account's new token. It stops
@@ -112,11 +120,10 @@ func (c *Client) pollToken(ctx context.Context, deviceCode string) (token, verdi
 		return reply.AccessToken, "", nil
 	case res.StatusCode == http.StatusBadRequest && reply.Error != "":
 		return "", reply.Error, nil
+	case res.StatusCode == http.StatusOK:
+		return "", "", errors.New("the server answered without a token")
 	default:
 		_, err := answer(res, body)
-		if err == nil {
-			err = errors.New("the server answered without a token")
-		}
 		return "", "", err
 	}
 }
@@ -139,7 +146,7 @@ func (c *Client) postJSON(ctx context.Context, path string, v any) (*http.Respon
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
 		}
-		return nil, nil, &unavailableError{err}
+		return nil, nil, &unavailableError{cause: err}
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, maxAnswerBytes))

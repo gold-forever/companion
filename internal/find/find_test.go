@@ -142,6 +142,32 @@ func TestAtReadsTheSaveFromItsPath(t *testing.T) {
 	}
 }
 
+// Players name drives and folders like this; the folder's own characters are not a pattern.
+func TestAFolderNameWithPatternCharactersStillFindsItsSaves(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Games [SSD]*?")
+	path := install(t, root, "_forever_", "ACCOUNT1")
+
+	saves := Saves([]string{filepath.Join(root, "World of Warcraft")})
+
+	if len(saves) != 1 || saves[0].Path != path {
+		t.Fatalf("saves = %+v, want %s", saves, path)
+	}
+}
+
+func TestAHomeWithPatternCharactersStillFindsItsWinePrefixes(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "player [1]")
+	if err := os.MkdirAll(filepath.Join(home, ".wine", "drive_c"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, ".wine", "drive_c", "Program Files (x86)", "World of Warcraft")
+
+	got := Candidates("linux", home, func(string) string { return "" }, func() string { return "" })
+
+	if len(got) == 0 || got[0] != want {
+		t.Fatalf("candidates = %v, want %s first", got, want)
+	}
+}
+
 func TestInterfaceReadsTheClientsInterfaceNumber(t *testing.T) {
 	if got := Interface([]byte("GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n")); got != 16001 {
 		t.Errorf("Interface = %d, want 16001", got)

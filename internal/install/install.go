@@ -4,13 +4,17 @@
 package install
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"html"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/gold-forever/companion/internal/config"
 )
 
 const (
@@ -26,6 +30,7 @@ type Autostart interface {
 	Enable(exe string) error
 	Disable() error
 	Enabled() bool
+	StartsAt(exe string) bool // whether what is recorded starts exe
 }
 
 // Env is what Layout is worked out from: the system, the home folder and its variables, and on
@@ -46,7 +51,7 @@ type Layout struct {
 	Autostart Autostart
 	// AutostartAt says where autostart is recorded, for the first-run panel.
 	AutostartAt string
-	Config      string   // the settings folder: always removed on Uninstall, as it holds the token
+	Config      string   // the settings folder: its settings file, with the token, always goes on Uninstall
 	Data        []string // backups and the upload log: kept on Uninstall when the player asks
 	// MoveAside removes a binary that may be running. Windows cannot delete one, so there it is moved
 	// into the temporary folder instead.
@@ -64,6 +69,7 @@ func For(e Env) Layout {
 		return Layout{
 			GOOS:        e.GOOS,
 			Exe:         winJoin(dir, "GoldForever-Companion.exe"),
+			OwnDir:      dir,
 			Shortcut:    winJoin(roaming, `Microsoft\Windows\Start Menu\Programs`, appName+".lnk"),
 			Autostart:   e.RunKey,
 			AutostartAt: `the Run key in your user's registry (HKEY_CURRENT_USER\` + runPath + `)`,
@@ -107,7 +113,7 @@ func (l Layout) NeedsInstall(running string) bool {
 		return false
 	}
 	if l.GOOS == "windows" {
-		return !strings.EqualFold(l.Exe, running)
+		return !strings.EqualFold(winClean(l.Exe), winClean(running))
 	}
 	return resolved(l.Exe) != resolved(running)
 }
@@ -128,6 +134,31 @@ func (l Layout) Target(running string) string {
 		return running
 	}
 	return l.Exe
+}
+
+// Transient says whether running is a macOS app where it will not be at the next login: on a mounted
+// disk image or another volume, or the random copy macOS runs a quarantined app from.
+func (l Layout) Transient(running string) bool {
+	return l.GOOS == "darwin" && (strings.HasPrefix(running, "/Volumes/") || strings.Contains(running, "/AppTranslocation/"))
+}
+
+// FollowApp keeps autostart on the app where it runs now, where there is no install step (macOS): at
+// the first run it turns autostart on, and when the player has moved the app it points autostart at
+// it again. For a Transient app it records nothing.
+func (l Layout) FollowApp(running string, firstRun bool) error {
+	if l.Exe != "" || l.Transient(running) {
+		return nil
+	}
+	if l.Autostart.Enabled() {
+		if l.Autostart.StartsAt(running) {
+			return nil
+		}
+		return l.Autostart.Enable(running)
+	}
+	if firstRun {
+		return l.Autostart.Enable(running)
+	}
+	return nil
 }
 
 // Install copies the binary at running into place, adds the launcher, and turns autostart on: the
@@ -163,10 +194,29 @@ func (l Layout) Uninstall(running string, keepData bool) error {
 	if l.OwnDir != "" {
 		_ = os.Remove(l.OwnDir) // only when empty: a binary moved aside beside it stays visible
 	}
-	errs = append(errs, os.RemoveAll(l.Config))
+	errs = append(errs, l.removeSettings(keepData))
 	if !keepData {
 		for _, dir := range l.Data {
 			errs = append(errs, os.RemoveAll(dir))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// removeSettings removes the settings folder, as it holds the token. Where the data shares it (macOS)
+// and the player keeps the data, only the settings files go: the file, one set aside, a temporary one.
+func (l Layout) removeSettings(keepData bool) error {
+	if !keepData || !slices.Contains(l.Data, l.Config) {
+		return os.RemoveAll(l.Config)
+	}
+	entries, err := os.ReadDir(l.Config)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var errs []error
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), config.FileName) {
+			errs = append(errs, removeIfThere(filepath.Join(l.Config, e.Name())))
 		}
 	}
 	return errors.Join(errs...)
@@ -212,6 +262,10 @@ func (a *fileAutostart) Enabled() bool {
 	_, err := os.Stat(a.path)
 	return err == nil
 }
+func (a *fileAutostart) StartsAt(exe string) bool {
+	data, err := os.ReadFile(a.path)
+	return err == nil && bytes.Equal(data, a.content(exe))
+}
 
 func desktopEntry(exe string) []byte {
 	return []byte("[Desktop Entry]\nType=Application\nName=" + appName +
@@ -223,12 +277,13 @@ func autostartEntry(exe string) []byte {
 		"\nExec=" + quoteExec(exe) + " --autostart\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
 }
 
-// quoteExec quotes a path for a desktop entry's Exec key, escaping the characters the desktop entry
-// specification reserves inside quotes.
+// quoteExec quotes a path for a desktop entry's Exec key. The specification unescapes the value as a
+// string first, so each backslash its quoting rule adds is itself written twice; % starts a field code.
 func quoteExec(path string) string {
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", `$`, `\$`)
-	return `"` + r.Replace(path) + `"`
+	return `"` + execEscapes.Replace(path) + `"`
 }
+
+var execEscapes = strings.NewReplacer(`\`, `\\\\`, `"`, `\\"`, "`", "\\\\`", `$`, `\\$`, `%`, `%%`)
 
 func launchAgent(exe string) []byte {
 	return []byte(`<?xml version="1.0" encoding="UTF-8"?>
@@ -251,6 +306,21 @@ func xdg(e Env, variable, fallback string) string {
 // winJoin joins a Windows path the same way on every system, so the layout can be tested anywhere.
 func winJoin(parts ...string) string {
 	return strings.Join(parts, `\`)
+}
+
+// winClean reads / as \ and drops repeated and trailing separators, so two spellings of one Windows
+// path compare equal on any system. 8.3 short names and links still differ: only --installed and
+// --autostart keep a copy from handing off to itself.
+func winClean(path string) string {
+	path = strings.ReplaceAll(path, "/", `\`)
+	unc := strings.HasPrefix(path, `\\`)
+	for strings.Contains(path, `\\`) {
+		path = strings.ReplaceAll(path, `\\`, `\`)
+	}
+	if unc {
+		path = `\` + path
+	}
+	return strings.TrimRight(path, `\`)
 }
 
 // moveToTemp moves a running binary into the temporary folder, which Windows allows where deleting it

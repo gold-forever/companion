@@ -63,6 +63,7 @@ type companion struct {
 	mu      sync.Mutex
 	cfg     config.Config
 	notice  *page.Notice
+	warning string // what the page must tell the player about their settings
 	linking *page.Linking
 	changed chan struct{} // closed and replaced on every change the loop must see
 	games   map[string]gameSeen
@@ -82,7 +83,11 @@ type companionOptions struct {
 }
 
 func newCompanion(o companionOptions) *companion {
-	cfg, _ := config.Load(o.cfgPath) // an unreadable file is an unlinked companion, which the page shows
+	cfg, err := config.Load(o.cfgPath)
+	var warning string
+	if err != nil {
+		warning = setAsideSettings(o.cfgPath, err)
+	}
 	c := &companion{
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
 		cfgPath: o.cfgPath, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
@@ -92,6 +97,7 @@ func newCompanion(o companionOptions) *companion {
 		status:  &lastLine{},
 		prices:  &prices.Report{Now: time.Now},
 		cfg:     cfg,
+		warning: warning,
 		changed: make(chan struct{}),
 		games:   map[string]gameSeen{},
 		openURL: func(string) {},
@@ -102,6 +108,16 @@ func newCompanion(o companionOptions) *companion {
 		return link.Run(ctx, client, hostname, show, save)
 	}
 	return c
+}
+
+// setAsideSettings keeps an unreadable settings file aside, so the next save cannot overwrite the
+// token, folders and switched-off saves it may still hold, and says so for the page.
+func setAsideSettings(path string, readErr error) string {
+	aside, err := config.SetAside(path)
+	if err != nil {
+		return fmt.Sprintf("Your settings file %s could not be read (%v), nor moved aside (%v): the companion starts unlinked.", path, readErr, err)
+	}
+	return fmt.Sprintf("Your settings file could not be read (%v). It is kept as %s; the companion starts unlinked, so link this computer again.", readErr, aside)
 }
 
 // changes is closed at the next change the upload loop must see.
@@ -156,6 +172,8 @@ func (c *companion) State() page.State {
 		Version:   c.version,
 		Site:      c.url(),
 		Linked:    cfg.Token != "",
+		Sharing:   link.SharingLine,
+		Warning:   c.warning,
 		Status:    c.status.String(),
 		FirstRun:  !cfg.Welcomed,
 		Installed: c.installed(),
@@ -234,6 +252,9 @@ func (c *companion) refresher(f prices.Fetcher, d prices.DingsFetcher, s prices.
 func (c *companion) installed() []string {
 	target := c.layout.Target(c.running)
 	lines := []string{"The companion runs from " + target + "."}
+	if c.layout.Transient(target) {
+		lines = append(lines, moveToApplications)
+	}
 	if c.layout.Shortcut != "" {
 		lines = append(lines, "A shortcut to it: "+c.layout.Shortcut+".")
 	}
@@ -292,7 +313,9 @@ func (c *companion) StartDeviceLink() error {
 		defer cancel()
 		show := func(code api.DeviceCode) {
 			// The browser first, so a page that sees "waiting" knows the approval page was opened.
-			c.openURL(code.VerificationURIComplete)
+			if code.VerificationURIComplete != "" {
+				c.openURL(code.VerificationURIComplete)
+			}
 			c.setLinking(page.Linking{State: "waiting", UserCode: code.UserCode, URL: code.VerificationURIComplete})
 		}
 		save := func(token string) error {
@@ -349,7 +372,14 @@ func (c *companion) AddFolder(path string) error {
 	})
 }
 
+// moveToApplications is why a macOS app run from its disk image, or from Downloads before macOS has
+// cleared it, cannot start with the computer.
+const moveToApplications = "Drag the app to Applications and open it from there: from where it runs now, it cannot start with your computer."
+
 func (c *companion) SetAutostart(on bool) error {
+	if on && c.layout.Transient(c.layout.Target(c.running)) {
+		return page.BadRequest("%s", moveToApplications)
+	}
 	if on {
 		return c.layout.Autostart.Enable(c.layout.Target(c.running))
 	}
