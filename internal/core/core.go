@@ -91,6 +91,7 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 	var limited *api.RateLimitedError
 	var refused *api.RefusedError
 	var forbidden *api.ForbiddenError
+	var tooLarge *api.TooLargeError
 	switch {
 	case ctx.Err() != nil:
 		// The companion is stopping: the copy stays pending for the next start.
@@ -115,8 +116,8 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 		return true, nil
 	case errors.As(err, &refused):
 		c.done(now, p, label, data, "refused: "+refused.Reason)
-	case errors.Is(err, api.ErrTooLarge):
-		c.done(now, p, label, data, "refused: too large")
+	case errors.As(err, &tooLarge):
+		c.done(now, p, label, data, withReason("refused: too large", tooLarge.Reason))
 	default:
 		c.say(now, "%s: %v", label, err)
 	}
@@ -150,6 +151,13 @@ func nextBackoff(wait time.Duration) time.Duration {
 		return firstWait
 	}
 	return min(2*wait, longWait)
+}
+
+func withReason(what, reason string) string {
+	if reason == "" {
+		return what
+	}
+	return what + ": " + reason
 }
 
 func (c *Core) say(now time.Time, format string, args ...any) {

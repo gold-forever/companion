@@ -59,6 +59,12 @@ var ErrUnauthorized = errors.New("the server does not accept this token")
 // ErrTooLarge means the save is over the server's limit; sending it again changes nothing.
 var ErrTooLarge = errors.New("the save is too large for the server")
 
+// TooLargeError is ErrTooLarge with the server's reason, which names the limit; "" when it gave none.
+type TooLargeError struct{ Reason string }
+
+func (e *TooLargeError) Error() string        { return withReason(ErrTooLarge.Error(), e.Reason).Error() }
+func (e *TooLargeError) Is(target error) bool { return target == ErrTooLarge }
+
 // ForbiddenError means the account may not upload now (suspended, or a token without upload rights):
 // uploads wait until that changes on the server.
 type ForbiddenError struct{ Reason string }
@@ -141,7 +147,7 @@ func answer(res *http.Response, body []byte) (Answer, error) {
 	case res.StatusCode == http.StatusForbidden:
 		return a, &ForbiddenError{reasonOf(a)}
 	case res.StatusCode == http.StatusRequestEntityTooLarge:
-		return a, ErrTooLarge
+		return a, &TooLargeError{a.Reason}
 	case res.StatusCode == http.StatusTooManyRequests:
 		wait, ok := retryAfter(res.Header.Get("Retry-After"))
 		if !ok {

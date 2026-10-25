@@ -66,6 +66,9 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, `{"status":"paused","reason":"`+s.paused+`"}`)
+	case http.StatusRequestEntityTooLarge:
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, `{"status":"too large","reason":"a forever save may be at most 10 MB"}`)
 	case http.StatusBadRequest:
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, `{"status":"unknown game","reason":"unknown game version 11507"}`)
@@ -267,6 +270,17 @@ func TestAnUnexpectedAnswerKeepsTheSavePending(t *testing.T) {
 	_ = f.core.Step(context.Background(), start.Add(2*time.Second+time.Minute))
 	if pending, _ := f.core.Backups.Pending(); f.uploads() != 2 || len(pending) != 0 {
 		t.Fatalf("uploads = %d, pending = %+v: not sent again after the wait", f.uploads(), pending)
+	}
+}
+
+func TestATooLargeSaveIsLoggedWithTheServersLimit(t *testing.T) {
+	f := setup(t, http.StatusRequestEntityTooLarge)
+
+	f.settle(t)
+
+	entries, _ := f.log.Read()
+	if len(entries) != 1 || entries[0].Answer != "refused: too large: a forever save may be at most 10 MB" {
+		t.Fatalf("log = %+v", entries)
 	}
 }
 

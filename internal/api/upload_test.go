@@ -113,12 +113,13 @@ func TestASaveTheServerRefusesCarriesItsReason(t *testing.T) {
 	}
 }
 
-func TestATooLargeSaveIsNotRetried(t *testing.T) {
-	c, _, _ := server(t, 413, `{"status":"too large"}`, nil)
+func TestATooLargeSaveIsNotRetriedAndCarriesTheLimit(t *testing.T) {
+	c, _, _ := server(t, 413, `{"status":"too large","reason":"a forever save may be at most 10 MB"}`, nil)
 
 	_, err := c.Upload(context.Background(), []byte("x"))
 
-	if !errors.Is(err, ErrTooLarge) || Retryable(err) {
+	var tooLarge *TooLargeError
+	if !errors.Is(err, ErrTooLarge) || Retryable(err) || !errors.As(err, &tooLarge) || tooLarge.Reason != "a forever save may be at most 10 MB" {
 		t.Fatalf("err = %v, retryable = %v", err, Retryable(err))
 	}
 }
