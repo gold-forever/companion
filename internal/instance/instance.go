@@ -1,6 +1,7 @@
-// Package instance keeps the companion to one copy per user. The running copy writes where its
-// settings page listens, with the page's secret, to a file only that user can read; a second launch
-// reads it and opens that page, or asks the running copy to quit so a newer download can replace it.
+// Package instance keeps the companion to one copy per user. The running copy holds a lock the system
+// keeps for it (Claim), and writes where its settings page listens, with the page's secret, to a file
+// only that user can read; a second launch reads it and opens that page, or asks the running copy to
+// quit so a newer download can replace it.
 package instance
 
 import (
@@ -9,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +19,9 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrRunning means another copy of the companion holds the claim.
+var ErrRunning = errors.New("another copy of the companion is running")
 
 // SecretHeader carries the page's secret on requests from another copy of the companion.
 const SecretHeader = "X-Companion-Secret"

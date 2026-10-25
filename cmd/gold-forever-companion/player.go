@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -54,7 +55,7 @@ func player(ctx context.Context, mode string) int {
 	case alive:
 		err = openBrowser(instance.PageURL(other))
 	default:
-		err = serve(ctx, layout, exe, home, dataDir, instancePath, mode)
+		err = serveAlone(ctx, layout, exe, home, dataDir, instancePath, mode)
 	}
 	if err != nil {
 		alert("Gold Forever Companion", err.Error())
@@ -108,6 +109,31 @@ func versionOf(exe string) string {
 		return ""
 	}
 	return fields[1]
+}
+
+// How long a launch waits for another copy that holds the claim: to show its page once it is up, or to
+// take over once it has quit for an update.
+const claimWait = 15 * time.Second
+
+// serveAlone serves while holding the one-copy claim. Two launches at once (autostart and a click)
+// both find no running copy; the one without the claim opens the other's page instead.
+func serveAlone(ctx context.Context, layout install.Layout, exe, home, dataDir, instancePath, mode string) error {
+	for deadline := time.Now().Add(claimWait); ; time.Sleep(200 * time.Millisecond) {
+		release, err := instance.Claim(dataDir)
+		if err == nil {
+			defer release()
+			return serve(ctx, layout, exe, home, dataDir, instancePath, mode)
+		}
+		if !errors.Is(err, instance.ErrRunning) {
+			return fmt.Errorf("could not make sure only one companion runs: %w", err)
+		}
+		if other, err := instance.Read(instancePath); err == nil && instance.Alive(other) {
+			return openBrowser(instance.PageURL(other))
+		}
+		if time.Now().After(deadline) {
+			return errors.New("another copy of the companion is starting but does not answer: try again in a moment")
+		}
+	}
 }
 
 // serve runs the installed companion until Quit, Uninstall or ctx's end.
