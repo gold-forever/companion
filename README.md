@@ -98,8 +98,10 @@ What `run` does, in order:
 3. **Keeps a copy** in your data folder (`~/.local/share/gold-forever-companion/backups` on Linux), the
    last 10 per save. A copy is pending until the server has answered for it, so nothing is lost if
    the computer shuts down first.
-4. **Sends pending copies, oldest first.** A server that is down is tried again after 1 minute, then
-   2, 4 … up to 30. A 429 waits as long as it says. A refused token or account (401, 403) stops it.
+4. **Sends pending copies, oldest first.** A server that is down, or any answer that is not the
+   server's own, is tried again after 1 minute, then 2, 4 … up to 30, and never sooner than a
+   `Retry-After` it sent. A 429 waits as long as it says. An account that may not upload (403) is
+   asked again every 30 minutes. A refused token (401) stops it until you link again.
 5. **Logs every answer** in `sent.jsonl` next to the backups: time, save, size, SHA-256 and the
    answer, kept 30 days.
 
