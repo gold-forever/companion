@@ -100,7 +100,8 @@ Instead of `link`, you can make a token at /me/tokens and set `GF_TOKEN`, which 
 shell history (PowerShell: `$env:GF_TOKEN = "gf_..."`). `run` reads its
 settings from `config.json` in your system's config folder (`~/.config/gold-forever-companion/` on
 Linux): `token`, `url`, `folders` (WoW folders it doesn't find by itself) and `off` (saves to skip, by
-path). The file is readable by you only.
+path). The file is readable by you only. Like the app, `run` is one copy per user: while the app or
+another `run` is running, it says so and exits with an error.
 
 What `run` does, in order:
 

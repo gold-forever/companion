@@ -22,6 +22,7 @@ import (
 	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/core"
 	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/instance"
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/prices"
 	"github.com/gold-forever/companion/internal/refused"
@@ -128,6 +129,17 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	}
 	home, _ := os.UserHomeDir()
 	data := config.DataDir(runtime.GOOS, home, getenv)
+	// One copy per user, as the tray app: two would share one backups folder and log.
+	release, err := instance.Claim(data)
+	if errors.Is(err, instance.ErrRunning) {
+		fmt.Fprintln(stderr, "another copy of the companion is already running (the app, or another run): quit it first")
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "could not make sure only one companion runs: %v\n", err)
+		return 1
+	}
+	defer release()
 	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: keepLogFor}
 	_ = log.Prune(time.Now())
 	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)

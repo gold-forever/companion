@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/config"
+	"github.com/gold-forever/companion/internal/instance"
 	"github.com/gold-forever/companion/internal/link"
 )
 
@@ -169,6 +170,49 @@ func TestRunFindsTheSavesInAConfiguredFolderAndUploadsThem(t *testing.T) {
 	}
 	if _, err := os.Stat(logPath); err != nil {
 		t.Fatalf("no log was written: %v", err)
+	}
+}
+
+// The tray app and run share one backups folder and log: run must not start beside a running copy (CO-07).
+func TestRunDoesNotStartWhileAnotherCopyHoldsTheClaim(t *testing.T) {
+	home := isolatedHome(t)
+	var uploads int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		uploads++
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	t.Cleanup(srv.Close)
+	cfgPath, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Save(cfgPath, config.Config{Token: "gf_t", URL: srv.URL}); err != nil {
+		t.Fatal(err)
+	}
+	release, err := instance.Claim(config.DataDir(runtime.GOOS, home, os.Getenv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var errs bytes.Buffer
+
+	code := run(ctx, []string{"run"}, os.Getenv, io.Discard, &errs)
+
+	if code == 0 || !strings.Contains(errs.String(), "already running") {
+		t.Fatalf("code = %d, stderr = %q", code, errs.String())
+	}
+	if ctx.Err() != nil {
+		t.Error("run kept running beside the other copy until the test stopped it")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if uploads != 0 {
+		t.Errorf("%d requests reached the server", uploads)
 	}
 }
 
