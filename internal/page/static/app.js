@@ -52,6 +52,7 @@ function showState(s) {
   $("unlinked").hidden = s.linked;
   $("linked").hidden = !s.linked;
   $("tokens").href = s.site + "/me/tokens";
+  $("revoke").href = s.site + "/me/tokens";
   $("site").href = s.site; $("site").textContent = s.site;
   $("saves").replaceChildren(...(s.saves || []).map((save) => {
     const box = document.createElement("input");
@@ -82,7 +83,7 @@ function showLinking(l, linked) {
     a.href = l.url; a.textContent = "open it here"; a.target = "_blank"; a.rel = "noreferrer";
     p.replaceChildren("Approve the code ", code, " in your browser. If no page opened, ", a, ".");
   } else {
-    const why = { denied: "The link was denied.", expired: "The code expired before it was approved.", failed: "Linking failed: " + (l.error || "unknown error") + "." };
+    const why = { denied: "The link was denied.", expired: "The code expired before it was approved. If the site said an account keeps at most 20 tokens, revoke one you no longer use on your tokens page, then try again.", failed: "Linking failed: " + (l.error || "unknown error") + "." };
     p.replaceChildren((why[l.state] || "") + " Press the button to try again.");
   }
   schedule(waiting ? 1500 : 5000);

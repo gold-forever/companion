@@ -248,3 +248,18 @@ func TestANewerDownloadCanAskTheRunningCopyToQuit(t *testing.T) {
 		t.Errorf("the running copy refused to quit: %v", err)
 	}
 }
+
+// Unlink forgets the token on this computer only: the server keeps it live until it is revoked.
+func TestUnlinkSaysTheTokenStaysLiveUntilRevoked(t *testing.T) {
+	page := serve(&fakeApp{}, "GET", "/", "", nil).Body.String()
+	script := serve(&fakeApp{}, "GET", "/app.js", "", nil).Body.String()
+	if !strings.Contains(page, "keeps working until you revoke it") || !strings.Contains(page, `id="revoke"`) {
+		t.Error("the page does not say that an unlinked token stays live")
+	}
+	if !strings.Contains(script, `$("revoke").href = s.site + "/me/tokens"`) {
+		t.Error("the revoke link does not go to the tokens page")
+	}
+	if !strings.Contains(script, "an account keeps at most 20 tokens") {
+		t.Error("an expired code does not mention the limit on live tokens")
+	}
+}
