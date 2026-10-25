@@ -236,3 +236,20 @@ func TestAServerErrorWithoutRetryAfterLeavesTheWaitToTheClient(t *testing.T) {
 		t.Fatalf("retry after %s, want none", RetryAfter(err))
 	}
 }
+
+// A 14 MB retail save needs 0.95 Mbit/s to go up in two minutes; a slower uplink must still get there.
+func TestALargeSaveOnASlowUplinkIsGivenTimeToArrive(t *testing.T) {
+	c := &Client{BaseURL: "https://gold-forever.app"}
+	if timeout := c.uploadClient().Timeout; timeout != 0 {
+		t.Errorf("an upload has a whole-request timeout of %s", timeout)
+	}
+	if got := uploadDeadline(32 << 20); got < 30*time.Minute {
+		t.Errorf("a 32 MiB save gets %s", got)
+	}
+	if got := uploadDeadline(1 << 10); got != 2*time.Minute {
+		t.Errorf("a small save gets %s, want the two minutes an answer may take", got)
+	}
+	if got := uploadTransport.ResponseHeaderTimeout; got != 2*time.Minute {
+		t.Errorf("the server's answer may take %s", got)
+	}
+}

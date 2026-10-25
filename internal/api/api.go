@@ -27,6 +27,12 @@ const (
 	statusAlreadyImported = "already imported"
 )
 
+// How long the server may take to answer once the request is sent, and the whole of a small call.
+const answerTimeout = 2 * time.Minute
+
+// The slowest uplink a save is given time for, in bytes per second: 32 MiB then takes 34 minutes.
+const minUploadRate = 16 << 10
+
 // The server's answers are small JSON objects; anything longer is not one.
 const maxAnswerBytes = 64 << 10
 
@@ -38,7 +44,8 @@ type Client struct {
 	// Version and OS make the User-Agent, so the server can tell the companion's uploads apart.
 	Version string
 	OS      string
-	// HTTP is the client used; nil means one with a two-minute timeout.
+	// HTTP is the client used; nil means one with a two-minute timeout, and for an upload one whose
+	// deadline grows with the save (uploadDeadline).
 	HTTP *http.Client
 	// Now and Sleep pace the wait for a link; nil means the real clock.
 	Now   func() time.Time
@@ -114,6 +121,8 @@ func RetryAfter(err error) time.Duration {
 
 // Upload sends one save, byte for byte, as the game wrote it.
 func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
+	ctx, cancel := context.WithTimeout(ctx, uploadDeadline(len(save)))
+	defer cancel()
 	url := strings.TrimSuffix(c.BaseURL, "/") + "/api/v1/saves?name=" + saveName
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(save))
 	if err != nil {
@@ -122,7 +131,7 @@ func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("User-Agent", c.userAgent())
-	res, err := c.httpClient().Do(req)
+	res, err := c.uploadClient().Do(req)
 	if err != nil {
 		return Answer{}, &unavailableError{cause: err}
 	}
@@ -193,8 +202,27 @@ func (c *Client) userAgent() string {
 	return fmt.Sprintf("gold-forever-companion/%s (%s)", c.Version, c.OS)
 }
 
+// uploadDeadline bounds one upload of size bytes: sending it at minUploadRate, then the answer.
+func uploadDeadline(size int) time.Duration {
+	return answerTimeout + time.Duration(size/minUploadRate)*time.Second
+}
+
+// uploadTransport bounds each phase of an upload rather than the whole: a slow uplink still finishes.
+var uploadTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = answerTimeout
+	return t
+}()
+
+func (c *Client) uploadClient() *http.Client {
+	if c.HTTP != nil {
+		return c.httpClient()
+	}
+	return &http.Client{Transport: uploadTransport, CheckRedirect: carryToken}
+}
+
 func (c *Client) httpClient() *http.Client {
-	client := http.Client{Timeout: 2 * time.Minute}
+	client := http.Client{Timeout: answerTimeout}
 	if c.HTTP != nil {
 		client = *c.HTTP
 	}
