@@ -26,9 +26,10 @@ func (v vars) get(k string) string { return v[k] }
 
 type fakeRunKey struct{ value string }
 
-func (k *fakeRunKey) Enable(exe string) error { k.value = `"` + exe + `" --autostart`; return nil }
-func (k *fakeRunKey) Disable() error          { k.value = ""; return nil }
-func (k *fakeRunKey) Enabled() bool           { return k.value != "" }
+func (k *fakeRunKey) Enable(exe string) error  { k.value = `"` + exe + `" --autostart`; return nil }
+func (k *fakeRunKey) Disable() error           { k.value = ""; return nil }
+func (k *fakeRunKey) Enabled() bool            { return k.value != "" }
+func (k *fakeRunKey) StartsAt(exe string) bool { return k.value == `"`+exe+`" --autostart` }
 
 // downloaded writes a stand-in for the binary the player double-clicked.
 func downloaded(t *testing.T) string {
@@ -319,5 +320,67 @@ func TestTheInstalledCopyIsRecognisedThroughASymlinkedHome(t *testing.T) {
 	resolved := filepath.Join(real, ".local", "bin", "gold-forever-companion")
 	if l.NeedsInstall(resolved) {
 		t.Error("the installed copy, seen through the symlink's target, must not install itself again")
+	}
+}
+
+const (
+	inApplications = "/Applications/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+	inDownloads    = "/Users/a/Downloads/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+	onDiskImage    = "/Volumes/Gold Forever Companion/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+	translocated   = "/private/var/folders/x/T/AppTranslocation/0A1B/d/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+)
+
+func TestMacOSTurnsAutostartOnAtTheFirstRunOnly(t *testing.T) {
+	e, _ := env(t, "darwin")
+	l := For(e)
+	if err := l.FollowApp(inApplications, false); err != nil || l.Autostart.Enabled() {
+		t.Fatalf("a player who turned it off keeps it off: %v", err)
+	}
+	if err := l.FollowApp(inApplications, true); err != nil || !l.Autostart.Enabled() || !l.Autostart.StartsAt(inApplications) {
+		t.Fatalf("the first run turns it on for the app: %v", err)
+	}
+}
+
+// Opened once from Downloads and then dragged to Applications, the app must start from where it is now.
+func TestMacOSAutostartFollowsTheAppWhenItMoves(t *testing.T) {
+	e, _ := env(t, "darwin")
+	l := For(e)
+	if err := l.Autostart.Enable(inDownloads); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := l.FollowApp(inApplications, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if !l.Autostart.StartsAt(inApplications) {
+		t.Error("autostart still starts the app where it was")
+	}
+}
+
+func TestMacOSRecordsNoAutostartForAnAppThatIsGoneAtTheNextLogin(t *testing.T) {
+	for _, running := range []string{onDiskImage, translocated} {
+		e, _ := env(t, "darwin")
+		l := For(e)
+		if !l.Transient(running) {
+			t.Errorf("%s is not where the app stays", running)
+		}
+		if err := l.FollowApp(running, true); err != nil || l.Autostart.Enabled() {
+			t.Errorf("%s: autostart recorded for a path gone at the next login (%v)", running, err)
+		}
+	}
+	if l := For(Env{GOOS: "darwin"}); l.Transient(inApplications) {
+		t.Error("Applications is where the app stays")
+	}
+	if l := For(Env{GOOS: "linux", Getenv: vars{}.get}); l.Transient("/Volumes/x/gold-forever-companion") {
+		t.Error("only macOS mounts disk images under /Volumes")
+	}
+}
+
+func TestInstalledSystemsLeaveAutostartToInstalling(t *testing.T) {
+	e, _ := env(t, "linux")
+	l := For(e)
+	if err := l.FollowApp(l.Exe, true); err != nil || l.Autostart.Enabled() {
+		t.Errorf("Install turns autostart on where there is an install step: %v", err)
 	}
 }

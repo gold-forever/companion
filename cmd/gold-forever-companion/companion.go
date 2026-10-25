@@ -188,6 +188,9 @@ func (c *companion) State() page.State {
 func (c *companion) installed() []string {
 	target := c.layout.Target(c.running)
 	lines := []string{"The companion runs from " + target + "."}
+	if c.layout.Transient(target) {
+		lines = append(lines, moveToApplications)
+	}
 	if c.layout.Shortcut != "" {
 		lines = append(lines, "A shortcut to it: "+c.layout.Shortcut+".")
 	}
@@ -305,7 +308,14 @@ func (c *companion) AddFolder(path string) error {
 	})
 }
 
+// moveToApplications is why a macOS app run from its disk image, or from Downloads before macOS has
+// cleared it, cannot start with the computer.
+const moveToApplications = "Drag the app to Applications and open it from there: from where it runs now, it cannot start with your computer."
+
 func (c *companion) SetAutostart(on bool) error {
+	if on && c.layout.Transient(c.layout.Target(c.running)) {
+		return page.BadRequest("%s", moveToApplications)
+	}
 	if on {
 		return c.layout.Autostart.Enable(c.layout.Target(c.running))
 	}

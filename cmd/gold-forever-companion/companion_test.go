@@ -68,6 +68,20 @@ func TestAnUnreadableSettingsFileIsKeptAsideAndThePageSaysSo(t *testing.T) {
 	}
 }
 
+func TestAMacAppOnItsDiskImageSaysToMoveItAndRecordsNoAutostart(t *testing.T) {
+	home := t.TempDir()
+	layout := install.For(install.Env{GOOS: "darwin", Home: home, Getenv: func(string) string { return "" }})
+	onDiskImage := "/Volumes/Gold Forever Companion/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
+	c := newCompanion(companionOptions{running: onDiskImage, layout: layout, cfgPath: filepath.Join(home, "config.json"), dataDir: layout.Data[0], quit: func() {}})
+
+	if err := c.SetAutostart(true); err == nil || layout.Autostart.Enabled() {
+		t.Errorf("autostart recorded for a disk image: %v", err)
+	}
+	if !strings.Contains(strings.Join(c.State().Installed, "\n"), "Drag the app to Applications") {
+		t.Errorf("the first-run panel does not say to move the app: %q", c.State().Installed)
+	}
+}
+
 func TestLinkTakesOnlyATokenAndKeepsItForItsOwner(t *testing.T) {
 	c, _ := fixture(t)
 	var bad interface{ Error() string }

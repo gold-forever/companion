@@ -4,6 +4,7 @@
 package install
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"html"
@@ -29,6 +30,7 @@ type Autostart interface {
 	Enable(exe string) error
 	Disable() error
 	Enabled() bool
+	StartsAt(exe string) bool // whether what is recorded starts exe
 }
 
 // Env is what Layout is worked out from: the system, the home folder and its variables, and on
@@ -134,6 +136,31 @@ func (l Layout) Target(running string) string {
 	return l.Exe
 }
 
+// Transient says whether running is a macOS app where it will not be at the next login: on a mounted
+// disk image or another volume, or the random copy macOS runs a quarantined app from.
+func (l Layout) Transient(running string) bool {
+	return l.GOOS == "darwin" && (strings.HasPrefix(running, "/Volumes/") || strings.Contains(running, "/AppTranslocation/"))
+}
+
+// FollowApp keeps autostart on the app where it runs now, where there is no install step (macOS): at
+// the first run it turns autostart on, and when the player has moved the app it points autostart at
+// it again. For a Transient app it records nothing.
+func (l Layout) FollowApp(running string, firstRun bool) error {
+	if l.Exe != "" || l.Transient(running) {
+		return nil
+	}
+	if l.Autostart.Enabled() {
+		if l.Autostart.StartsAt(running) {
+			return nil
+		}
+		return l.Autostart.Enable(running)
+	}
+	if firstRun {
+		return l.Autostart.Enable(running)
+	}
+	return nil
+}
+
 // Install copies the binary at running into place, adds the launcher, and turns autostart on: the
 // first-run page shows that choice ticked, and the player can untick it there.
 func (l Layout) Install(running string) error {
@@ -234,6 +261,10 @@ func (a *fileAutostart) Disable() error          { return removeIfThere(a.path) 
 func (a *fileAutostart) Enabled() bool {
 	_, err := os.Stat(a.path)
 	return err == nil
+}
+func (a *fileAutostart) StartsAt(exe string) bool {
+	data, err := os.ReadFile(a.path)
+	return err == nil && bytes.Equal(data, a.content(exe))
 }
 
 func desktopEntry(exe string) []byte {
