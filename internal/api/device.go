@@ -138,7 +138,7 @@ func (c *Client) postJSON(ctx context.Context, path string, v any) (*http.Respon
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
 		}
-		return nil, nil, &unavailableError{err}
+		return nil, nil, &unavailableError{cause: err}
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, maxAnswerBytes))

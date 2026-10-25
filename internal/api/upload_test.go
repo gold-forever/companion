@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -211,5 +212,26 @@ func TestA200ThatIsNotTheServersAnswerIsRetried(t *testing.T) {
 		if !Retryable(err) {
 			t.Errorf("%q: err = %v, retryable = %v", body, err, Retryable(err))
 		}
+	}
+}
+
+// While the operator pauses uploads the server answers 503 with Retry-After and why.
+func TestAPausedServerSaysHowLongToWaitAndWhy(t *testing.T) {
+	c, _, _ := server(t, 503, `{"status":"paused","reason":"maintenance until 20:00"}`, map[string]string{"Retry-After": "600"})
+
+	_, err := c.Upload(context.Background(), []byte("x"))
+
+	if !Retryable(err) || RetryAfter(err) != 600*time.Second || !strings.Contains(err.Error(), "maintenance until 20:00") {
+		t.Fatalf("err = %v, retryable = %v, retry after %s", err, Retryable(err), RetryAfter(err))
+	}
+}
+
+func TestAServerErrorWithoutRetryAfterLeavesTheWaitToTheClient(t *testing.T) {
+	c, _, _ := server(t, 502, `bad gateway`, nil)
+
+	_, err := c.Upload(context.Background(), []byte("x"))
+
+	if RetryAfter(err) != 0 {
+		t.Fatalf("retry after %s, want none", RetryAfter(err))
 	}
 }

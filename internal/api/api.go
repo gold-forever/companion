@@ -80,8 +80,12 @@ func (e *RateLimitedError) Error() string {
 	return fmt.Sprintf("rate limited, retry after %s", e.RetryAfter)
 }
 
-// unavailableError is the server down, unreachable or failing: worth trying again later.
-type unavailableError struct{ cause error }
+// unavailableError is the server down, unreachable or failing: worth trying again later, and not
+// before retryAfter when the server named a wait (a paused server says 600 s).
+type unavailableError struct {
+	cause      error
+	retryAfter time.Duration
+}
 
 func (e *unavailableError) Error() string { return "server unavailable: " + e.cause.Error() }
 func (e *unavailableError) Unwrap() error { return e.cause }
@@ -91,6 +95,15 @@ func Retryable(err error) bool {
 	var limited *RateLimitedError
 	var unavailable *unavailableError
 	return errors.As(err, &limited) || errors.As(err, &unavailable)
+}
+
+// RetryAfter is how long the server asked a failed try to wait before the next: 0 when it named no wait.
+func RetryAfter(err error) time.Duration {
+	var unavailable *unavailableError
+	if errors.As(err, &unavailable) {
+		return unavailable.retryAfter
+	}
+	return 0
 }
 
 // Upload sends one save, byte for byte, as the game wrote it.
@@ -105,7 +118,7 @@ func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
 	req.Header.Set("User-Agent", c.userAgent())
 	res, err := c.httpClient().Do(req)
 	if err != nil {
-		return Answer{}, &unavailableError{err}
+		return Answer{}, &unavailableError{cause: err}
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, maxAnswerBytes))
@@ -120,7 +133,7 @@ func answer(res *http.Response, body []byte) (Answer, error) {
 	switch {
 	case res.StatusCode == http.StatusOK:
 		if unreadable || (a.Status != statusImported && a.Status != statusAlreadyImported) {
-			return a, &unavailableError{errors.New("an answer that is not the server's")}
+			return a, &unavailableError{cause: errors.New("an answer that is not the server's")}
 		}
 		return a, nil
 	case res.StatusCode == http.StatusUnauthorized:
@@ -130,14 +143,19 @@ func answer(res *http.Response, body []byte) (Answer, error) {
 	case res.StatusCode == http.StatusRequestEntityTooLarge:
 		return a, ErrTooLarge
 	case res.StatusCode == http.StatusTooManyRequests:
-		return a, &RateLimitedError{retryAfter(res.Header.Get("Retry-After"))}
+		wait, ok := retryAfter(res.Header.Get("Retry-After"))
+		if !ok {
+			wait = defaultRetryAfter
+		}
+		return a, &RateLimitedError{wait}
 	case res.StatusCode == http.StatusBadRequest, res.StatusCode == http.StatusUnsupportedMediaType,
 		res.StatusCode == http.StatusUnprocessableEntity:
 		return a, &RefusedError{res.StatusCode, reasonOf(a)}
 	case res.StatusCode >= 500:
-		return a, &unavailableError{fmt.Errorf("status %d", res.StatusCode)}
+		wait, _ := retryAfter(res.Header.Get("Retry-After"))
+		return a, &unavailableError{withReason(fmt.Sprintf("status %d", res.StatusCode), a.Reason), wait}
 	default:
-		return a, &unavailableError{fmt.Errorf("unexpected answer %d", res.StatusCode)}
+		return a, &unavailableError{cause: fmt.Errorf("unexpected answer %d", res.StatusCode)}
 	}
 }
 
@@ -149,12 +167,20 @@ func reasonOf(a Answer) string {
 	return a.Status
 }
 
-// retryAfter reads Retry-After in seconds, the only form the server sends.
-func retryAfter(header string) time.Duration {
-	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
-		return time.Duration(seconds) * time.Second
+// withReason is what failed, with the server's own words when it gave them.
+func withReason(what, reason string) error {
+	if reason == "" {
+		return errors.New(what)
 	}
-	return defaultRetryAfter
+	return fmt.Errorf("%s: %s", what, reason)
+}
+
+// retryAfter reads Retry-After in seconds, the only form the server sends; false when there is none.
+func retryAfter(header string) (time.Duration, bool) {
+	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second, true
+	}
+	return 0, false
 }
 
 func (c *Client) userAgent() string {

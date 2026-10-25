@@ -33,6 +33,7 @@ func saveText(n string) string {
 type server struct {
 	mu       sync.Mutex
 	answers  []int
+	paused   string // when set, a 503 is the server's pause, with this reason
 	headers  []string
 	bodies   []string
 	requests []string
@@ -59,6 +60,12 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
 	case http.StatusTooManyRequests:
 		w.Header().Set("Retry-After", "90")
 		w.WriteHeader(status)
+	case http.StatusServiceUnavailable:
+		if s.paused != "" {
+			w.Header().Set("Retry-After", "600")
+		}
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, `{"status":"paused","reason":"`+s.paused+`"}`)
 	case http.StatusBadRequest:
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, `{"status":"unknown game","reason":"unknown game version 11507"}`)
@@ -170,6 +177,27 @@ func TestAnOfflineServerIsRetriedWithGrowingWaits(t *testing.T) {
 	}
 	if pending, _ := f.core.Backups.Pending(); len(pending) != 0 {
 		t.Fatalf("still pending after the server took it: %+v", pending)
+	}
+}
+
+func TestAPausedServerIsAskedAgainWhenItSaysAndItsReasonShown(t *testing.T) {
+	f := setup(t, http.StatusServiceUnavailable, http.StatusOK)
+	f.srv.paused = "maintenance until 20:00"
+	var out strings.Builder
+	f.core.Out = &out
+
+	f.settle(t)
+	at := start.Add(2 * time.Second)
+	_ = f.core.Step(context.Background(), at.Add(time.Minute))
+	if f.uploads() != 1 {
+		t.Fatalf("sent the whole save again before Retry-After: %d uploads", f.uploads())
+	}
+	if !strings.Contains(out.String(), "maintenance until 20:00") {
+		t.Errorf("the operator's reason is not shown: %q", out.String())
+	}
+	_ = f.core.Step(context.Background(), at.Add(10*time.Minute))
+	if f.uploads() != 2 {
+		t.Fatalf("not sent again once Retry-After passed: %d uploads", f.uploads())
 	}
 }
 

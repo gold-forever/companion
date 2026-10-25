@@ -65,7 +65,7 @@ func (c *Core) Step(ctx context.Context, now time.Time) error {
 	}
 	pending, err := c.Backups.Pending()
 	if err != nil {
-		c.say(now, "could not list the copies to send: %v; trying again in %s", err, c.backOff(now))
+		c.say(now, "could not list the copies to send: %v; trying again in %s", err, c.backOff(now, 0))
 		return nil
 	}
 	for _, p := range pending {
@@ -111,7 +111,7 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 		c.say(now, "the server asked to wait %s", limited.RetryAfter)
 		return true, nil
 	case api.Retryable(err):
-		c.say(now, "%v; trying again in %s", err, c.backOff(now))
+		c.say(now, "%v; trying again in %s", err, c.backOff(now, api.RetryAfter(err)))
 		return true, nil
 	case errors.As(err, &refused):
 		c.done(now, p, label, data, "refused: "+refused.Reason)
@@ -135,11 +135,13 @@ func (c *Core) done(now time.Time, p backup.Copy, label string, data []byte, ans
 	c.say(now, "sent %s: %s", label, answer)
 }
 
-// backOff waits longer than after the last failed try, and returns how long.
-func (c *Core) backOff(now time.Time) time.Duration {
+// backOff waits longer than after the last failed try, and at least as long as atLeast, the server's
+// own Retry-After; it returns how long.
+func (c *Core) backOff(now time.Time, atLeast time.Duration) time.Duration {
 	c.wait = nextBackoff(c.wait)
-	c.waitUntil = now.Add(c.wait)
-	return c.wait
+	wait := max(c.wait, atLeast)
+	c.waitUntil = now.Add(wait)
+	return wait
 }
 
 // nextBackoff doubles the wait after a failed try, from one minute up to thirty.
