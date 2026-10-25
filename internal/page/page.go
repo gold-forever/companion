@@ -27,19 +27,40 @@ var static embed.FS
 
 // State is everything the page shows.
 type State struct {
-	Version   string   `json:"version"`
-	Site      string   `json:"site"`
-	Linked    bool     `json:"linked"`
-	Sharing   string   `json:"sharing"` // what every upload shares, shown where the player links
-	Status    string   `json:"status"`
-	FirstRun  bool     `json:"firstRun"`
-	Installed []string `json:"installed"` // what installing did, one line each, for the first-run panel
-	Autostart bool     `json:"autostart"`
-	Saves     []Save   `json:"saves"`
-	Folders   []string `json:"folders"`
-	Notice    *Notice  `json:"notice,omitempty"`
-	Warning   string   `json:"warning,omitempty"` // a problem with the settings the player must know of
-	Linking   *Linking `json:"linking,omitempty"`
+	Version   string      `json:"version"`
+	Site      string      `json:"site"`
+	Linked    bool        `json:"linked"`
+	Sharing   string      `json:"sharing"` // what every upload shares, shown where the player links
+	Status    string      `json:"status"`
+	FirstRun  bool        `json:"firstRun"`
+	Installed []string    `json:"installed"` // what installing did, one line each, for the first-run panel
+	Autostart bool        `json:"autostart"`
+	Saves     []Save      `json:"saves"`
+	Folders   []string    `json:"folders"`
+	Notice    *Notice     `json:"notice,omitempty"`
+	Warning   string      `json:"warning,omitempty"` // a problem with the settings the player must know of
+	Linking   *Linking    `json:"linking,omitempty"`
+	Prices    []PriceFile `json:"prices"`
+}
+
+// PriceFile is one flavour's GoldForever_Data/Data.lua and how the latest fetch of its game went.
+type PriceFile struct {
+	Flavour string        `json:"flavour"`
+	Game    string        `json:"game"`
+	Markets []PriceMarket `json:"markets,omitempty"`
+	Items   int           `json:"items"`
+	Size    int64         `json:"size"`              // bytes; 0 when there is no file
+	Fetched *time.Time    `json:"fetched,omitempty"` // none before the first fetch
+	Outcome string        `json:"outcome,omitempty"` // ok, not modified, or error
+	Error   string        `json:"error,omitempty"`
+	Dings   string        `json:"dings,omitempty"`  // the in-game dings switch the file carries; none from an older companion or server
+	Shared  string        `json:"shared,omitempty"` // how many lists and profiles the file carries; none from an older companion or server
+}
+
+// PriceMarket is one market in a price file and its item count.
+type PriceMarket struct {
+	Market string `json:"market"`
+	Items  int    `json:"items"`
 }
 
 // Linking is a link by code in progress or just ended: waiting (the player approves UserCode at URL),
@@ -57,6 +78,7 @@ type Save struct {
 	Label string `json:"label"`
 	Game  string `json:"game"`
 	On    bool   `json:"on"`
+	Note  string `json:"note,omitempty"` // what the companion is doing about it, when not the usual
 }
 
 // Notice says a newer release exists; the player downloads it themselves.

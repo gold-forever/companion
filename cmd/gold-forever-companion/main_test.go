@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -240,5 +241,168 @@ func TestLinkThatIsDeniedSaysSoAndFails(t *testing.T) {
 
 	if code != 1 || !strings.Contains(errs.String(), "denied") {
 		t.Errorf("code = %d, stderr = %q", code, errs.String())
+	}
+}
+
+func TestRunWritesTheMarketsPricesIntoTheForeverFlavourAtStart(t *testing.T) {
+	for _, viaFlag := range []bool{true, false} {
+		home := isolatedHome(t)
+		wow := filepath.Join(home, "World of Warcraft")
+		dir := filepath.Join(wow, "_forever_", "WTF", "Account", "A", "SavedVariables")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		save := "GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, "GoldForever.lua"), []byte(save), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		const market = "forever-BETA-normal-horde"
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/prices" && r.URL.Query().Get("market") == market {
+				_, _ = io.WriteString(w, `{"v":1,"game":"forever","market":"`+market+`","at":5,"items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":4}]}`)
+				return
+			}
+			_, _ = io.Copy(io.Discard, r.Body)
+			_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+		}))
+		cfgPath, _ := config.Path()
+		cfg := config.Config{Token: "gf_t", URL: srv.URL, Folders: []string{wow}}
+		args := []string{"run", "--market", market}
+		if !viaFlag {
+			cfg.Market, args = market, []string{"run"}
+		}
+		if err := config.Save(cfgPath, cfg); err != nil {
+			t.Fatal(err)
+		}
+		data := filepath.Join(wow, "_forever_", "Interface", "AddOns", "GoldForever_Data", "Data.lua")
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		go func() {
+			for ctx.Err() == nil {
+				if _, err := os.Stat(data); err == nil {
+					cancel()
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}()
+
+		code := run(ctx, args, os.Getenv, io.Discard, io.Discard)
+		cancel()
+		srv.Close()
+
+		lua, err := os.ReadFile(data)
+		if code != 0 || err != nil || !strings.Contains(string(lua), "[2589] = { 1234, 1100, 1, 4 },") {
+			t.Fatalf("flag %v: code = %d, Data.lua = %q, %v", viaFlag, code, lua, err)
+		}
+	}
+}
+
+func TestRunAsksForThePricesAgainWithTheirETagOnceAnUploadIsImported(t *testing.T) {
+	home := isolatedHome(t)
+	wow := filepath.Join(home, "World of Warcraft")
+	dir := filepath.Join(wow, "_forever_", "WTF", "Account", "A", "SavedVariables")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	save := "GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "GoldForever.lua"), []byte(save), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const market = "forever-BETA-normal-horde"
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	var sent []string // If-None-Match of each price request, in order
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/prices" {
+			mu.Lock()
+			sent = append(sent, r.Header.Get("If-None-Match"))
+			n := len(sent)
+			mu.Unlock()
+			if n > 1 {
+				w.WriteHeader(http.StatusNotModified)
+				cancel()
+				return
+			}
+			w.Header().Set("ETag", `"m-1"`)
+			_, _ = io.WriteString(w, `{"v":1,"game":"forever","market":"`+market+`","at":5,"items":[]}`)
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	defer srv.Close()
+	cfgPath, _ := config.Path()
+	if err := config.Save(cfgPath, config.Config{Token: "gf_t", URL: srv.URL, Folders: []string{wow}, Market: market}); err != nil {
+		t.Fatal(err)
+	}
+
+	code := run(ctx, []string{"run"}, os.Getenv, io.Discard, io.Discard)
+
+	if left := stillRunning(); left != "" {
+		t.Fatalf("run returned with its loops still running:\n%s", left)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if code != 0 || len(sent) != 2 || sent[0] != "" || sent[1] != `"m-1"` {
+		t.Fatalf("code = %d, If-None-Match sent = %q; want a full fetch at start, then one with its ETag", code, sent)
+	}
+}
+
+// stillRunning is the stack of every goroutine inside the upload or price loops: "" when none is.
+func stillRunning() string {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	var left []string
+	for g := range strings.SplitSeq(string(buf), "\n\n") {
+		if strings.Contains(g, "companion/internal/prices.") || strings.Contains(g, "companion/internal/core.") {
+			left = append(left, g)
+		}
+	}
+	return strings.Join(left, "\n\n")
+}
+
+func TestRunWithoutAMarketWritesTheAccountsMarkets(t *testing.T) {
+	home := isolatedHome(t)
+	wow := filepath.Join(home, "World of Warcraft")
+	dir := filepath.Join(wow, "_forever_", "WTF", "Account", "A", "SavedVariables")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	save := "GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "GoldForever.lua"), []byte(save), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/prices" && r.URL.Query().Get("game") == "forever" && !r.URL.Query().Has("market") {
+			_, _ = io.WriteString(w, `{"v":1,"game":"forever","at":5,"markets":[`+
+				`{"market":"forever-EU-normal-horde","items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":4}]},`+
+				`{"market":"forever-EU-normal-alliance","items":[{"id":2589,"value":99,"minBuyout":90,"players":2,"scannedAt":4}]}]}`)
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	defer srv.Close()
+	cfgPath, _ := config.Path()
+	if err := config.Save(cfgPath, config.Config{Token: "gf_t", URL: srv.URL, Folders: []string{wow}}); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(wow, "_forever_", "Interface", "AddOns", "GoldForever_Data", "Data.lua")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	go func() {
+		for ctx.Err() == nil {
+			if _, err := os.Stat(data); err == nil {
+				cancel()
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	code := run(ctx, []string{"run"}, os.Getenv, io.Discard, io.Discard)
+
+	lua, err := os.ReadFile(data)
+	if code != 0 || err != nil || !strings.Contains(string(lua), `["forever-EU-normal-horde"]`) || !strings.Contains(string(lua), `["forever-EU-normal-alliance"]`) {
+		t.Fatalf("code = %d, Data.lua = %q, %v", code, lua, err)
 	}
 }

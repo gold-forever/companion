@@ -126,14 +126,20 @@ func isFlavour(name string) bool {
 
 var interfaceLine = regexp.MustCompile(`\["interface"\]\s*=\s*(\d+)`)
 
+// Interface reads the interface number of the client that wrote a save, or 0 when it names none.
+func Interface(save []byte) int {
+	m := interfaceLine.FindSubmatch(save)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(string(m[1]))
+	return n
+}
+
 // Game reads which game wrote a save from its interface number, as the server does: forever, retail
 // or unknown. It only labels the save locally; the server decides for itself.
 func Game(save []byte) string {
-	m := interfaceLine.FindSubmatch(save)
-	if m == nil {
-		return "unknown"
-	}
-	n, _ := strconv.Atoi(string(m[1]))
+	n := Interface(save)
 	switch {
 	case n >= 16000 && n <= 16999:
 		return "forever"

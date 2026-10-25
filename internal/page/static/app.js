@@ -62,9 +62,48 @@ function showState(s) {
     game.className = "game"; game.textContent = ` (${save.game})`;
     const label = document.createElement("label");
     label.append(box, " ", save.label, game);
+    if (save.note) {
+      const note = document.createElement("span");
+      note.className = "game"; note.textContent = ` — ${save.note}`;
+      label.append(note);
+    }
     return li(label);
   }));
   if (!(s.saves || []).length) $("saves").replaceChildren(li("None yet. Log in to World of Warcraft once with the Gold Forever addon, or add your WoW folder below."));
+  showPrices(s.prices || []);
+}
+
+function row(...texts) {
+  const r = document.createElement("tr");
+  for (const text of texts) {
+    const cell = document.createElement("td");
+    cell.textContent = text;
+    r.append(cell);
+  }
+  return r;
+}
+
+// Each flavour's price file: what it holds and how the latest fetch of its game went.
+function showPrices(files) {
+  $("prices").replaceChildren(...files.map((f) => {
+    const markets = (f.markets || []).map((m) => `${m.market} (${m.items})`).join(", ") || "none";
+    const size = f.size ? `${Math.round(f.size / 1024)} KB` : "no file";
+    let fetched = "not yet";
+    if (f.fetched) {
+      fetched = `${new Date(f.fetched).toLocaleString()} · ${f.outcome === "error" ? "error: " + f.error : f.outcome}`;
+    }
+    const r = row(`${f.flavour} (${f.game})`, markets, String(f.items), size, fetched);
+    for (const text of [f.dings, f.shared]) {
+      if (!text) continue;
+      const line = document.createElement("div");
+      line.className = "hint";
+      line.textContent = text;
+      r.firstChild.append(line);
+    }
+    if (f.outcome === "error") r.className = "failed";
+    return r;
+  }));
+  if (!files.length) $("prices").replaceChildren(row("No Forever or retail game folder found yet.", "", "", "", ""));
 }
 
 // A link by code: the code to approve while it waits, or why it ended.
@@ -90,15 +129,8 @@ function showLinking(l, linked) {
 }
 
 function showHistory(h) {
-  $("log").replaceChildren(...(h.entries || []).slice().reverse().map((e) => {
-    const row = document.createElement("tr");
-    for (const text of [new Date(e.time).toLocaleString(), e.save, `${Math.round(e.size / 1024)} KB`, e.answer]) {
-      const cell = document.createElement("td");
-      cell.textContent = text;
-      row.append(cell);
-    }
-    return row;
-  }));
+  $("log").replaceChildren(...(h.entries || []).slice().reverse().map((e) =>
+    row(new Date(e.time).toLocaleString(), e.save, `${Math.round(e.size / 1024)} KB`, e.answer)));
   $("copies").replaceChildren(...(h.copies || []).slice().reverse().map((c) => {
     const view = button("View", () => window.open("/api/copy?id=" + encodeURIComponent(c.id), "_blank"));
     const restore = button("Restore", () => {

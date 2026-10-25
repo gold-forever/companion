@@ -1,11 +1,13 @@
 package page
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gold-forever/companion/internal/instance"
 )
@@ -22,9 +24,12 @@ type fakeApp struct {
 	uninstalls  int
 	linked      string
 	deviceLinks int
+	prices      []PriceFile
 }
 
-func (a *fakeApp) State() State                  { return State{Version: "v0.1.0", Linked: a.linked != ""} }
+func (a *fakeApp) State() State {
+	return State{Version: "v0.1.0", Linked: a.linked != "", Prices: a.prices}
+}
 func (a *fakeApp) Link(token string) error       { a.linked = token; return nil }
 func (a *fakeApp) Unlink() error                 { a.linked = ""; return nil }
 func (a *fakeApp) StartDeviceLink() error        { a.deviceLinks++; return nil }
@@ -261,5 +266,37 @@ func TestUnlinkSaysTheTokenStaysLiveUntilRevoked(t *testing.T) {
 	}
 	if !strings.Contains(script, "an account keeps at most 20 tokens") {
 		t.Error("an expired code does not mention the limit on live tokens")
+	}
+}
+
+func TestTheStateCarriesEachFlavoursPriceFileForAFreshAStaleAndAFailedFetch(t *testing.T) {
+	at := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	app := &fakeApp{prices: []PriceFile{
+		{Flavour: "World of Warcraft › _forever_", Game: "forever", Markets: []PriceMarket{{"forever-EU-normal-horde", 3088}}, Items: 3088, Size: 146432, Fetched: &at, Outcome: "ok"},
+		{Flavour: "World of Warcraft › _forever_ptr_", Game: "forever", Markets: []PriceMarket{{"forever-EU-normal-horde", 3088}}, Items: 3088, Size: 146432, Fetched: &at, Outcome: "not modified"},
+		{Flavour: "World of Warcraft › _retail_", Game: "retail", Fetched: &at, Outcome: "error", Error: "server unavailable: offline"},
+	}}
+
+	rec := serve(app, "GET", "/api/state", "", nil)
+
+	var got struct {
+		Prices []map[string]any `json:"prices"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Prices) != 3 {
+		t.Fatalf("state = %s, %v", rec.Body, err)
+	}
+	fresh, _ := json.Marshal(got.Prices[0])
+	want := `{"fetched":"2026-10-22T12:00:00Z","flavour":"World of Warcraft › _forever_","game":"forever","items":3088,"markets":[{"items":3088,"market":"forever-EU-normal-horde"}],"outcome":"ok","size":146432}`
+	if string(fresh) != want {
+		t.Errorf("a fresh file = %s\nwant %s", fresh, want)
+	}
+	if got.Prices[1]["outcome"] != "not modified" {
+		t.Errorf("a stale file = %v", got.Prices[1])
+	}
+	if got.Prices[2]["outcome"] != "error" || got.Prices[2]["error"] != "server unavailable: offline" {
+		t.Errorf("a failed fetch = %v", got.Prices[2])
+	}
+	if page := serve(app, "GET", "/", "", nil).Body.String(); !strings.Contains(page, `id="prices"`) {
+		t.Error("the page has no place for the price files")
 	}
 }

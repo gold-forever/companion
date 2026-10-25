@@ -24,6 +24,8 @@ import (
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/prices"
+	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	release "github.com/gold-forever/companion/internal/version"
 	"github.com/gold-forever/companion/internal/watch"
@@ -33,6 +35,9 @@ import (
 var tokenShape = regexp.MustCompile(`^gf_[0-9A-Za-z]{43}$`)
 
 const checkVersionEvery = 24 * time.Hour
+
+// refusedFile, in the data folder, lists the saves the server refused as too large.
+const refusedFile = "refused.json"
 
 // companion is the running app: what the settings page and the tray show and change, and the upload
 // loop, which starts again whenever the token or the folders change.
@@ -46,8 +51,10 @@ type companion struct {
 	candidates []string
 	backups    *backup.Store
 	log        *sendlog.Log
+	refused    *refused.List
 	quit       func()
 	status     *lastLine
+	prices     *prices.Report // how each price fetch and write went, kept across the loop's restarts
 	// linker links by code: it shows the code, waits for the approval and saves the token with save.
 	linker func(ctx context.Context, show func(api.DeviceCode), save func(token string) error) error
 	// openURL opens a page in the player's browser.
@@ -86,7 +93,9 @@ func newCompanion(o companionOptions) *companion {
 		cfgPath: o.cfgPath, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
 		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: keepCopies, Now: time.Now},
 		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: keepLogFor},
+		refused: refused.Load(filepath.Join(o.dataDir, refusedFile)),
 		status:  &lastLine{},
+		prices:  &prices.Report{Now: time.Now},
 		cfg:     cfg,
 		warning: warning,
 		changed: make(chan struct{}),
@@ -172,7 +181,14 @@ func (c *companion) State() page.State {
 		Folders:   cfg.Folders,
 	}
 	for _, save := range c.saves() {
-		s.Saves = append(s.Saves, page.Save{Path: save.Path, Label: save.Label(), Game: c.gameOf(save.Path), On: !cfg.IsOff(save.Path)})
+		p := page.Save{Path: save.Path, Label: save.Label(), Game: c.gameOf(save.Path), On: !cfg.IsOff(save.Path)}
+		if c.refused.Holds(save.Path) {
+			p.Note = "refused as too large, retrying daily"
+		}
+		s.Saves = append(s.Saves, p)
+	}
+	for _, f := range c.prices.Files(c.saves()) {
+		s.Prices = append(s.Prices, priceFile(f))
 	}
 	c.mu.Lock()
 	s.Notice = c.notice
@@ -182,6 +198,54 @@ func (c *companion) State() page.State {
 	}
 	c.mu.Unlock()
 	return s
+}
+
+// priceFile is a flavour's price file as the page shows it, its folder named as saves are.
+func priceFile(f prices.File) page.PriceFile {
+	p := page.PriceFile{
+		Flavour: filepath.Base(filepath.Dir(f.Flavour)) + " › " + filepath.Base(f.Flavour),
+		Game:    f.Game, Items: f.Items, Size: f.Size, Outcome: f.Outcome, Error: f.Error,
+	}
+	for _, m := range f.Markets {
+		p.Markets = append(p.Markets, page.PriceMarket{Market: m.Key, Items: m.Items})
+	}
+	if !f.Fetched.IsZero() {
+		p.Fetched = &f.Fetched
+	}
+	if f.Dings != nil {
+		p.Dings = dingsLine(*f.Dings)
+	}
+	if f.Shared != nil {
+		p.Shared = fmt.Sprintf("Lists: %d · Profiles: %d", f.Shared.Lists, f.Shared.Profiles)
+	}
+	return p
+}
+
+// dingsLine is the in-game dings switch as a price file carries it: "Dings: webhook on · 2 characters on".
+func dingsLine(d prices.Dings) string {
+	webhook, on := "off", 0
+	if d.Webhook {
+		webhook = "on"
+	}
+	for _, choice := range d.Characters {
+		if choice {
+			on++
+		}
+	}
+	characters := "characters"
+	if on == 1 {
+		characters = "character"
+	}
+	return fmt.Sprintf("Dings: webhook %s · %d %s on", webhook, on, characters)
+}
+
+// refresher keeps the account's prices, dings state and shared lists and profiles in the game, fetched
+// with f, d and s.
+func (c *companion) refresher(f prices.Fetcher, d prices.DingsFetcher, s prices.SharedFetcher) *prices.Refresher {
+	return &prices.Refresher{
+		Fetcher: f, Dings: d, Shared: s, Saves: c.saves, Market: c.settings().Market,
+		State: filepath.Join(c.dataDir, pricesState), Out: c.status, Report: c.prices,
+	}
 }
 
 // installed says, one line each, what installing the companion put on this computer.
@@ -410,20 +474,26 @@ func (c *companion) loop(ctx context.Context) {
 			c.status.Set("Not linked yet: open Settings and press \"Link this computer\".")
 		} else {
 			run, stop := context.WithCancel(ctx)
-			go func() {
+			var started sync.WaitGroup
+			started.Go(func() {
 				select {
 				case <-changed:
 					stop()
 				case <-run.Done():
 				}
-			}()
+			})
+			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
+			imported, announce := prices.Trigger()
+			refresher := c.refresher(client, client, client)
+			started.Go(func() { refresher.Run(run, refreshPricesEvery, time.After, imported) })
 			loop := &core.Core{
-				Uploader: &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos},
-				Backups:  c.backups, Log: c.log, Watcher: watch.New(pollEvery),
-				Saves: c.saves, IsOff: c.isOff, Out: c.status,
+				Uploader: client,
+				Backups:  c.backups, Log: c.log, Refused: c.refused, Watcher: watch.New(pollEvery),
+				Saves: c.saves, IsOff: c.isOff, Out: c.status, Imported: announce,
 			}
 			err := loop.Run(run, pollEvery)
 			stop()
+			started.Wait() // the next round, or the caller, owns the data folder alone
 			if err == nil {
 				continue // a change, or the companion is stopping
 			}

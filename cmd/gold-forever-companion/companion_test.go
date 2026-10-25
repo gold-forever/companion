@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +13,11 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/link"
+	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/refused"
 )
 
 const validToken = "gf_0123456789abcdefghijABCDEFGHIJklmnopqrstuvw"
@@ -141,6 +147,24 @@ func TestSavesAreFoundWithTheirGameAndCanBeSwitchedOff(t *testing.T) {
 	}
 	if err := c.SetSaveOn("/etc/passwd", false); err == nil {
 		t.Error("only a save the companion found can be switched")
+	}
+}
+
+func TestASaveRefusedAsTooLargeSaysItIsRetriedDaily(t *testing.T) {
+	c, save := fixture(t)
+	if note := c.State().Saves[0].Note; note != "" {
+		t.Fatalf("note before any refusal: %q", note)
+	}
+
+	if err := c.refused.Refuse(save, "0123", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	if note := c.State().Saves[0].Note; note != "refused as too large, retrying daily" {
+		t.Fatalf("note = %q", note)
+	}
+	if !refused.Load(filepath.Join(c.dataDir, refusedFile)).Holds(save) {
+		t.Fatal("the refusal is not kept in the data folder for the next start")
 	}
 }
 
@@ -310,5 +334,109 @@ func TestASecondLinkWhileOneWaitsStartsNone(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if starts != 1 {
 		t.Errorf("a second press started %d links in all, want 1", starts)
+	}
+}
+
+// pricesServer answers the account's markets for every game with body.
+type pricesServer struct{ body string }
+
+func (p pricesServer) Prices(context.Context, string, string, string) ([]byte, string, error) {
+	return []byte(p.body), `"e1"`, nil
+}
+
+const twoItems = `{"v":1,"game":"forever","at":5,"markets":[{"market":"forever-EU-normal-horde","items":[` +
+	`{"id":1,"value":1,"minBuyout":1,"players":1,"scannedAt":1},{"id":2,"value":1,"minBuyout":1,"players":1,"scannedAt":1}]}]}`
+
+func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
+	c, save := fixture(t)
+	if got := c.State().Prices; len(got) != 1 || got[0].Fetched != nil || got[0].Outcome != "" || got[0].Size != 0 {
+		t.Fatalf("before a fetch: %+v", got)
+	}
+	r := c.refresher(pricesServer{twoItems}, nil, nil)
+
+	if err := r.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	got := c.State().Prices
+	flavour := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(save)))))
+	lua, _ := os.ReadFile(filepath.Join(flavour, "Interface", "AddOns", "GoldForever_Data", "Data.lua"))
+	if len(got) != 1 || got[0].Flavour != "World of Warcraft › _forever_" || got[0].Game != "forever" || got[0].Items != 2 ||
+		len(got[0].Markets) != 1 || got[0].Markets[0] != (page.PriceMarket{Market: "forever-EU-normal-horde", Items: 2}) ||
+		got[0].Size != int64(len(lua)) || got[0].Fetched == nil || got[0].Outcome != "ok" {
+		t.Fatalf("after a fetch: %+v", got)
+	}
+	if got[0].Dings != "" || got[0].Shared != "" {
+		t.Errorf("a file without dings or shared state shows %q, %q", got[0].Dings, got[0].Shared)
+	}
+}
+
+// dingsServer answers the account's dings state with body.
+type dingsServer struct{ body string }
+
+func (d dingsServer) DingsState(context.Context, string) ([]byte, string, error) {
+	return []byte(d.body), `"d1"`, nil
+}
+
+func TestThePageShowsTheDingsSwitchStateEachPriceFileHolds(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"v":1,"at":7,"webhook":true,"characters":{"Player-1-0A":true,"Player-1-0B":false,"Player-1-0C":true}}`: "Dings: webhook on · 2 characters on",
+		`{"v":1,"at":7,"webhook":false,"characters":{"Player-1-0A":true}}`:                                       "Dings: webhook off · 1 character on",
+		`{"v":1,"at":7,"webhook":true,"characters":{}}`:                                                          "Dings: webhook on · 0 characters on",
+	} {
+		c, _ := fixture(t)
+		if err := c.refresher(pricesServer{twoItems}, dingsServer{body}, nil).Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got := c.State().Prices; len(got) != 1 || got[0].Dings != want {
+			t.Errorf("%s: shows %+v, want %q", body, got, want)
+		}
+	}
+}
+
+// sharedServer answers the account's shared lists and profiles with body.
+type sharedServer struct{ body string }
+
+func (s sharedServer) SharedState(context.Context, string) ([]byte, string, error) {
+	return []byte(s.body), `"s1"`, nil
+}
+
+func TestThePageCountsTheListsAndProfilesEachPriceFileHolds(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"v":1,"at":7,"lists":[{"id":"a","edited":1,"string":"GFL1:x"},{"id":"b","edited":1,"string":"GFL1:y"}],"profiles":[{"id":"a","edited":1,"string":"GFP1:z"}]}`: "Lists: 2 · Profiles: 1",
+		`{"v":1,"at":7,"lists":[],"profiles":[]}`: "Lists: 0 · Profiles: 0",
+	} {
+		c, _ := fixture(t)
+		if err := c.refresher(pricesServer{twoItems}, nil, sharedServer{body}).Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got := c.State().Prices; len(got) != 1 || got[0].Shared != want {
+			t.Errorf("%s: shows %+v, want %q", body, got, want)
+		}
+	}
+}
+
+func TestTheUploadLoopEndsOnlyOnceItsPriceLoopHasEnded(t *testing.T) {
+	c, _ := fixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/prices" {
+			cancel()
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	defer srv.Close()
+	if err := c.update(func(cfg *config.Config) error { cfg.Token, cfg.URL = validToken, srv.URL; return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	c.loop(ctx)
+
+	if left := stillRunning(); left != "" {
+		t.Fatalf("the loop returned with its price loop still running:\n%s", left)
 	}
 }

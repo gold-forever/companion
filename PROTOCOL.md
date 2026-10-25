@@ -10,9 +10,6 @@ the new address directly.
 Anything here can be done with `curl`, so you can check the app against this list or write your own
 client. A request not listed here is a bug.
 
-Requests marked **planned** are not made by the companion yet. They are listed so the whole surface is
-known before it's built (design 006 in the Gold Forever repository).
-
 ## Your token
 
 Make one at `/me/tokens`, or link the app (below). Send it as `Authorization: Bearer <token>`.
@@ -49,7 +46,7 @@ curl -H "Authorization: Bearer $GF_TOKEN" -H 'Content-Type: application/octet-st
 | 400 | `{"status":"unknown game","reason":"unknown game version 30403"}` | Shows the reason; doesn't resend |
 | 401 | `{"status":"unauthorized"}` | Stops; the token is wrong or revoked |
 | 403 | `{"status":"…"}` (account suspended, or a token without upload rights) | Keeps the save; tries again in 30 minutes |
-| 413 | `{"status":"too large","reason":"a forever save may be at most 10 MB"}` (no `reason` past the 32 MiB transport limit) | Shows it, with the reason; doesn't resend |
+| 413 | `{"status":"too large","reason":"a forever save may be at most 10 MB"}` (no `reason` past the 32 MiB transport limit) | Shows it, with the reason; sends the same save again at the next start and once a day, until it goes through or a newer save replaces it |
 | 415 | `{"status":"send the file as application/octet-stream"}` | A client bug; doesn't resend |
 | 422 | `{"status":"rejected","reason":"…"}` (not readable as a save) | Waits for the next save |
 | 429 | `Retry-After: <seconds>`, `{"status":"rate limited","reason":"too many uploads with this token; try again in 40 s"}` | Waits that long, then tries again |
@@ -124,28 +121,98 @@ how the app gets one.
      given once. The app saves it in its settings file (readable only by you) and never prints it.
    - A 5xx answer or no answer is waited out until the code expires.
 
-## Planned: prices into the game
+## Prices into the game
 
-The server answers this today; the companion does not ask it yet.
+At start, every hour, and right after one of its own uploads answers `imported`, one request per
+game a save was found for (Forever, interface 16000–16999: `game=forever`; retail, interface 110000
+and up: `game=retail`) for the markets of your account's characters in that game:
 
 ```http
 GET /api/v1/prices?game=forever
-GET /api/v1/prices?game=forever&market=forever-EU-normal-horde
 Authorization: Bearer gf_...
-If-None-Match: "<the ETag of the last answer>"
+If-None-Match: "<the ETag of the prices in the game>"
 ```
 
-- `game` is `forever` (the default) or `retail`; an unknown one is 400.
-- Without `market`, the answer holds every market of your own characters in that game that has pooled
-  prices (at most 8): `{"v":…,"game":"forever","at":<epoch s>,"markets":[{"market":"…","items":[…]}]}`.
-  With one, that market only: `{"v":…,"game":"forever","market":"…","at":…,"items":[…]}`, or 404 when
-  the server prices no such market.
-- Each item is `{"id":<item id>,"value":<copper>,"minBuyout":<copper>,"players":<n>,"scannedAt":<epoch s>,"week":<copper>}`;
-  `week` is left out when there are too few days to tell.
-- The answer carries an `ETag`; sending it back as `If-None-Match` gets 304 with no body while nothing
-  changed.
-- 401 for a wrong or revoked token, 403 for a suspended account or a token without `prices:read`, and
-  503 with `Retry-After: 15` while the server is still loading its prices after a start.
+`game` is `forever` (the server's default) or `retail`; an unknown one is 400. Without `market`, the
+answer holds every market of your own characters in that game that has pooled prices (at most 8). A
+market in the settings (`"market"`) or `run --market` asks for that one market instead in the game
+its key starts with (`&market=forever-EU-normal-horde`), to try a market out; the server answers 404
+when it prices no such market.
 
-The app checks every number and writes `Interface/AddOns/GoldForever_Data/Data.lua` itself. The server
-never sends Lua, so a compromised server could send wrong prices but could never run code in your game.
+`If-None-Match` is sent only when every flavour of the game already has the `Data.lua` of that same
+request; what was written and its one ETag are kept per game in `prices.json` in the app's data folder.
+A failing game leaves the other's prices written.
+
+- 200 `{"v":1,"game":"forever","at":<epoch s>,"markets":[{"market":"forever-EU-normal-horde","items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":<epoch s>}, …]}, …]}`
+  (for one market: `{"v":1,"game":"forever","market":"…","at":…,"items":[…]}`): prices in integer
+  copper. The app checks every field (version 1, the game and market it asked for, plain integers,
+  ids above 0, nothing negative or past 2^53, market keys of letters, digits, `-` and `_`, none twice);
+  any fault refuses the whole answer and the last good file stays. No markets writes an empty table.
+  An item may also carry `"week"`, the 7-day mean of its daily values in copper, absent when the
+  server has too little history; one that is not an integer from 1 to 2^53−1 is read as absent for
+  that item and refuses nothing.
+- An answer over 4 MB (retail: 8 MB), or one whose `Data.lua` would be over 1 MB (retail: 4 MB), is
+  refused and the last good file stays; a market taking over 200 KB of it (retail: 1 MB) is written
+  with a warning. Retail's markets are realm groups of 8–13k items.
+- 304, no body: the prices are unchanged; nothing is written.
+- 401 (a wrong or revoked token), 403 (a suspended account, or a token without `prices:read`), 404
+  and 400 write nothing; the next try is in an hour.
+- 5xx or no answer writes nothing and is tried again after 1, 2, 4 … up to 30 minutes, as uploads
+  are (a server still loading its prices after a start answers 503 with `Retry-After: 15`); 429 after
+  `Retry-After`.
+
+The app then writes `Interface/AddOns/GoldForever_Data/` in each flavour folder of the game: a TOC with
+the interface number its save names, and `Data.lua`, one table of integers under quoted market keys
+(`[itemId] = { value, minBuyout, players, scannedAt }`, with `week` fifth when the item has one),
+each through a temporary file renamed into place. The server never sends Lua, so a compromised server
+could send wrong prices but could never run code in your game.
+
+## The dings switch
+
+With every price refresh, one request for the site's side of the addon's *Announce dings on Discord*
+switch, the same for every game of the account:
+
+```http
+GET /api/v1/dings/state
+Authorization: Bearer gf_...
+If-None-Match: "<the ETag of the dings state held>"
+```
+
+- 200 `{"v":1,"at":<epoch s>,"webhook":true,"characters":{"Player-4620-006C0FC1":true}}`: when the
+  state last changed, whether a level-up webhook is connected, and each character's choice. The app
+  checks it (version 1, `at` a plain integer, booleans only, keys of the form `Player-<digits>-<hex>`,
+  none twice); any fault, a state without `at` too, keeps the last good state (or writes none), as
+  does a failed request. It is kept with its ETag in `prices.json`.
+- 304: the state held is still current.
+- 404 (a server from before it): no state; `Data.lua` goes without one, and the addon leaves its switch
+  changeable.
+
+`Data.lua` carries it beside `at` as `dings = { at = <n>, webhook = true, characters = { ["Player-…"] =
+true } }`; the addon compares its own choices against `dings.at`.
+A changed state rewrites `Data.lua` even when the prices answer 304; after a restart, when the prices
+written are no longer in memory, that one refresh asks for the prices without `If-None-Match`.
+
+## Shopping lists and sale profiles
+
+With every price refresh, one request for the account's shopping lists and sale profiles, the same for
+every game of the account:
+
+```http
+GET /api/v1/shared/state
+Authorization: Bearer gf_...
+If-None-Match: "<the ETag of the shared state held>"
+```
+
+- 200 `{"v":1,"at":<epoch s>,"lists":[{"id":"…","edited":<epoch s>,"string":"GFL1:…"}],"profiles":[{"id":"…","edited":<epoch s>,"string":"GFP1:…"}]}`:
+  when the account's set last changed, and each list and profile with its id and last edit. The app
+  checks it (version 1, plain integers, at most 50 lists and 50 profiles, ids of 1–64 `A-Z a-z 0-9 _ -`
+  none twice in a kind, strings starting `GFL1:` or `GFP1:` of printable ASCII only); any fault keeps
+  the last good state (or writes none), as does a failed request. Up to 1 MB; it is kept with its ETag
+  in `prices.json`. 401 and 403 are as for prices.
+- 304: the state held is still current.
+- 404 (a server from before it): no state; `Data.lua` goes without one, and the addon keeps its own.
+
+`Data.lua` carries it beside `dings` as `shared = { at = <n>, lists = { { id = "…", edited = <n>,
+string = "GFL1:…" } }, profiles = { { id = "…", edited = <n>, string = "GFP1:…" } } }`, counted in the
+game's file limit; the addon merges it by id, the newer `edited` winning. A changed state rewrites
+`Data.lua` even when the prices answer 304, as the dings state does.

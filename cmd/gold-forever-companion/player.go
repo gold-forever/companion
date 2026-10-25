@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gold-forever/companion/internal/config"
@@ -169,8 +170,10 @@ func serve(ctx context.Context, layout install.Layout, exe, home, dataDir, insta
 		return err
 	}
 	defer removeIfOurs(instancePath, info)
-	go c.loop(ctx)
-	go c.checkVersion(ctx)
+	var loops sync.WaitGroup
+	defer func() { stop(); loops.Wait() }()
+	loops.Go(func() { c.loop(ctx) })
+	loops.Go(func() { c.checkVersion(ctx) })
 
 	pageURL := instance.PageURL(info)
 	withTray := tray.Available()

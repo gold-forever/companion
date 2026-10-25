@@ -15,13 +15,9 @@ import (
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/backup"
 	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	"github.com/gold-forever/companion/internal/watch"
-)
-
-const (
-	firstWait = time.Minute
-	longWait  = 30 * time.Minute
 )
 
 // Uploader sends one save; api.Client is the real one.
@@ -35,17 +31,23 @@ type Core struct {
 	Uploader Uploader
 	Backups  *backup.Store
 	Log      *sendlog.Log
+	Refused  *refused.List // the saves refused as too large, tried again daily
 	Watcher  *watch.Watcher
 	Saves    func() []find.Save
 	IsOff    func(path string) bool
 	Out      io.Writer // one line per thing that happened, for the player
+	Imported func()    // called when the server imported an upload, so prices may have changed; may be nil
 
 	waitUntil time.Time
 	wait      time.Duration
 }
 
-// Step looks once: it keeps a copy of every save that settled, then sends what is pending unless the
-// server asked it to wait. It returns an error only when uploads must stop: a token the server refuses.
+// longWait is how long uploads wait after a 403 before the next try.
+const longWait = 30 * time.Minute
+
+// Step looks once: it keeps a copy of every save that settled, then sends what is pending and the
+// refused saves that are due again, unless the server asked it to wait. It returns an error only when
+// uploads must stop: a token the server refuses.
 func (c *Core) Step(ctx context.Context, now time.Time) error {
 	var paths []string
 	for _, s := range c.Saves() {
@@ -76,6 +78,33 @@ func (c *Core) Step(ctx context.Context, now time.Time) error {
 			return err
 		}
 	}
+	return c.retry(ctx, now)
+}
+
+// retry sends again each save refused as too large that is due, unless the save has changed since: its
+// newer copy goes out as pending, and that answer is the save's last word.
+func (c *Core) retry(ctx context.Context, now time.Time) error {
+	for _, r := range c.Refused.Due(now) {
+		if c.IsOff(r.Source) {
+			continue
+		}
+		copies, err := c.Backups.Copies(r.Source)
+		if err != nil || len(copies) == 0 {
+			continue
+		}
+		newest := copies[len(copies)-1]
+		data, err := os.ReadFile(newest.Path)
+		if err != nil {
+			continue
+		}
+		if sha(data) != r.SHA256 {
+			c.dropRefused(now, r.Source)
+			continue
+		}
+		if stop, err := c.upload(ctx, now, newest, data); stop {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -86,6 +115,11 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 	if err != nil {
 		return false, nil
 	}
+	return c.upload(ctx, now, p, data)
+}
+
+// upload sends a copy's data and acts on the answer, as send reports.
+func (c *Core) upload(ctx context.Context, now time.Time, p backup.Copy, data []byte) (stop bool, err error) {
 	label := find.At(p.Source).Label()
 	answer, err := c.Uploader.Upload(ctx, data)
 	var limited *api.RateLimitedError
@@ -99,6 +133,9 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 	case err == nil:
 		c.wait = 0
 		c.done(now, p, label, data, answer.Status)
+		if answer.Status == api.StatusImported && c.Imported != nil {
+			c.Imported()
+		}
 	case errors.Is(err, api.ErrUnauthorized):
 		c.say(now, "the server no longer accepts this token: link the companion again")
 		return true, err
@@ -118,19 +155,23 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 		c.done(now, p, label, data, "refused: "+refused.Reason)
 	case errors.As(err, &tooLarge):
 		c.done(now, p, label, data, withReason("refused: too large", tooLarge.Reason))
+		if err := c.Refused.Refuse(p.Source, sha(data), now); err != nil {
+			c.say(now, "could not keep %s for a daily try: %v", label, err)
+		}
 	default:
 		c.say(now, "%s: %v", label, err)
 	}
 	return false, nil
 }
 
-// done records the server's last word on a copy, so it is not sent again.
+// done records the server's last word on a copy, so it is not sent again, and ends any refusal of
+// the save it came from.
 func (c *Core) done(now time.Time, p backup.Copy, label string, data []byte, answer string) {
-	sum := sha256.Sum256(data)
 	if err := c.Backups.MarkSent(p); err != nil {
 		c.say(now, "could not mark %s as sent: %v", label, err)
 	}
-	if err := c.Log.Append(sendlog.Entry{Time: now, Save: label, Size: len(data), SHA256: hex.EncodeToString(sum[:]), Answer: answer}); err != nil {
+	c.dropRefused(now, p.Source)
+	if err := c.Log.Append(sendlog.Entry{Time: now, Save: label, Size: len(data), SHA256: sha(data), Answer: answer}); err != nil {
 		c.say(now, "could not write the log: %v", err)
 	}
 	c.say(now, "sent %s: %s", label, answer)
@@ -139,18 +180,21 @@ func (c *Core) done(now time.Time, p backup.Copy, label string, data []byte, ans
 // backOff waits longer than after the last failed try, and at least as long as atLeast, the server's
 // own Retry-After; it returns how long.
 func (c *Core) backOff(now time.Time, atLeast time.Duration) time.Duration {
-	c.wait = nextBackoff(c.wait)
+	c.wait = api.NextWait(c.wait)
 	wait := max(c.wait, atLeast)
 	c.waitUntil = now.Add(wait)
 	return wait
 }
 
-// nextBackoff doubles the wait after a failed try, from one minute up to thirty.
-func nextBackoff(wait time.Duration) time.Duration {
-	if wait == 0 {
-		return firstWait
+func (c *Core) dropRefused(now time.Time, source string) {
+	if err := c.Refused.Drop(source); err != nil {
+		c.say(now, "could not update the refused saves: %v", err)
 	}
-	return min(2*wait, longWait)
+}
+
+func sha(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func withReason(what, reason string) string {

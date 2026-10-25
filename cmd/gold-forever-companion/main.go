@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
@@ -22,6 +23,8 @@ import (
 	"github.com/gold-forever/companion/internal/core"
 	"github.com/gold-forever/companion/internal/find"
 	"github.com/gold-forever/companion/internal/link"
+	"github.com/gold-forever/companion/internal/prices"
+	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	"github.com/gold-forever/companion/internal/watch"
 )
@@ -32,7 +35,11 @@ var version = "dev"
 const defaultURL = "https://gold-forever.app"
 
 const (
-	pollEvery   = 2 * time.Second
+	pollEvery = 2 * time.Second
+	// The prices' freshness without an upload of one's own: most refreshes cost a 304 (D-013.4).
+	refreshPricesEvery = time.Hour
+	// Where the ETag of the prices in the game is kept, in the data folder.
+	pricesState = "prices.json"
 	keepCopies  = 10
 	keepLogFor  = 30 * 24 * time.Hour
 	usageAdvice = "usage: gold-forever-companion link   (connect this computer to your Gold Forever account)\n" +
@@ -93,6 +100,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 func watchAndUpload(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gold-forever-companion run", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	market := flags.String("market", "", "one market (forever-… or retail-…) whose prices to write into its game, instead of the account's markets there (default: the settings' market)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -123,14 +131,20 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: keepLogFor}
 	_ = log.Prune(time.Now())
 	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)
+	if *market == "" {
+		*market = cfg.Market
+	}
+	imported, announce := prices.Trigger()
 	c := &core.Core{
 		Uploader: client(url, token),
 		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: keepCopies, Now: time.Now},
 		Log:      log,
+		Refused:  refused.Load(filepath.Join(data, refusedFile)),
 		Watcher:  watch.New(pollEvery),
 		Saves:    func() []find.Save { return find.Saves(installs) },
 		IsOff:    cfg.IsOff,
 		Out:      stdout,
+		Imported: announce,
 	}
 	saves := c.Saves()
 	if len(saves) == 0 {
@@ -139,7 +153,18 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	for _, s := range saves {
 		fmt.Fprintln(stdout, "watching", s.Label())
 	}
-	if err := c.Run(ctx, pollEvery); err != nil {
+	server := client(url, token)
+	refresher := &prices.Refresher{
+		Fetcher: server, Dings: server, Shared: server, Saves: c.Saves, Market: *market,
+		State: filepath.Join(data, pricesState), Out: stdout,
+	}
+	ctx, stop := context.WithCancel(ctx)
+	var refreshing sync.WaitGroup
+	refreshing.Go(func() { refresher.Run(ctx, refreshPricesEvery, time.After, imported) })
+	err = c.Run(ctx, pollEvery)
+	stop()
+	refreshing.Wait() // nothing writes into the data folder once run has returned
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
