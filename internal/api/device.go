@@ -57,7 +57,15 @@ func (c *Client) StartLink(ctx context.Context, hostname string) (DeviceCode, er
 		_, err := answer(res, body)
 		return code, err
 	}
-	return code, json.Unmarshal(body, &code)
+	if err := json.Unmarshal(body, &code); err != nil {
+		return DeviceCode{}, err
+	}
+	for _, link := range []string{code.VerificationURI, code.VerificationURIComplete} {
+		if link != "" && !onSite(c.BaseURL, link) {
+			return DeviceCode{}, fmt.Errorf("the server sent a link to another site, which is not opened: %q", link)
+		}
+	}
+	return code, nil
 }
 
 // WaitForToken polls until the player approves code, then returns the account's new token. It stops

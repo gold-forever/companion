@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,8 +65,8 @@ func TestStartLinkAsksForACodeNamingThisComputer(t *testing.T) {
 		}
 		contentType, agent = r.Header.Get("Content-Type"), r.Header.Get("User-Agent")
 		_ = json.NewDecoder(r.Body).Decode(&got)
-		_, _ = io.WriteString(w, `{"device_code":"dc_secret","user_code":"BCDF-GHJK","verification_uri":"https://gf/link",`+
-			`"verification_uri_complete":"https://gf/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
+		_, _ = io.WriteString(w, `{"device_code":"dc_secret","user_code":"BCDF-GHJK","verification_uri":"https://gold-forever.app/link",`+
+			`"verification_uri_complete":"https://gold-forever.app/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
 	}))
 	t.Cleanup(srv.Close)
 	c := &Client{BaseURL: srv.URL, Version: "0.0.1", OS: "linux"}
@@ -75,7 +76,7 @@ func TestStartLinkAsksForACodeNamingThisComputer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	want := DeviceCode{"dc_secret", "BCDF-GHJK", "https://gf/link", "https://gf/link?code=BCDF-GHJK", 600, 5}
+	want := DeviceCode{"dc_secret", "BCDF-GHJK", "https://gold-forever.app/link", "https://gold-forever.app/link?code=BCDF-GHJK", 600, 5}
 	if started != want {
 		t.Errorf("code = %+v", started)
 	}
@@ -202,5 +203,39 @@ func TestWaitForTokenStopsWhenCancelled(t *testing.T) {
 
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
+	}
+}
+
+// The approval page is opened by the system's URL handler, which on Windows also runs files and other
+// schemes: only a page of the site the companion talks to, or of the public site, is taken.
+func TestALinkToAnythingButTheSiteIsRefused(t *testing.T) {
+	for link, ok := range map[string]bool{
+		"/link?code=BCDF-GHJK":                         true, // made absolute on the test server below
+		"https://gold-forever.app/link?code=BCDF-GHJK": true,
+		"https://evil.example/link?code=BCDF-GHJK":     false,
+		"file:///C:/Users/Public/x.exe":                false,
+		`\\host\share\x.exe`:                           false,
+		"search-ms:query=x":                            false,
+		"https://gold-forever.app@evil.example/link":   false,
+		"http://gold-forever.app/link":                 false,
+	} {
+		var base string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			complete := link
+			if strings.HasPrefix(link, "/") {
+				complete = base + link
+			}
+			payload, _ := json.Marshal(map[string]any{"device_code": "dc", "user_code": "BCDF-GHJK", "verification_uri_complete": complete, "expires_in": 600, "interval": 5})
+			_, _ = w.Write(payload)
+		}))
+		base = srv.URL
+		c := &Client{BaseURL: srv.URL, Version: "0.0.1", OS: "linux"}
+
+		_, err := c.StartLink(context.Background(), "host")
+
+		if (err == nil) != ok {
+			t.Errorf("%s: err = %v", link, err)
+		}
+		srv.Close()
 	}
 }

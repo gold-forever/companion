@@ -186,8 +186,8 @@ func TestLinkShowsTheCodeAndSavesTheApprovedTokenWithoutPrintingIt(t *testing.T)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		if r.URL.Path == "/api/v1/device/code" {
-			_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"BCDF-GHJK","verification_uri":"https://gf/link",`+
-				`"verification_uri_complete":"https://gf/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
+			_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"BCDF-GHJK","verification_uri":"https://gold-forever.app/link",`+
+				`"verification_uri_complete":"https://gold-forever.app/link?code=BCDF-GHJK","expires_in":600,"interval":5}`)
 			return
 		}
 		_, _ = io.WriteString(w, `{"access_token":"gf_new_secret"}`)
@@ -202,7 +202,7 @@ func TestLinkShowsTheCodeAndSavesTheApprovedTokenWithoutPrintingIt(t *testing.T)
 	if code != 0 {
 		t.Fatalf("code = %d, out = %q", code, out.String())
 	}
-	for _, want := range []string{"BCDF-GHJK", "https://gf/link?code=BCDF-GHJK", link.SharingLine} {
+	for _, want := range []string{"BCDF-GHJK", "https://gold-forever.app/link?code=BCDF-GHJK", link.SharingLine} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q: %q", want, out.String())
 		}

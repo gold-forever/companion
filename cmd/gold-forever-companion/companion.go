@@ -246,7 +246,9 @@ func (c *companion) StartDeviceLink() error {
 		defer cancel()
 		show := func(code api.DeviceCode) {
 			// The browser first, so a page that sees "waiting" knows the approval page was opened.
-			c.openURL(code.VerificationURIComplete)
+			if code.VerificationURIComplete != "" {
+				c.openURL(code.VerificationURIComplete)
+			}
 			c.setLinking(page.Linking{State: "waiting", UserCode: code.UserCode, URL: code.VerificationURIComplete})
 		}
 		save := func(token string) error {
