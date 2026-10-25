@@ -1,0 +1,59 @@
+name: Task
+description: One piece of work on the companion app, small enough to finish and check.
+type: Task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a problem or an idea as a player? Use the Feedback button on https://gold-forever.evensberget.com instead.
+        This form describes one task on the companion, the desktop app that uploads your saves.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is different for a player when this is done, in one or two sentences.
+      placeholder: The companion uploads a save again on its own after the computer wakes from sleep.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The problem this solves, or who asked for it.
+  - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: A checklist, each line something that can be run or seen.
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: where-to-start
+    attributes:
+      label: Where to start
+      description: The files or packages to read first. The app starts in cmd/; its parts live in internal/.
+      placeholder: internal/watch
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What this task does not change.
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: Open questions
+      description: Anything to decide before work starts. Leave empty or write "None" when nothing is open.
+  - type: input
+    id: depends-on
+    attributes:
+      label: Depends on
+      description: Issues that must be finished first.
+      placeholder: "#12, gold-forever/gold-forever#40"
+  - type: input
+    id: parent-issue
+    attributes:
+      label: Parent issue
+      description: Optional. The gold-forever issue this task is part of.
+      placeholder: gold-forever/gold-forever#40
