@@ -1,25 +1,32 @@
 package instance
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
-// running stands in for a companion's settings server: it answers a ping that carries its secret.
+// running stands in for a companion's settings server: it answers a ping's nonce with its proof.
 func running(t *testing.T, secret string) Info {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/ping" || r.Header.Get(SecretHeader) != secret {
-			w.WriteHeader(http.StatusForbidden)
+	return listening(t, secret, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/ping" {
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.Write([]byte(`{"version":"v0.1.0"}`))
-	}))
+		json.NewEncoder(w).Encode(map[string]string{"version": "v0.1.0", "proof": Proof(secret, r.URL.Query().Get("nonce"))})
+	})
+}
+
+func listening(t *testing.T, secret string, handler http.HandlerFunc) Info {
+	t.Helper()
+	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
 	n, _ := strconv.Atoi(port)
@@ -48,6 +55,24 @@ func TestAnInstanceThatAnswersItsSecretIsRunning(t *testing.T) {
 	info.Secret = "wrong"
 	if Alive(info) {
 		t.Error("whatever answers on that port without the secret is not this companion")
+	}
+}
+
+// After a crash the file stays; another program may later listen on its port and answer anything.
+func TestAnotherProgramOnTheSamePortIsNotTheCompanionAndNeverSeesTheSecret(t *testing.T) {
+	var seen []string
+	info := listening(t, "s3cret", func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.String()+" "+r.Header.Get(SecretHeader))
+		w.Write([]byte(`<!doctype html><title>a dev server</title>`))
+	})
+
+	if Alive(info) {
+		t.Error("a program that answers 200 to anything was taken for the running companion")
+	}
+	for _, s := range seen {
+		if strings.Contains(s, "s3cret") {
+			t.Errorf("the page's secret was sent to it: %s", s)
+		}
 	}
 }
 

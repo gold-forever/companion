@@ -4,6 +4,10 @@
 package instance
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,19 +56,42 @@ func Read(path string) (Info, error) {
 
 var client = &http.Client{Timeout: 2 * time.Second}
 
-// Alive says whether the copy i describes is running: its page answers a ping with its secret.
+// Proof is the running copy's answer to a ping's nonce. Only a holder of secret can make it, so a
+// ping needs no secret, and whatever listens on a stale file's port never learns it.
+func Proof(secret, nonce string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(nonce))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// PingPath is where the running copy answers a nonce with its Proof, without the secret.
+const PingPath = "/api/ping"
+
+// Alive says whether the copy i describes is running: its page answers a fresh nonce with the proof
+// only its secret makes.
 func Alive(i Info) bool {
-	res, err := call(i, http.MethodGet, "/api/ping")
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return false
+	}
+	asked := hex.EncodeToString(nonce)
+	res, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d%s?nonce=%s", i.Port, PingPath, asked))
 	if err != nil {
 		return false
 	}
-	res.Body.Close()
-	return res.StatusCode == http.StatusOK
+	defer res.Body.Close()
+	var answer struct {
+		Proof string `json:"proof"`
+	}
+	if res.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(res.Body, 4<<10)).Decode(&answer) != nil {
+		return false
+	}
+	return hmac.Equal([]byte(answer.Proof), []byte(Proof(i.Secret, asked)))
 }
 
 // Quit asks the running copy to stop, so a newer download can take its place.
 func Quit(i Info) error {
-	res, err := call(i, http.MethodPost, "/api/quit")
+	res, err := post(i, "/api/quit")
 	if err != nil {
 		return err
 	}
@@ -80,19 +107,14 @@ func PageURL(i Info) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/?s=%s", i.Port, i.Secret)
 }
 
-func call(i Info, method, path string) (*http.Response, error) {
-	// The page takes JSON bodies only, so a POST carries an empty object rather than nothing.
-	var body io.Reader
-	if method == http.MethodPost {
-		body = strings.NewReader("{}")
-	}
-	req, err := http.NewRequest(method, fmt.Sprintf("http://127.0.0.1:%d%s", i.Port, path), body)
+// post asks the running copy, with its secret, to act. The page takes JSON bodies only, so it carries
+// an empty object rather than nothing.
+func post(i Info, path string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d%s", i.Port, path), strings.NewReader("{}"))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set(SecretHeader, i.Secret)
-	if method == http.MethodPost {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	req.Header.Set("Content-Type", "application/json")
 	return client.Do(req)
 }

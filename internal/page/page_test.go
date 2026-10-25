@@ -80,8 +80,8 @@ func TestAnotherCopyOfTheCompanionMaySendTheSecretAsAHeader(t *testing.T) {
 		r.Header.Del("Cookie")
 		r.Header.Set(instance.SecretHeader, secret)
 	}
-	if rec := serve(&fakeApp{}, "GET", "/api/ping", "", header); rec.Code != http.StatusOK {
-		t.Errorf("ping with the secret header: %d", rec.Code)
+	if rec := serve(&fakeApp{}, "GET", "/api/state", "", header); rec.Code != http.StatusOK {
+		t.Errorf("the state with the secret header: %d", rec.Code)
 	}
 }
 
@@ -209,6 +209,25 @@ func TestLinkingByCodeKeepsThePageRules(t *testing.T) {
 	}
 	if app.deviceLinks != 0 {
 		t.Errorf("a refused request started %d links", app.deviceLinks)
+	}
+}
+
+// A launch asks whether the copy its file names still runs: the real client against the real page.
+func TestAnotherLaunchFindsTheRunningCopyWithoutSendingItsSecret(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := ln.Addr().(*net.TCPAddr).Port
+	srv := &http.Server{Handler: New(&fakeApp{}, secret, live)}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+
+	if !instance.Alive(instance.Info{Port: live, Secret: secret}) {
+		t.Error("the running copy was not recognised")
+	}
+	if instance.Alive(instance.Info{Port: live, Secret: "another copy's secret"}) {
+		t.Error("a copy with another secret was taken for this one")
 	}
 }
 

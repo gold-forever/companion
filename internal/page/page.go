@@ -1,7 +1,8 @@
 // Package page is the companion's settings page: a web page served on 127.0.0.1 only, opened from the
 // tray with a secret in its link. Every request must come for that exact address, from no other site,
-// with the secret; posts must be small JSON, which no other page can send without the browser asking
-// first, and this server never says yes (design 006, "The settings page and tray").
+// with the secret (but the ping, which proves the secret without it); posts must be small JSON, which no
+// other page can send without the browser asking first, and this server never says yes (design 006,
+// "The settings page and tray").
 package page
 
 import (
@@ -136,6 +137,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "other sites may not use this page", http.StatusForbidden)
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Path == instance.PingPath {
+		h.ping(w, r)
+		return
+	}
 	// The tray opens /?s=<secret>: it becomes a cookie, and the address bar loses it.
 	if r.URL.Path == "/" && r.URL.Query().Has("s") {
 		if !h.matches(r.URL.Query().Get("s")) {
@@ -171,12 +176,22 @@ func (h *handler) matches(s string) bool {
 	return subtle.ConstantTimeCompare([]byte(s), h.secret) == 1
 }
 
+// The longest nonce a ping may ask about.
+const maxNonce = 64
+
+// ping lets another launch tell this copy from whatever else may listen on its port.
+func (h *handler) ping(w http.ResponseWriter, r *http.Request) {
+	nonce := r.URL.Query().Get("nonce")
+	if nonce == "" || len(nonce) > maxNonce {
+		http.Error(w, "a ping names a nonce", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"version": h.app.State().Version, "proof": instance.Proof(string(h.secret), nonce)})
+}
+
 func (h *handler) routes() {
 	m := h.mux
 	m.Handle("GET /", http.FileServerFS(mustSub(static, "static")))
-	m.HandleFunc("GET /api/ping", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]string{"version": h.app.State().Version})
-	})
 	m.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, h.app.State()) })
 	m.HandleFunc("GET /api/history", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, h.app.History()) })
 	m.HandleFunc("GET /api/copy", func(w http.ResponseWriter, r *http.Request) {
