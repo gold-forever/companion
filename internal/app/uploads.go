@@ -8,23 +8,18 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/addondata"
-	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
-	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/saves/watch"
 	"github.com/gold-forever/companion/internal/server"
 	"github.com/gold-forever/companion/internal/upload/core"
-	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
 // Parts is what the uploads are built from: the server, what the data folder keeps, and the saves.
 type Parts struct {
-	Server  *server.Client
-	Backups *backup.Store
-	Log     *sendlog.Log
-	Refused *refused.List
-	Saves   func() []find.Save
-	IsOff   func(path string) bool
+	Server *server.Client
+	Records
+	Saves func() []find.Save
+	IsOff func(path string) bool
 	// Market is one market whose prices to write instead of the account's ("" for the account's).
 	Market  string
 	DataDir string
@@ -46,7 +41,7 @@ func NewUploads(p Parts) *Uploads {
 	return &Uploads{
 		core: &core.Core{
 			Uploader: p.Server,
-			Backups:  p.Backups, Log: p.Log, Refused: p.Refused, Watcher: watch.New(PollEvery),
+			Backups:  p.Backups, Log: p.Log, Refused: p.Refused, Watcher: watch.New(pollEvery),
 			Saves: p.Saves, IsOff: p.IsOff, Out: p.Out, Imported: announce,
 		},
 		refresher: p.refresher(p.Server, p.Server, p.Server),
@@ -59,7 +54,7 @@ func NewUploads(p Parts) *Uploads {
 func (p Parts) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addondata.SharedFetcher) *addondata.Refresher {
 	return &addondata.Refresher{
 		Fetcher: f, Dings: d, Shared: s, Saves: p.Saves, Market: p.Market,
-		State: filepath.Join(p.DataDir, PricesState), Out: p.Out, Report: p.Report,
+		State: filepath.Join(p.DataDir, pricesState), Out: p.Out, Report: p.Report,
 	}
 }
 
@@ -68,8 +63,8 @@ func (p Parts) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addond
 func (u *Uploads) Run(ctx context.Context) error {
 	ctx, stop := context.WithCancel(ctx)
 	var refreshing sync.WaitGroup
-	refreshing.Go(func() { u.refresher.Run(ctx, RefreshPricesEvery, time.After, u.imported) })
-	err := u.core.Run(ctx, PollEvery)
+	refreshing.Go(func() { u.refresher.Run(ctx, refreshPricesEvery, time.After, u.imported) })
+	err := u.core.Run(ctx, pollEvery)
 	stop()
 	refreshing.Wait()
 	return err

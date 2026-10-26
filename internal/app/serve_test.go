@@ -43,7 +43,7 @@ func TestServeAnswersTheStopAndReturnsWithNothingLeftRunning(t *testing.T) {
 			}()
 			var running instance.Info
 			for running.Port == 0 && ctx.Err() == nil {
-				running, _ = instance.Read(filepath.Join(dataDir, InstanceFile))
+				running, _ = instance.Read(filepath.Join(dataDir, instanceFile))
 				time.Sleep(5 * time.Millisecond)
 			}
 

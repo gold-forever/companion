@@ -24,21 +24,40 @@ import (
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
-// RefusedFile, in the data folder, lists the saves the server refused as too large.
-const RefusedFile = "refused.json"
-
-// The timings and data folder files the app shares with `run`.
+// The timings and the files the app keeps in the data folder.
 const (
-	PollEvery = 2 * time.Second
+	pollEvery = 2 * time.Second
 	// The prices' freshness without an upload of one's own: most refreshes cost a 304 (D-013.4).
-	RefreshPricesEvery = time.Hour
+	refreshPricesEvery = time.Hour
 	// Where the ETag of the prices in the game is kept, in the data folder.
-	PricesState = "prices.json"
-	KeepCopies  = 10
-	KeepLogFor  = 30 * 24 * time.Hour
-	// InstanceFile, in the data folder, says which copy runs and where its page is.
-	InstanceFile = "instance.json"
+	pricesState = "prices.json"
+	keepCopies  = 10
+	keepLogFor  = 30 * 24 * time.Hour
+	// instanceFile, in the data folder, says which copy runs and where its page is.
+	instanceFile = "instance.json"
+	// refusedFile, in the data folder, lists the saves the server refused as too large.
+	refusedFile = "refused.json"
 )
+
+// InstancePath is the file in dataDir that says which copy runs and where its page is.
+func InstancePath(dataDir string) string { return filepath.Join(dataDir, instanceFile) }
+
+// Records is what the data folder keeps across runs: copies of the saves, the upload log and the saves
+// the server refused as too large.
+type Records struct {
+	Backups *backup.Store
+	Log     *sendlog.Log
+	Refused *refused.List
+}
+
+// OpenRecords opens the records kept in dataDir.
+func OpenRecords(dataDir string) Records {
+	return Records{
+		Backups: &backup.Store{Dir: filepath.Join(dataDir, "backups"), Keep: keepCopies, Now: time.Now},
+		Log:     &sendlog.Log{Path: filepath.Join(dataDir, "sent.jsonl"), Keep: keepLogFor},
+		Refused: refused.Load(filepath.Join(dataDir, refusedFile)),
+	}
+}
 
 const goos = runtime.GOOS
 
@@ -97,12 +116,11 @@ func newApp(o appOptions) *App {
 		warning = setAsideSettings(o.cfgPath, err)
 		settings = config.New(o.cfgPath, config.Config{})
 	}
+	records := OpenRecords(o.dataDir)
 	c := &App{
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
 		settings: settings, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit, life: o.life,
-		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: KeepCopies, Now: time.Now},
-		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: KeepLogFor},
-		refused: refused.Load(filepath.Join(o.dataDir, RefusedFile)),
+		backups: records.Backups, log: records.Log, refused: records.Refused,
 		status:  &lastLine{},
 		prices:  &addondata.Report{Now: time.Now},
 		warning: warning,
@@ -201,7 +219,7 @@ func (c *App) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addonda
 // parts is what an upload round with server is built from, with the current settings.
 func (c *App) parts(server *server.Client) Parts {
 	return Parts{
-		Server: server, Backups: c.backups, Log: c.log, Refused: c.refused, Saves: c.saves, IsOff: c.isOff,
+		Server: server, Records: Records{Backups: c.backups, Log: c.log, Refused: c.refused}, Saves: c.saves, IsOff: c.isOff,
 		Market: c.settings.Get().Market, DataDir: c.dataDir, Out: c.status, Report: c.prices,
 	}
 }

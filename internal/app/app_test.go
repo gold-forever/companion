@@ -165,7 +165,7 @@ func TestASaveRefusedAsTooLargeSaysItIsRetriedDaily(t *testing.T) {
 	if note := c.State().Saves[0].Note; note != "refused as too large, retrying daily" {
 		t.Fatalf("note = %q", note)
 	}
-	if !refused.Load(filepath.Join(c.dataDir, RefusedFile)).Holds(save) {
+	if !refused.Load(filepath.Join(c.dataDir, refusedFile)).Holds(save) {
 		t.Fatal("the refusal is not kept in the data folder for the next start")
 	}
 }

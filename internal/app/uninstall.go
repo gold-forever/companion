@@ -3,14 +3,13 @@ package app
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"time"
 )
 
 // Uninstall removes the companion and everything it put on the computer, then stops it.
 func (c *App) Uninstall(ctx context.Context, keepData bool) error {
 	err := c.layout.Uninstall(c.running, keepData)
-	_ = os.Remove(filepath.Join(c.dataDir, InstanceFile))
+	_ = os.Remove(InstancePath(c.dataDir))
 	c.owned.Go(func() {
 		wait := time.NewTimer(300 * time.Millisecond) // let the page get its answer first
 		defer wait.Stop()

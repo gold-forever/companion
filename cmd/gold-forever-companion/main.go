@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -20,11 +19,8 @@ import (
 	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/app"
 	"github.com/gold-forever/companion/internal/platform/instance"
-	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
-	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/server"
-	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
 // version is set at build time (-X main.version=…); a plain `go build` reports dev.
@@ -129,17 +125,15 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		return 1
 	}
 	defer release()
-	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: app.KeepLogFor}
-	_ = log.Prune(time.Now())
+	records := app.OpenRecords(data)
+	_ = records.Log.Prune(time.Now())
 	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)
 	if *market == "" {
 		*market = cfg.Market
 	}
 	uploads := app.Parts{
 		Server:  client(url, token),
-		Backups: &backup.Store{Dir: filepath.Join(data, "backups"), Keep: app.KeepCopies, Now: time.Now},
-		Log:     log,
-		Refused: refused.Load(filepath.Join(data, app.RefusedFile)),
+		Records: records,
 		Saves:   func() []find.Save { return find.Saves(installs) },
 		IsOff:   cfg.IsOff,
 		Market:  *market,

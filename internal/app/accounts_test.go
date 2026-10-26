@@ -107,10 +107,10 @@ func newTwoAccounts(t *testing.T, folders [2]string, answers ...int) *twoAccount
 	data := t.TempDir()
 	a.loop = &core.Core{
 		Uploader: &server.Client{BaseURL: ts.URL, Token: "gf_t", Version: "0.1.0", OS: "linux"},
-		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: KeepCopies, Now: func() time.Time { return a.clock }},
-		Log:      &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: KeepLogFor},
-		Refused:  refused.Load(filepath.Join(data, RefusedFile)),
-		Watcher:  watch.New(PollEvery),
+		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: keepCopies, Now: func() time.Time { return a.clock }},
+		Log:      &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: keepLogFor},
+		Refused:  refused.Load(filepath.Join(data, refusedFile)),
+		Watcher:  watch.New(pollEvery),
 		Saves:    func() []find.Save { return find.Saves([]string{install}) },
 		IsOff:    func(string) bool { return false },
 		Out:      io.Discard,
@@ -163,8 +163,8 @@ func TestTwoSavesThatSettleInTheSamePollAreEachUploadedOnceWithTheirOwnContent(t
 		a.write(t, a.two, accountSave("TWO", "1"))
 
 		a.step(t, 0)
-		a.step(t, PollEvery)
-		a.step(t, 2*PollEvery)
+		a.step(t, pollEvery)
+		a.step(t, 2*pollEvery)
 		a.step(t, time.Minute)
 
 		sameUploads(t, a.srv.sent(), accountSave("ONE", "1"), accountSave("TWO", "1"))
@@ -185,7 +185,7 @@ func TestASaveThatChangesWhileTheOthersUploadIsInFlightIsUploadedToo(t *testing.
 			}
 		}
 		a.step(t, 0)
-		for d := PollEvery; d <= 4*PollEvery; d += PollEvery {
+		for d := pollEvery; d <= 4*pollEvery; d += pollEvery {
 			a.step(t, d)
 		}
 
@@ -201,15 +201,15 @@ func TestASaveThatChangesWhileTheOtherWaitsOnARateLimitIsUploadedOnceTheWaitEnds
 		a := newTwoAccounts(t, folders, http.StatusTooManyRequests, http.StatusOK)
 		a.write(t, a.one, accountSave("ONE", "1"))
 		a.step(t, 0)
-		a.step(t, PollEvery) // ONE settles; its upload gets a 429: wait 90 seconds
+		a.step(t, pollEvery) // ONE settles; its upload gets a 429: wait 90 seconds
 
 		a.write(t, a.two, accountSave("TWO", "1"))
-		a.step(t, 2*PollEvery)
-		a.step(t, 3*PollEvery) // TWO settles during the wait and is kept, not sent
+		a.step(t, 2*pollEvery)
+		a.step(t, 3*pollEvery) // TWO settles during the wait and is kept, not sent
 		if got := a.srv.sent(); len(got) != 1 {
 			t.Fatalf("sent during the server's wait: %q", got)
 		}
-		a.step(t, PollEvery+90*time.Second)
+		a.step(t, pollEvery+90*time.Second)
 		a.step(t, 2*time.Minute)
 
 		got := a.srv.sent()
@@ -225,12 +225,12 @@ func TestASaveThatChangesWhileTheOtherWaitsOnARetryIsUploadedOnceTheWaitEnds(t *
 		a := newTwoAccounts(t, folders, http.StatusServiceUnavailable, http.StatusOK)
 		a.write(t, a.one, accountSave("ONE", "1"))
 		a.step(t, 0)
-		a.step(t, PollEvery) // ONE settles; the server is down: try again in a minute
+		a.step(t, pollEvery) // ONE settles; the server is down: try again in a minute
 
 		a.write(t, a.two, accountSave("TWO", "1"))
-		a.step(t, 2*PollEvery)
-		a.step(t, 3*PollEvery)
-		a.step(t, PollEvery+time.Minute)
+		a.step(t, 2*pollEvery)
+		a.step(t, 3*pollEvery)
+		a.step(t, pollEvery+time.Minute)
 		a.step(t, 2*time.Minute)
 
 		got := a.srv.sent()
@@ -252,14 +252,14 @@ func TestACompleteSaveGoesUpAtOnceWhileTheOtherIsStillBeingWritten(t *testing.T)
 		a.write(t, a.two, whole[:len(whole)/2]) // TWO's game is still writing
 
 		a.step(t, 0)
-		a.step(t, PollEvery)
+		a.step(t, pollEvery)
 		sameUploads(t, a.srv.sent(), accountSave("ONE", "1"))
 		a.step(t, time.Minute)
 		sameUploads(t, a.srv.sent(), accountSave("ONE", "1")) // TWO waits for its next change
 
 		a.write(t, a.two, whole)
-		a.step(t, time.Minute+PollEvery)
-		a.step(t, time.Minute+2*PollEvery)
+		a.step(t, time.Minute+pollEvery)
+		a.step(t, time.Minute+2*pollEvery)
 
 		sameUploads(t, a.srv.sent(), accountSave("ONE", "1"), whole)
 	})

@@ -38,7 +38,7 @@ func player(ctx context.Context, mode string) int {
 	home, _ := os.UserHomeDir()
 	layout := install.For(install.Env{GOOS: goos, Home: home, Getenv: os.Getenv, RunKey: install.RunKey()})
 	dataDir := config.DataDir(goos, home, os.Getenv)
-	instancePath := filepath.Join(dataDir, app.InstanceFile)
+	instancePath := app.InstancePath(dataDir)
 	other, err := instance.Read(instancePath)
 	alive := err == nil && instance.Alive(ctx, other)
 	switch {
