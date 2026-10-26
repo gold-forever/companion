@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/account/config"
-	"github.com/gold-forever/companion/internal/page"
 	"github.com/gold-forever/companion/internal/platform/install"
 	"github.com/gold-forever/companion/internal/platform/instance"
 	"github.com/gold-forever/companion/internal/saves/find"
-	"github.com/gold-forever/companion/internal/tray"
+	"github.com/gold-forever/companion/internal/ui/page"
+	"github.com/gold-forever/companion/internal/ui/tray"
 )
 
 // ServeOptions is what the installed companion runs with.
