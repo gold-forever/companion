@@ -62,6 +62,8 @@ type App struct {
 	linker func(ctx context.Context, show func(server.DeviceCode), save func(token string) error) error
 	// openURL opens a page in the player's browser.
 	openURL func(url string)
+	// pageURL is the settings page's address, with its secret.
+	pageURL string
 
 	mu      sync.Mutex
 	notice  *page.Notice

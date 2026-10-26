@@ -73,6 +73,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	loops.Go(func() { c.checkVersion(ctx) })
 
 	pageURL := instance.PageURL(info)
+	c.pageURL = pageURL
 	withTray := tray.Available()
 	if o.Mode != "--autostart" || !withTray {
 		_ = o.OpenBrowser(pageURL)
@@ -85,17 +86,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 		<-ctx.Done()
 		tray.Stop()
 	}()
-	tray.Run(tray.Menu{
-		Status: func() string {
-			if s := c.status.String(); s != "" {
-				return s
-			}
-			return "Starting…"
-		},
-		OpenSite: func() { _ = o.OpenBrowser(c.url()) },
-		Settings: func() { _ = o.OpenBrowser(pageURL) },
-		Quit:     stop,
-	})
+	tray.Run(c)
 	return nil
 }
 

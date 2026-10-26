@@ -9,30 +9,30 @@ import (
 	"fyne.io/systray"
 )
 
-// Menu is what the tray shows and does.
-type Menu struct {
-	Status   func() string
-	OpenSite func()
-	Settings func()
-	Quit     func()
+// App is what the tray shows and does.
+type App interface {
+	Status() string // the latest line the uploads wrote; "" before the first
+	OpenSite()
+	OpenSettings()
+	Quit()
 }
 
 // Run shows the icon and blocks until Stop; on macOS it must be called from the main goroutine.
-func Run(m Menu) {
-	systray.Run(func() { ready(m) }, func() {})
+func Run(app App) {
+	systray.Run(func() { ready(app) }, func() {})
 }
 
 // Stop removes the icon and makes Run return.
 func Stop() { systray.Quit() }
 
-func ready(m Menu) {
+func ready(app App) {
 	if runtime.GOOS == "windows" {
 		systray.SetIcon(icoIcon())
 	} else {
 		systray.SetIcon(pngIcon())
 	}
 	systray.SetTooltip("Gold Forever Companion")
-	status := systray.AddMenuItem(m.Status(), "")
+	status := systray.AddMenuItem(statusOf(app), "")
 	status.Disable()
 	systray.AddSeparator()
 	site := systray.AddMenuItem("Open Gold Forever", "The site, in your browser")
@@ -42,18 +42,36 @@ func ready(m Menu) {
 	go func() {
 		tick := time.NewTicker(2 * time.Second)
 		defer tick.Stop()
-		for {
-			select {
-			case <-site.ClickedCh:
-				m.OpenSite()
-			case <-settings.ClickedCh:
-				m.Settings()
-			case <-quit.ClickedCh:
-				m.Quit()
-				return
-			case <-tick.C:
-				status.SetTitle(m.Status())
-			}
-		}
+		follow(app, clicks{site: site.ClickedCh, settings: settings.ClickedCh, quit: quit.ClickedCh}, tick.C, status.SetTitle)
 	}()
+}
+
+// clicks are the menu's items, each sending when clicked.
+type clicks struct {
+	site, settings, quit <-chan struct{}
+}
+
+// follow passes each click on to app until Quit, and shows app's status at every tick.
+func follow(app App, c clicks, tick <-chan time.Time, show func(status string)) {
+	for {
+		select {
+		case <-c.site:
+			app.OpenSite()
+		case <-c.settings:
+			app.OpenSettings()
+		case <-c.quit:
+			app.Quit()
+			return
+		case <-tick:
+			show(statusOf(app))
+		}
+	}
+}
+
+// statusOf is the line the menu shows.
+func statusOf(app App) string {
+	if s := app.Status(); s != "" {
+		return s
+	}
+	return "Starting…"
 }

@@ -17,5 +17,3 @@ func (c *App) Uninstall(ctx context.Context, keepData bool) error {
 	}()
 	return err
 }
-
-func (c *App) Quit() { c.quit() }
