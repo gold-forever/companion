@@ -63,7 +63,9 @@ macos:
 	@rm -r -f build-macos/dmg && mkdir build-macos/dmg
 	cp -R "build-macos/$(APP).app" build-macos/dmg/
 	ln -s /Applications build-macos/dmg/Applications
-	hdiutil create -volname "$(APP)" -srcfolder build-macos/dmg -fs HFS+ -format UDZO -ov $(DIST)/GoldForever-Companion.dmg
+	# hdiutil sizes an image from -srcfolder alone and can come out too small for its content, which then
+	# reads as a corrupt image; the size is given, the content plus a margin.
+	hdiutil create -volname "$(APP)" -srcfolder build-macos/dmg -size $$(( $$(du -sm build-macos/dmg | cut -f1) + 16 ))m -fs HFS+ -format UDZO -ov $(DIST)/GoldForever-Companion.dmg
 
 test:
 	go test ./...
