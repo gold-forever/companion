@@ -14,21 +14,17 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/app"
 	"github.com/gold-forever/companion/internal/backup"
 	"github.com/gold-forever/companion/internal/config"
-	"github.com/gold-forever/companion/internal/core"
 	"github.com/gold-forever/companion/internal/find"
 	"github.com/gold-forever/companion/internal/instance"
 	"github.com/gold-forever/companion/internal/link"
-	"github.com/gold-forever/companion/internal/prices"
 	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
-	"github.com/gold-forever/companion/internal/watch"
 )
 
 // version is set at build time (-X main.version=…); a plain `go build` reports dev.
@@ -138,36 +134,25 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	if *market == "" {
 		*market = cfg.Market
 	}
-	imported, announce := prices.Trigger()
-	c := &core.Core{
-		Uploader: client(url, token),
-		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: app.KeepCopies, Now: time.Now},
-		Log:      log,
-		Refused:  refused.Load(filepath.Join(data, app.RefusedFile)),
-		Watcher:  watch.New(app.PollEvery),
-		Saves:    func() []find.Save { return find.Saves(installs) },
-		IsOff:    cfg.IsOff,
-		Out:      stdout,
-		Imported: announce,
+	uploads := app.Parts{
+		Server:  client(url, token),
+		Backups: &backup.Store{Dir: filepath.Join(data, "backups"), Keep: app.KeepCopies, Now: time.Now},
+		Log:     log,
+		Refused: refused.Load(filepath.Join(data, app.RefusedFile)),
+		Saves:   func() []find.Save { return find.Saves(installs) },
+		IsOff:   cfg.IsOff,
+		Market:  *market,
+		DataDir: data,
+		Out:     stdout,
 	}
-	saves := c.Saves()
+	saves := uploads.Saves()
 	if len(saves) == 0 {
 		fmt.Fprintln(stdout, "no GoldForever.lua found yet; add your WoW folder to", cfgPath)
 	}
 	for _, s := range saves {
 		fmt.Fprintln(stdout, "watching", s.Label())
 	}
-	server := client(url, token)
-	refresher := &prices.Refresher{
-		Fetcher: server, Dings: server, Shared: server, Saves: c.Saves, Market: *market,
-		State: filepath.Join(data, app.PricesState), Out: stdout,
-	}
-	ctx, stop := context.WithCancel(ctx)
-	var refreshing sync.WaitGroup
-	refreshing.Go(func() { refresher.Run(ctx, app.RefreshPricesEvery, time.After, imported) })
-	err = c.Run(ctx, app.PollEvery)
-	stop()
-	refreshing.Wait() // nothing writes into the data folder once run has returned
+	err = app.NewUploads(uploads).Run(ctx) // nothing writes into the data folder once it has returned
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

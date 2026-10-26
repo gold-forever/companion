@@ -23,7 +23,6 @@ import (
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/backup"
 	"github.com/gold-forever/companion/internal/config"
-	"github.com/gold-forever/companion/internal/core"
 	"github.com/gold-forever/companion/internal/find"
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/link"
@@ -32,7 +31,6 @@ import (
 	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	release "github.com/gold-forever/companion/internal/version"
-	"github.com/gold-forever/companion/internal/watch"
 )
 
 // A token as /me/tokens makes one: gf_ and 43 letters and digits.
@@ -261,9 +259,14 @@ func dingsLine(d prices.Dings) string {
 // refresher keeps the account's prices, dings state and shared lists and profiles in the game, fetched
 // with f, d and s.
 func (c *App) refresher(f prices.Fetcher, d prices.DingsFetcher, s prices.SharedFetcher) *prices.Refresher {
-	return &prices.Refresher{
-		Fetcher: f, Dings: d, Shared: s, Saves: c.saves, Market: c.settings().Market,
-		State: filepath.Join(c.dataDir, PricesState), Out: c.status, Report: c.prices,
+	return c.parts(nil).refresher(f, d, s)
+}
+
+// parts is what an upload round with server is built from, with the current settings.
+func (c *App) parts(server *api.Client) Parts {
+	return Parts{
+		Server: server, Backups: c.backups, Log: c.log, Refused: c.refused, Saves: c.saves, IsOff: c.isOff,
+		Market: c.settings().Market, DataDir: c.dataDir, Out: c.status, Report: c.prices,
 	}
 }
 
@@ -502,15 +505,7 @@ func (c *App) loop(ctx context.Context) {
 				}
 			})
 			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
-			imported, announce := prices.Trigger()
-			refresher := c.refresher(client, client, client)
-			started.Go(func() { refresher.Run(run, RefreshPricesEvery, time.After, imported) })
-			loop := &core.Core{
-				Uploader: client,
-				Backups:  c.backups, Log: c.log, Refused: c.refused, Watcher: watch.New(PollEvery),
-				Saves: c.saves, IsOff: c.isOff, Out: c.status, Imported: announce,
-			}
-			err := loop.Run(run, PollEvery)
+			err := NewUploads(c.parts(client)).Run(run)
 			stop()
 			started.Wait() // the next round, or the caller, owns the data folder alone
 			if err == nil {
