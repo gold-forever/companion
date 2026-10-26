@@ -13,8 +13,8 @@ import (
 )
 
 // DingsFetcher gets the site's side of the in-game "Announce dings on Discord" switch and its ETag,
-// api.ErrNotModified when etag is still current, or api.ErrNoDings from a server without it;
-// api.Client is the real one.
+// server.ErrNotModified when etag is still current, or server.ErrNoDings from a server without it;
+// server.Client is the real one.
 type DingsFetcher interface {
 	DingsState(ctx context.Context, etag string) ([]byte, string, error)
 }

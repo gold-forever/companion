@@ -110,6 +110,6 @@ sent, hash it (`sha256sum`, or `Get-FileHash` in PowerShell) and look for that h
 
 [PROTOCOL.md](PROTOCOL.md) lists every request the companion makes. All of them go to one site,
 `gold-forever.app` unless you change it. The code that sends is one function,
-`Upload` in `internal/api/api.go`. To watch the traffic yourself, set `url` in `config.json` to a
+`Upload` in `internal/server/server.go`. To watch the traffic yourself, set `url` in `config.json` to a
 server of your own and look at what arrives. Or read the [scripts](scripts/), which do the same
 uploads in about 50 lines.

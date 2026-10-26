@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/saves/find"
+	"github.com/gold-forever/companion/internal/server"
 )
 
 // Fetcher gets the server's answer for game (one market's, or the account's when market is empty) and
-// its ETag, or api.ErrNotModified when etag is still current; api.Client is the real one.
+// its ETag, or server.ErrNotModified when etag is still current; server.Client is the real one.
 type Fetcher interface {
 	Prices(ctx context.Context, game, market, etag string) ([]byte, string, error)
 }
@@ -74,12 +74,12 @@ func (r *Refresher) Run(ctx context.Context, every time.Duration, after func(tim
 	var backoff time.Duration
 	for ctx.Err() == nil { // select picks among ready cases at random: a poke can win over the stop
 		wait := every
-		var limited *api.RateLimitedError
+		var limited *server.RateLimitedError
 		switch err := r.Refresh(ctx); {
 		case errors.As(err, &limited):
 			wait = limited.RetryAfter
-		case api.Retryable(err):
-			backoff = api.NextWait(backoff)
+		case server.Retryable(err):
+			backoff = server.NextWait(backoff)
 			wait = min(backoff, every)
 		default:
 			backoff = 0
@@ -113,10 +113,10 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 	var x extras
 	var dingsErr, sharedErr error
 	if r.Dings != nil {
-		x.dings, dingsErr = accountState(ctx, r, state, dingsKey, "dings state", r.Dings.DingsState, ParseDings, api.ErrNoDings)
+		x.dings, dingsErr = accountState(ctx, r, state, dingsKey, "dings state", r.Dings.DingsState, ParseDings, server.ErrNoDings)
 	}
 	if r.Shared != nil {
-		x.shared, sharedErr = accountState(ctx, r, state, sharedKey, "shared lists and profiles", r.Shared.SharedState, ParseShared, api.ErrNoShared)
+		x.shared, sharedErr = accountState(ctx, r, state, sharedKey, "shared lists and profiles", r.Shared.SharedState, ParseShared, server.ErrNoShared)
 	}
 	errs := []error{dingsErr, sharedErr}
 	for _, game := range games {
@@ -144,7 +144,7 @@ func accountState[T any](ctx context.Context, r *Refresher, state map[string]hel
 	}
 	body, etag, err := fetch(ctx, etag)
 	switch {
-	case errors.Is(err, api.ErrNotModified):
+	case errors.Is(err, server.ErrNotModified):
 		return last, nil
 	case errors.Is(err, none):
 		delete(state, key)
@@ -182,7 +182,7 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 	body, etag, err := r.Fetcher.Prices(ctx, game, ask, etag)
 	var a Answer
 	switch {
-	case errors.Is(err, api.ErrNotModified):
+	case errors.Is(err, server.ErrNotModified):
 		r.Report.fetched(game, OutcomeNotModified, nil)
 		if current {
 			return nil

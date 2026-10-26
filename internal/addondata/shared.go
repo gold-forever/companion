@@ -12,8 +12,8 @@ import (
 )
 
 // SharedFetcher gets the account's shopping lists and sale profiles and their ETag,
-// api.ErrNotModified when etag is still current, or api.ErrNoShared from a server without them;
-// api.Client is the real one.
+// server.ErrNotModified when etag is still current, or server.ErrNoShared from a server without them;
+// server.Client is the real one.
 type SharedFetcher interface {
 	SharedState(ctx context.Context, etag string) ([]byte, string, error)
 }

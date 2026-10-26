@@ -5,7 +5,7 @@ Every request the companion makes, all to one site (by default `https://gold-for
 The site moved there from `gold-forever.evensberget.com` on 2026-10-22; the old name answers 308 to the
 same path on the new one. A redirect normally loses the `Authorization` header when it changes domain,
 so the companion carries the token across a redirect only to `https://gold-forever.app`, and to no other
-host (`internal/api`, `carryToken`). Another client that follows the 308 should do the same, or use
+host (`internal/server`, `carryToken`). Another client that follows the 308 should do the same, or use
 the new address directly.
 Anything here can be done with `curl`, so you can check the app against this list or write your own
 client. A request not listed here is a bug.

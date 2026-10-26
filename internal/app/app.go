@@ -23,12 +23,12 @@ import (
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/addondata"
-	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/platform/install"
 	release "github.com/gold-forever/companion/internal/platform/version"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
+	"github.com/gold-forever/companion/internal/server"
 	"github.com/gold-forever/companion/internal/ui/page"
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
@@ -73,7 +73,7 @@ type App struct {
 	status     *lastLine
 	prices     *addondata.Report // how each price fetch and write went, kept across the loop's restarts
 	// linker links by code: it shows the code, waits for the approval and saves the token with save.
-	linker func(ctx context.Context, show func(api.DeviceCode), save func(token string) error) error
+	linker func(ctx context.Context, show func(server.DeviceCode), save func(token string) error) error
 	// openURL opens a page in the player's browser.
 	openURL func(url string)
 
@@ -119,9 +119,9 @@ func newApp(o appOptions) *App {
 		games:   map[string]gameSeen{},
 		openURL: func(string) {},
 	}
-	c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
+	c.linker = func(ctx context.Context, show func(server.DeviceCode), save func(string) error) error {
 		hostname, _ := os.Hostname()
-		client := &api.Client{BaseURL: c.url(), Version: c.version, OS: goos}
+		client := &server.Client{BaseURL: c.url(), Version: c.version, OS: goos}
 		return link.Run(ctx, client, hostname, show, save)
 	}
 	return c
@@ -263,7 +263,7 @@ func (c *App) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addonda
 }
 
 // parts is what an upload round with server is built from, with the current settings.
-func (c *App) parts(server *api.Client) Parts {
+func (c *App) parts(server *server.Client) Parts {
 	return Parts{
 		Server: server, Backups: c.backups, Log: c.log, Refused: c.refused, Saves: c.saves, IsOff: c.isOff,
 		Market: c.settings().Market, DataDir: c.dataDir, Out: c.status, Report: c.prices,
@@ -333,7 +333,7 @@ func (c *App) StartDeviceLink() error {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), linkTimeout)
 		defer cancel()
-		show := func(code api.DeviceCode) {
+		show := func(code server.DeviceCode) {
 			// The browser first, so a page that sees "waiting" knows the approval page was opened.
 			if code.VerificationURIComplete != "" {
 				c.openURL(code.VerificationURIComplete)
@@ -347,9 +347,9 @@ func (c *App) StartDeviceLink() error {
 		switch {
 		case err == nil:
 			c.setLinking(page.Linking{State: "linked"})
-		case errors.Is(err, api.ErrLinkDenied):
+		case errors.Is(err, server.ErrLinkDenied):
 			c.setLinking(page.Linking{State: "denied"})
-		case errors.Is(err, api.ErrLinkExpired), errors.Is(err, context.DeadlineExceeded):
+		case errors.Is(err, server.ErrLinkExpired), errors.Is(err, context.DeadlineExceeded):
 			c.setLinking(page.Linking{State: "expired"})
 		default:
 			c.setLinking(page.Linking{State: "failed", Error: err.Error()})
@@ -504,7 +504,7 @@ func (c *App) loop(ctx context.Context) {
 				case <-run.Done():
 				}
 			})
-			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
+			client := &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
 			err := NewUploads(c.parts(client)).Run(run)
 			stop()
 			started.Wait() // the next round, or the caller, owns the data folder alone
@@ -521,7 +521,7 @@ func (c *App) loop(ctx context.Context) {
 
 // checkVersion asks the server once a day whether a newer release exists, for the page's notice.
 func (c *App) checkVersion(ctx context.Context) {
-	client := &api.Client{BaseURL: c.url(), Version: c.version, OS: goos}
+	client := &server.Client{BaseURL: c.url(), Version: c.version, OS: goos}
 	for {
 		if latest, err := client.Latest(ctx); err == nil && release.Newer(latest.Version, c.version) {
 			c.mu.Lock()

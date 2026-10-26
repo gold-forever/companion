@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/saves/find"
+	"github.com/gold-forever/companion/internal/server"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/Data.lua from testdata/answer.json")
@@ -339,7 +339,7 @@ func (f *fetcher) Prices(_ context.Context, game, market, etag string) ([]byte, 
 	case f.err != nil:
 		return nil, "", f.err
 	case etag != "" && etag == f.etag:
-		return nil, etag, api.ErrNotModified
+		return nil, etag, server.ErrNotModified
 	}
 	return f.body, f.etag, nil
 }
@@ -732,7 +732,7 @@ func TestRunWaitsOutAFailingServerAsUploadsDo(t *testing.T) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
-	r := refresher(&api.Client{BaseURL: srv.URL}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	r := refresher(&server.Client{BaseURL: srv.URL}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
 	clk := newClock()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -754,7 +754,7 @@ func TestRunWaitsOutAFailingServerAsUploadsDo(t *testing.T) {
 
 func TestRunWaitsForRetryAfterWhenRateLimited(t *testing.T) {
 	_, saves := tree(t, map[string]int{"_forever_": 16001})
-	r := refresher(&fetcher{err: &api.RateLimitedError{RetryAfter: 90 * time.Second}}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	r := refresher(&fetcher{err: &server.RateLimitedError{RetryAfter: 90 * time.Second}}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
 	clk := newClock()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -1085,11 +1085,11 @@ func TestOneMarketToTryOutIsAskedForInItsOwnGameOnly(t *testing.T) {
 
 func TestAFailingGameLeavesTheOtherWrittenAndIsReported(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001, "_retail_": 110002})
-	g := servers{"forever": {err: &api.RateLimitedError{RetryAfter: time.Minute}}, "retail": {body: []byte(retailAnswer)}}
+	g := servers{"forever": {err: &server.RateLimitedError{RetryAfter: time.Minute}}, "retail": {body: []byte(retailAnswer)}}
 
 	err := refresher(g, saves, "", filepath.Join(t.TempDir(), "prices.json")).Refresh(context.Background())
 
-	var limited *api.RateLimitedError
+	var limited *server.RateLimitedError
 	if !errors.As(err, &limited) {
 		t.Errorf("err = %v, want Forever's rate limit for Run to wait out", err)
 	}

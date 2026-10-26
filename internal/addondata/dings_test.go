@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/server"
 )
 
 const (
@@ -201,7 +201,7 @@ func (s *dingsServer) DingsState(_ context.Context, etag string) ([]byte, string
 	case s.err != nil:
 		return nil, "", s.err
 	case etag != "" && etag == s.etag:
-		return nil, etag, api.ErrNotModified
+		return nil, etag, server.ErrNotModified
 	}
 	return []byte(s.body), s.etag, nil
 }
@@ -359,7 +359,7 @@ func TestAServerWithoutDingsStateWritesNoDingsTable(t *testing.T) {
 	r := refresher(f, saves, market, state)
 	r.Dings = &dingsServer{body: dings, etag: `"d1"`}
 	_ = r.Refresh(context.Background())
-	r.Dings = &dingsServer{err: api.ErrNoDings} // the server went back to a version without it
+	r.Dings = &dingsServer{err: server.ErrNoDings} // the server went back to a version without it
 
 	err := r.Refresh(context.Background())
 
@@ -384,7 +384,7 @@ func TestAMalformedOrFailedDingsStateKeepsTheLastGoodOne(t *testing.T) {
 	for name, server := range map[string]*dingsServer{
 		"malformed":     {body: strings.Replace(dings, me, `Player-1-0A\"]`, 1), etag: `"d2"`},
 		"without at":    {body: strings.Replace(dings, `"at":1761150000,`, "", 1), etag: `"d2"`},
-		"unauthorized":  {err: api.ErrUnauthorized},
+		"unauthorized":  {err: server.ErrUnauthorized},
 		"server failed": {err: errors.New("status 500")},
 	} {
 		t.Run(name, func(t *testing.T) {

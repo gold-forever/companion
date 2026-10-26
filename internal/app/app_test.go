@@ -14,9 +14,9 @@ import (
 
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/account/link"
-	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/platform/install"
 	"github.com/gold-forever/companion/internal/saves/refused"
+	"github.com/gold-forever/companion/internal/server"
 	"github.com/gold-forever/companion/internal/ui/page"
 )
 
@@ -267,7 +267,7 @@ func linkingState(t *testing.T, c *App, want string) {
 	t.Fatalf("the link never reached %q: %+v", want, c.State().Linking)
 }
 
-var testCode = api.DeviceCode{UserCode: "BCDF-2345", VerificationURI: "https://gold-forever.example/link",
+var testCode = server.DeviceCode{UserCode: "BCDF-2345", VerificationURI: "https://gold-forever.example/link",
 	VerificationURIComplete: "https://gold-forever.example/link?code=BCDF2345", ExpiresIn: 600, Interval: 5}
 
 func TestLinkingByCodeShowsTheCodeOpensTheSiteAndSavesTheToken(t *testing.T) {
@@ -275,7 +275,7 @@ func TestLinkingByCodeShowsTheCodeOpensTheSiteAndSavesTheToken(t *testing.T) {
 	approved := make(chan struct{})
 	var opened []string
 	c.openURL = func(u string) { opened = append(opened, u) }
-	c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
+	c.linker = func(ctx context.Context, show func(server.DeviceCode), save func(string) error) error {
 		show(testCode)
 		<-approved
 		return save(validToken)
@@ -299,10 +299,10 @@ func TestLinkingByCodeShowsTheCodeOpensTheSiteAndSavesTheToken(t *testing.T) {
 }
 
 func TestLinkingByCodeThatIsDeniedOrExpiresSavesNothing(t *testing.T) {
-	for want, err := range map[string]error{"denied": api.ErrLinkDenied, "expired": api.ErrLinkExpired} {
+	for want, err := range map[string]error{"denied": server.ErrLinkDenied, "expired": server.ErrLinkExpired} {
 		c, _ := fixture(t)
 		c.openURL = func(string) {}
-		c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
+		c.linker = func(ctx context.Context, show func(server.DeviceCode), save func(string) error) error {
 			show(testCode)
 			return err
 		}
@@ -322,7 +322,7 @@ func TestASecondLinkWhileOneWaitsStartsNone(t *testing.T) {
 	defer close(release)
 	starts := 0
 	c.openURL = func(string) {}
-	c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
+	c.linker = func(ctx context.Context, show func(server.DeviceCode), save func(string) error) error {
 		starts++
 		show(testCode)
 		<-release

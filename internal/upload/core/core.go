@@ -12,17 +12,17 @@ import (
 	"os"
 	"time"
 
-	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/saves/watch"
+	"github.com/gold-forever/companion/internal/server"
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
-// Uploader sends one save; api.Client is the real one.
+// Uploader sends one save; server.Client is the real one.
 type Uploader interface {
-	Upload(ctx context.Context, save []byte) (api.Answer, error)
+	Upload(ctx context.Context, save []byte) (server.Answer, error)
 }
 
 // Core holds what one loop needs. Saves is asked on every step, so a WoW folder added or a new
@@ -122,10 +122,10 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 func (c *Core) upload(ctx context.Context, now time.Time, p backup.Copy, data []byte) (stop bool, err error) {
 	label := find.At(p.Source).Label()
 	answer, err := c.Uploader.Upload(ctx, data)
-	var limited *api.RateLimitedError
-	var refused *api.RefusedError
-	var forbidden *api.ForbiddenError
-	var tooLarge *api.TooLargeError
+	var limited *server.RateLimitedError
+	var refused *server.RefusedError
+	var forbidden *server.ForbiddenError
+	var tooLarge *server.TooLargeError
 	switch {
 	case ctx.Err() != nil:
 		// The companion is stopping: the copy stays pending for the next start.
@@ -133,10 +133,10 @@ func (c *Core) upload(ctx context.Context, now time.Time, p backup.Copy, data []
 	case err == nil:
 		c.wait = 0
 		c.done(now, p, label, data, answer.Status)
-		if answer.Status == api.StatusImported && c.Imported != nil {
+		if answer.Status == server.StatusImported && c.Imported != nil {
 			c.Imported()
 		}
-	case errors.Is(err, api.ErrUnauthorized):
+	case errors.Is(err, server.ErrUnauthorized):
 		c.say(now, "the server no longer accepts this token: link the companion again")
 		return true, err
 	case errors.As(err, &forbidden):
@@ -148,8 +148,8 @@ func (c *Core) upload(ctx context.Context, now time.Time, p backup.Copy, data []
 		c.waitUntil = now.Add(limited.RetryAfter)
 		c.say(now, "the server asked to wait %s", limited.RetryAfter)
 		return true, nil
-	case api.Retryable(err):
-		c.say(now, "%v; trying again in %s", err, c.backOff(now, api.RetryAfter(err)))
+	case server.Retryable(err):
+		c.say(now, "%v; trying again in %s", err, c.backOff(now, server.RetryAfter(err)))
 		return true, nil
 	case errors.As(err, &refused):
 		c.done(now, p, label, data, "refused: "+refused.Reason)
@@ -180,7 +180,7 @@ func (c *Core) done(now time.Time, p backup.Copy, label string, data []byte, ans
 // backOff waits longer than after the last failed try, and at least as long as atLeast, the server's
 // own Retry-After; it returns how long.
 func (c *Core) backOff(now time.Time, atLeast time.Duration) time.Duration {
-	c.wait = api.NextWait(c.wait)
+	c.wait = server.NextWait(c.wait)
 	wait := max(c.wait, atLeast)
 	c.waitUntil = now.Add(wait)
 	return wait

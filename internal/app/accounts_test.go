@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/saves/watch"
+	"github.com/gold-forever/companion/internal/server"
 	"github.com/gold-forever/companion/internal/upload/core"
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
@@ -106,7 +106,7 @@ func newTwoAccounts(t *testing.T, folders [2]string, answers ...int) *twoAccount
 	t.Cleanup(ts.Close)
 	data := t.TempDir()
 	a.loop = &core.Core{
-		Uploader: &api.Client{BaseURL: ts.URL, Token: "gf_t", Version: "0.1.0", OS: "linux"},
+		Uploader: &server.Client{BaseURL: ts.URL, Token: "gf_t", Version: "0.1.0", OS: "linux"},
 		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: KeepCopies, Now: func() time.Time { return a.clock }},
 		Log:      &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: KeepLogFor},
 		Refused:  refused.Load(filepath.Join(data, RefusedFile)),

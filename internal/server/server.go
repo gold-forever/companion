@@ -1,6 +1,6 @@
-// Package api is the companion's HTTP client for the Gold Forever server. Every request it can make
+// Package server is the companion's HTTP client for the Gold Forever server. Every request it can make
 // is listed in PROTOCOL.md.
-package api
+package server
 
 import (
 	"bytes"

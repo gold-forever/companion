@@ -7,7 +7,7 @@ import (
 	"context"
 
 	"github.com/gold-forever/companion/internal/account/config"
-	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/server"
 )
 
 // SharingLine is the site's own line on what an upload shares (frontend/src/app/sharing.ts, word for
@@ -17,7 +17,7 @@ const SharingLine = "Every upload adds its auction scans, item details and loot 
 
 // Link asks the site for a code naming hostname, hands it to show for the player to approve, waits
 // for the approval, and saves the token into the settings at cfgPath. Nothing is saved on failure.
-func Link(ctx context.Context, c *api.Client, hostname, cfgPath string, show func(api.DeviceCode)) error {
+func Link(ctx context.Context, c *server.Client, hostname, cfgPath string, show func(server.DeviceCode)) error {
 	return Run(ctx, c, hostname, show, func(token string) error {
 		// Read the settings only now: the player may have changed them while the code waited.
 		cfg, err := config.Load(cfgPath)
@@ -30,7 +30,7 @@ func Link(ctx context.Context, c *api.Client, hostname, cfgPath string, show fun
 }
 
 // Run is Link with the saving left to save, for the running companion, which keeps its settings itself.
-func Run(ctx context.Context, c *api.Client, hostname string, show func(api.DeviceCode), save func(token string) error) error {
+func Run(ctx context.Context, c *server.Client, hostname string, show func(server.DeviceCode), save func(token string) error) error {
 	code, err := c.StartLink(ctx, hostname)
 	if err != nil {
 		return err

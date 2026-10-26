@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/saves/watch"
+	"github.com/gold-forever/companion/internal/server"
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
@@ -29,9 +29,9 @@ func saveText(n string) string {
 	return "GoldForeverDB = {\r\n[\"client\"] = {\r\n[\"interface\"] = 16001,\r\n},\r\n[\"n\"] = " + n + ",\r\n}\r\n"
 }
 
-// server answers each upload with the next status in answers (the last one repeats) and records
+// fakeServer answers each upload with the next status in answers (the last one repeats) and records
 // every request.
-type server struct {
+type fakeServer struct {
 	mu       sync.Mutex
 	answers  []int
 	paused   string // when set, a 503 is the server's pause, with this reason
@@ -41,7 +41,7 @@ type server struct {
 	ok       string // a 200's body; empty is imported
 }
 
-func (s *server) handler(w http.ResponseWriter, r *http.Request) {
+func (s *fakeServer) handler(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	body, _ := io.ReadAll(r.Body)
@@ -85,7 +85,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
 
 type fixture struct {
 	core    *Core
-	srv     *server
+	srv     *fakeServer
 	save    string
 	log     *sendlog.Log
 	refused string // the refused list's file
@@ -102,7 +102,7 @@ func setup(t *testing.T, answers ...int) *fixture {
 	if err := os.WriteFile(path, []byte(saveText("1")), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	srv := &server{answers: answers}
+	srv := &fakeServer{answers: answers}
 	ts := httptest.NewServer(http.HandlerFunc(srv.handler))
 	t.Cleanup(ts.Close)
 	data := t.TempDir()
@@ -110,7 +110,7 @@ func setup(t *testing.T, answers ...int) *fixture {
 	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: 30 * 24 * time.Hour}
 	refusedAt := filepath.Join(data, "refused.json")
 	c := &Core{
-		Uploader: &api.Client{BaseURL: ts.URL, Token: "gf_t", Version: "0.1.0", OS: "linux"},
+		Uploader: &server.Client{BaseURL: ts.URL, Token: "gf_t", Version: "0.1.0", OS: "linux"},
 		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: 10, Now: func() time.Time { return clock }},
 		Log:      log,
 		Refused:  refused.Load(refusedAt),
@@ -234,7 +234,7 @@ func TestARevokedTokenStopsTheCompanion(t *testing.T) {
 	_ = f.core.Step(context.Background(), start)
 	err := f.core.Step(context.Background(), start.Add(2*time.Second))
 
-	if !errors.Is(err, api.ErrUnauthorized) {
+	if !errors.Is(err, server.ErrUnauthorized) {
 		t.Fatalf("err = %v, want ErrUnauthorized", err)
 	}
 	if pending, _ := f.core.Backups.Pending(); len(pending) != 1 {

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/server"
 )
 
 // goodShared is the contract state the tests write: two lists and a profile, all printable.
@@ -252,7 +252,7 @@ func (s *sharedServer) SharedState(_ context.Context, etag string) ([]byte, stri
 	case s.err != nil:
 		return nil, "", s.err
 	case etag != "" && etag == s.etag:
-		return nil, etag, api.ErrNotModified
+		return nil, etag, server.ErrNotModified
 	}
 	return []byte(s.body), s.etag, nil
 }
@@ -393,7 +393,7 @@ func TestAServerWithoutSharedStateWritesNoSharedTable(t *testing.T) {
 	r := refresher(f, saves, market, state)
 	r.Shared = &sharedServer{body: goodShared, etag: `"s1"`}
 	_ = r.Refresh(context.Background())
-	r.Shared = &sharedServer{err: api.ErrNoShared} // the server went back to a version without it
+	r.Shared = &sharedServer{err: server.ErrNoShared} // the server went back to a version without it
 
 	err := r.Refresh(context.Background())
 
@@ -409,7 +409,7 @@ func TestAMalformedOrFailedSharedStateKeepsTheLastGoodOne(t *testing.T) {
 	for name, server := range map[string]*sharedServer{
 		"malformed":     {body: strings.Replace(goodShared, `"id":"L2"`, `"id":"L\"2"`, 1), etag: `"s2"`},
 		"a bad string":  {body: strings.Replace(goodShared, `GFP1:`, `GFL1:`, 1), etag: `"s2"`},
-		"unauthorized":  {err: api.ErrUnauthorized},
+		"unauthorized":  {err: server.ErrUnauthorized},
 		"server failed": {err: errors.New("status 500")},
 	} {
 		t.Run(name, func(t *testing.T) {

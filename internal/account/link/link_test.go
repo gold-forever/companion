@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/account/config"
-	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/server"
 )
 
 // site hands out one code, then answers polls with tokenAnswer (status, body).
-func site(t *testing.T, status int, body string) *api.Client {
+func site(t *testing.T, status int, body string) *server.Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
@@ -30,7 +30,7 @@ func site(t *testing.T, status int, body string) *api.Client {
 	}))
 	t.Cleanup(srv.Close)
 	now := time.Now()
-	return &api.Client{
+	return &server.Client{
 		BaseURL: srv.URL,
 		Now:     func() time.Time { return now },
 		Sleep:   func(context.Context, time.Duration) error { now = now.Add(5 * time.Second); return nil },
@@ -42,10 +42,10 @@ func TestLinkSavesTheApprovedTokenAndKeepsTheOtherSettings(t *testing.T) {
 	if err := config.Save(path, config.Config{Folders: []string{"/wow"}, Off: []string{"/wow/x"}}); err != nil {
 		t.Fatal(err)
 	}
-	var shown api.DeviceCode
+	var shown server.DeviceCode
 
 	err := Link(context.Background(), site(t, 200, `{"access_token":"gf_new"}`), "gaming-pc", path,
-		func(c api.DeviceCode) { shown = c })
+		func(c server.DeviceCode) { shown = c })
 
 	if err != nil {
 		t.Fatalf("link: %v", err)
@@ -68,9 +68,9 @@ func TestLinkLeavesTheSettingsAloneWhenDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := Link(context.Background(), site(t, 400, `{"error":"access_denied"}`), "pc", path, func(api.DeviceCode) {})
+	err := Link(context.Background(), site(t, 400, `{"error":"access_denied"}`), "pc", path, func(server.DeviceCode) {})
 
-	if !errors.Is(err, api.ErrLinkDenied) {
+	if !errors.Is(err, server.ErrLinkDenied) {
 		t.Errorf("err = %v", err)
 	}
 	if cfg, _ := config.Load(path); cfg.Token != "gf_old" {

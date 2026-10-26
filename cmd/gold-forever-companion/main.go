@@ -18,12 +18,12 @@ import (
 
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/account/link"
-	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/app"
 	"github.com/gold-forever/companion/internal/platform/instance"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
+	"github.com/gold-forever/companion/internal/server"
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
@@ -177,7 +177,7 @@ func linkAccount(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	hostname, _ := os.Hostname()
 	c := client(*url, "")
 	c.Sleep = pollSleep
-	show := func(code api.DeviceCode) {
+	show := func(code server.DeviceCode) {
 		fmt.Fprintf(stdout, "Open %s\nand approve the code %s (it is valid for %d minutes).\n",
 			code.VerificationURIComplete, code.UserCode, code.ExpiresIn/60)
 		fmt.Fprintln(stdout, link.SharingLine)
@@ -202,11 +202,11 @@ func linkAccount(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	return 0
 }
 
-func client(url, token string) *api.Client {
-	return &api.Client{BaseURL: url, Token: token, Version: version, OS: runtime.GOOS}
+func client(url, token string) *server.Client {
+	return &server.Client{BaseURL: url, Token: token, Version: version, OS: runtime.GOOS}
 }
 
-func uploadOnce(ctx context.Context, path string, client *api.Client, stdout, stderr io.Writer) int {
+func uploadOnce(ctx context.Context, path string, client *server.Client, stdout, stderr io.Writer) int {
 	save, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -214,7 +214,7 @@ func uploadOnce(ctx context.Context, path string, client *api.Client, stdout, st
 	}
 	answer, err := client.Upload(ctx, save)
 	if err != nil {
-		var refused *api.RefusedError
+		var refused *server.RefusedError
 		if errors.As(err, &refused) {
 			fmt.Fprintln(stderr, "refused:", refused.Reason)
 		} else {
