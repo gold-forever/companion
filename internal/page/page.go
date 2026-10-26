@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/instance"
-	"github.com/gold-forever/companion/internal/sendlog"
+	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
 const maxBody = 4 << 10

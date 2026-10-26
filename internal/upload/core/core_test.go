@@ -18,7 +18,7 @@ import (
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/saves/watch"
-	"github.com/gold-forever/companion/internal/sendlog"
+	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
 const account = "SECRETACCOUNT"

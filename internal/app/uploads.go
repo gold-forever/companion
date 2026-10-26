@@ -9,12 +9,12 @@ import (
 
 	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/core"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/saves/watch"
-	"github.com/gold-forever/companion/internal/sendlog"
+	"github.com/gold-forever/companion/internal/upload/core"
+	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
 // Parts is what the uploads are built from: the server, what the data folder keeps, and the saves.

@@ -24,7 +24,7 @@ import (
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
-	"github.com/gold-forever/companion/internal/sendlog"
+	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
 // version is set at build time (-X main.version=…); a plain `go build` reports dev.

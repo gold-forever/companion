@@ -29,7 +29,7 @@ import (
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
-	"github.com/gold-forever/companion/internal/sendlog"
+	"github.com/gold-forever/companion/internal/upload/sendlog"
 	release "github.com/gold-forever/companion/internal/version"
 )
 
