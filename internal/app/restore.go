@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -54,10 +55,10 @@ func (c *App) CopyBytes(id string) ([]byte, bool) {
 }
 
 // Restore writes a kept copy back over its save. The page has the player confirm that WoW is closed.
-func (c *App) Restore(id string) error {
+func (c *App) Restore(ctx context.Context, id string) error {
 	k, ok := c.copies()[id]
 	if !ok {
-		return page.BadRequest("that copy is no longer kept")
+		return ErrCopyGone
 	}
 	data, err := os.ReadFile(k.path)
 	if err != nil {

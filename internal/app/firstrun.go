@@ -1,6 +1,10 @@
 package app
 
-import "github.com/gold-forever/companion/internal/account/config"
+import (
+	"context"
+
+	"github.com/gold-forever/companion/internal/account/config"
+)
 
 // installed says, one line each, what installing the companion put on this computer.
 func (c *App) installed() []string {
@@ -19,6 +23,6 @@ func (c *App) installed() []string {
 	return lines
 }
 
-func (c *App) Welcomed() error {
+func (c *App) Welcomed(ctx context.Context) error {
 	return c.settings.Update(func(cfg *config.Config) error { cfg.Welcomed = true; return nil })
 }

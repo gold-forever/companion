@@ -1,13 +1,14 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"time"
 )
 
 // Uninstall removes the companion and everything it put on the computer, then stops it.
-func (c *App) Uninstall(keepData bool) error {
+func (c *App) Uninstall(ctx context.Context, keepData bool) error {
 	err := c.layout.Uninstall(c.running, keepData)
 	_ = os.Remove(filepath.Join(c.dataDir, InstanceFile))
 	go func() {

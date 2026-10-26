@@ -1,7 +1,10 @@
 package page
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +23,7 @@ const (
 )
 
 type fakeApp struct {
+	err         error // what AddFolder answers
 	restored    string
 	uninstalls  int
 	linked      string
@@ -30,17 +34,19 @@ type fakeApp struct {
 func (a *fakeApp) State() State {
 	return State{Version: "v0.1.0", Linked: a.linked != "", Prices: a.prices}
 }
-func (a *fakeApp) Link(token string) error       { a.linked = token; return nil }
-func (a *fakeApp) Unlink() error                 { a.linked = ""; return nil }
-func (a *fakeApp) StartDeviceLink() error        { a.deviceLinks++; return nil }
-func (a *fakeApp) SetSaveOn(string, bool) error  { return nil }
-func (a *fakeApp) AddFolder(string) error        { return nil }
-func (a *fakeApp) SetAutostart(bool) error       { return nil }
-func (a *fakeApp) Welcomed() error               { return nil }
-func (a *fakeApp) History() History              { return History{} }
-func (a *fakeApp) Restore(id string) error       { a.restored = id; return nil }
-func (a *fakeApp) Uninstall(keepData bool) error { a.uninstalls++; return nil }
-func (a *fakeApp) Quit()                         {}
+func (a *fakeApp) Link(_ context.Context, token string) error { a.linked = token; return nil }
+func (a *fakeApp) Unlink(context.Context) error               { a.linked = ""; return nil }
+func (a *fakeApp) StartDeviceLink(context.Context) error      { a.deviceLinks++; return nil }
+func (a *fakeApp) SetSaveOn(context.Context, string, bool) error {
+	return nil
+}
+func (a *fakeApp) AddFolder(context.Context, string) error    { return a.err }
+func (a *fakeApp) SetAutostart(context.Context, bool) error   { return nil }
+func (a *fakeApp) Welcomed(context.Context) error             { return nil }
+func (a *fakeApp) History() History                           { return History{} }
+func (a *fakeApp) Restore(_ context.Context, id string) error { a.restored = id; return nil }
+func (a *fakeApp) Uninstall(context.Context, bool) error      { a.uninstalls++; return nil }
+func (a *fakeApp) Quit()                                      {}
 func (a *fakeApp) CopyBytes(id string) ([]byte, bool) {
 	if id == "known" {
 		return []byte("GoldForeverDB = {\n}\n"), true
@@ -298,5 +304,27 @@ func TestTheStateCarriesEachFlavoursPriceFileForAFreshAStaleAndAFailedFetch(t *t
 	}
 	if page := serve(app, "GET", "/", "", nil).Body.String(); !strings.Contains(page, `id="prices"`) {
 		t.Error("the page has no place for the price files")
+	}
+}
+
+// refusal is an app error the player can fix.
+type refusal string
+
+func (r refusal) Error() string { return string(r) }
+func (refusal) PlayerError()    {}
+
+func TestTheAppsRefusalsAreThePlayersToFixAndItsFailuresAreNot(t *testing.T) {
+	for err, want := range map[error]int{
+		refusal("no GoldForever.lua under /games yet"):                       http.StatusBadRequest,
+		fmt.Errorf("adding: %w", refusal("no GoldForever.lua under /games")): http.StatusBadRequest,
+		errors.New("disk full"):                                              http.StatusInternalServerError,
+	} {
+		rec := serve(&fakeApp{err: err}, "POST", "/api/folder", `{"path":"/games"}`, nil)
+
+		var body struct{ Error string }
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		if rec.Code != want || body.Error != err.Error() {
+			t.Errorf("%v: %d %q, want %d with the message", err, rec.Code, body.Error, want)
+		}
 	}
 }

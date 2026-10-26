@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +63,7 @@ func TestAnUnreadableSettingsFileIsKeptAsideAndThePageSaysSo(t *testing.T) {
 	}
 
 	c := newApp(appOptions{running: layout.Exe, layout: layout, cfgPath: cfgPath, dataDir: layout.Data[0], quit: func() {}})
-	if err := c.Welcomed(); err != nil {
+	if err := c.Welcomed(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,7 +81,7 @@ func TestAMacAppOnItsDiskImageSaysToMoveItAndRecordsNoAutostart(t *testing.T) {
 	onDiskImage := "/Volumes/Gold Forever Companion/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
 	c := newApp(appOptions{running: onDiskImage, layout: layout, cfgPath: filepath.Join(home, "config.json"), dataDir: layout.Data[0], quit: func() {}})
 
-	if err := c.SetAutostart(true); err == nil || layout.Autostart.Enabled() {
+	if err := c.SetAutostart(t.Context(), true); !errors.Is(err, ErrMoveToApplications) || layout.Autostart.Enabled() {
 		t.Errorf("autostart recorded for a disk image: %v", err)
 	}
 	if !strings.Contains(strings.Join(c.State().Installed, "\n"), "Drag the app to Applications") {
@@ -90,15 +91,14 @@ func TestAMacAppOnItsDiskImageSaysToMoveItAndRecordsNoAutostart(t *testing.T) {
 
 func TestLinkTakesOnlyATokenAndKeepsItForItsOwner(t *testing.T) {
 	c, _ := fixture(t)
-	var bad interface{ Error() string }
-	if err := c.Link("my password"); err == nil || !errors.As(err, &bad) {
+	if err := c.Link(t.Context(), "my password"); !errors.Is(err, ErrNotAToken) {
 		t.Fatalf("anything but a token must be refused, got %v", err)
 	}
 	if c.State().Linked {
 		t.Fatal("a refused token linked the companion")
 	}
 	before := c.settings.Changes()
-	if err := c.Link(validToken); err != nil {
+	if err := c.Link(t.Context(), validToken); err != nil {
 		t.Fatal(err)
 	}
 	if !c.State().Linked {
@@ -128,7 +128,7 @@ func TestTheFirstRunPanelSaysWhatWasInstalledUntilThePlayerHasSeenIt(t *testing.
 		!strings.Contains(strings.Join(s.Installed, "\n"), c.layout.AutostartAt) {
 		t.Fatalf("the first-run panel must say where the companion and its autostart are: %+v", s)
 	}
-	if err := c.Welcomed(); err != nil {
+	if err := c.Welcomed(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if c.State().FirstRun {
@@ -142,10 +142,10 @@ func TestSavesAreFoundWithTheirGameAndCanBeSwitchedOff(t *testing.T) {
 	if len(saves) != 1 || saves[0].Path != save || saves[0].Game != "forever" || !saves[0].On {
 		t.Fatalf("saves: %+v", saves)
 	}
-	if err := c.SetSaveOn(save, false); err != nil || c.State().Saves[0].On || !c.isOff(save) {
+	if err := c.SetSaveOn(t.Context(), save, false); err != nil || c.State().Saves[0].On || !c.isOff(save) {
 		t.Errorf("switching off: %v %+v", err, c.State().Saves)
 	}
-	if err := c.SetSaveOn("/etc/passwd", false); err == nil {
+	if err := c.SetSaveOn(t.Context(), "/etc/passwd", false); !errors.Is(err, ErrUnknownSave) {
 		t.Error("only a save the companion found can be switched")
 	}
 }
@@ -170,14 +170,15 @@ func TestASaveRefusedAsTooLargeSaysItIsRetriedDaily(t *testing.T) {
 
 func TestAddFolderWantsAWoWFolderWithASave(t *testing.T) {
 	c, _ := fixture(t)
-	if err := c.AddFolder(t.TempDir()); err == nil {
+	var none *NoSaveError
+	if err := c.AddFolder(t.Context(), t.TempDir()); !errors.As(err, &none) {
 		t.Error("a folder with no GoldForever.lua under it is refused, with advice")
 	}
 	other := filepath.Join(t.TempDir(), "World of Warcraft")
 	path := filepath.Join(other, "_retail_", "WTF", "Account", "B", "SavedVariables", "GoldForever.lua")
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	os.WriteFile(path, []byte("GoldForeverDB = {\n}\n"), 0o644)
-	if err := c.AddFolder(other); err != nil {
+	if err := c.AddFolder(t.Context(), other); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(c.State().Saves); n != 2 {
@@ -199,26 +200,29 @@ func TestCopiesAreReachedByIDOnlyAndRestoreWritesTheSaveBack(t *testing.T) {
 	if data, ok := c.CopyBytes(copies[0].ID); !ok || string(data) != string(original) {
 		t.Error("view bytes must show the copy exactly")
 	}
-	if err := c.Link(validToken); err != nil { // so the config file exists, holding a token
+	if err := c.Link(t.Context(), validToken); err != nil { // so the config file exists, holding a token
 		t.Fatal(err)
 	}
 	if data, ok := c.CopyBytes(c.settings.Path()); ok || strings.Contains(string(data), validToken) {
 		t.Error("a path is not an ID: the config holds the token")
 	}
-	if err := c.Restore(copies[0].ID); err != nil {
+	if err := c.Restore(t.Context(), copies[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(save); string(got) != string(original) {
 		t.Error("restore did not write the copy back")
 	}
+	if err := c.Restore(t.Context(), "no-such-copy"); !errors.Is(err, ErrCopyGone) {
+		t.Errorf("restoring a copy no longer kept: %v", err)
+	}
 }
 
 func TestAutostartFollowsTheCheckbox(t *testing.T) {
 	c, _ := fixture(t)
-	if err := c.SetAutostart(true); err != nil || !c.State().Autostart {
+	if err := c.SetAutostart(t.Context(), true); err != nil || !c.State().Autostart {
 		t.Fatalf("on: %v", err)
 	}
-	if err := c.SetAutostart(false); err != nil || c.State().Autostart {
+	if err := c.SetAutostart(t.Context(), false); err != nil || c.State().Autostart {
 		t.Errorf("off: %v", err)
 	}
 }
@@ -230,7 +234,7 @@ func TestUninstallRemovesTheInstanceFileAndQuits(t *testing.T) {
 	os.MkdirAll(c.dataDir, 0o700)
 	instanceFile := filepath.Join(c.dataDir, "instance.json")
 	os.WriteFile(instanceFile, []byte("{}"), 0o600)
-	if err := c.Uninstall(true); err != nil {
+	if err := c.Uninstall(t.Context(), true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(instanceFile); !os.IsNotExist(err) {
@@ -281,7 +285,7 @@ func TestLinkingByCodeShowsTheCodeOpensTheSiteAndSavesTheToken(t *testing.T) {
 		return save(validToken)
 	}
 
-	if err := c.StartDeviceLink(); err != nil {
+	if err := c.StartDeviceLink(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	linkingState(t, c, "waiting")
@@ -306,7 +310,7 @@ func TestLinkingByCodeThatIsDeniedOrExpiresSavesNothing(t *testing.T) {
 			show(testCode)
 			return err
 		}
-		if err := c.StartDeviceLink(); err != nil {
+		if err := c.StartDeviceLink(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 		linkingState(t, c, want)
@@ -328,9 +332,9 @@ func TestASecondLinkWhileOneWaitsStartsNone(t *testing.T) {
 		<-release
 		return ctx.Err()
 	}
-	c.StartDeviceLink()
+	c.StartDeviceLink(t.Context())
 	linkingState(t, c, "waiting")
-	c.StartDeviceLink()
+	c.StartDeviceLink(t.Context())
 	time.Sleep(20 * time.Millisecond)
 	if starts != 1 {
 		t.Errorf("a second press started %d links in all, want 1", starts)
@@ -438,5 +442,33 @@ func TestTheUploadLoopEndsOnlyOnceItsPriceLoopHasEnded(t *testing.T) {
 
 	if left := stillRunning(); left != "" {
 		t.Fatalf("the loop returned with its price loop still running:\n%s", left)
+	}
+}
+
+// The page tells the player's own mistakes from the companion's failures by PlayerError: every refusal
+// the use cases return is one.
+func TestEveryRefusalIsThePlayersToFix(t *testing.T) {
+	for _, err := range []error{ErrNotAToken, ErrUnknownSave, ErrCopyGone, ErrMoveToApplications, &NoSaveError{Folder: "/games"}} {
+		var mistake page.PlayerError
+		if !errors.As(fmt.Errorf("wrapped: %w", err), &mistake) {
+			t.Errorf("%v is not the player's to fix", err)
+		}
+	}
+}
+
+func TestCheckingForAnUpdateShowsANewerReleaseOnly(t *testing.T) {
+	for latest, notice := range map[string]bool{"v0.2.0": true, "v0.1.0": false} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, `{"version":"`+latest+`","url":"https://github.com/gold-forever/companion/releases/tag/`+latest+`"}`)
+		}))
+		c, _ := fixture(t)
+		c.site = srv.URL
+
+		err := c.CheckForUpdate(t.Context())
+
+		srv.Close()
+		if err != nil || (c.State().Notice != nil) != notice {
+			t.Errorf("latest %s: notice %+v, err %v", latest, c.State().Notice, err)
+		}
 	}
 }

@@ -6,11 +6,11 @@
 package page
 
 import (
+	"context"
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -101,21 +101,29 @@ type Copy struct {
 	Pending bool      `json:"pending"`
 }
 
-// App is what the page shows and changes.
+// App is what the page shows and changes. An error the player can fix is a PlayerError; anything else
+// is the companion's failure.
 type App interface {
 	State() State
-	Link(token string) error
-	StartDeviceLink() error
-	Unlink() error
-	SetSaveOn(path string, on bool) error
-	AddFolder(path string) error
-	SetAutostart(on bool) error
-	Welcomed() error
+	Link(ctx context.Context, token string) error
+	StartDeviceLink(ctx context.Context) error
+	Unlink(ctx context.Context) error
+	SetSaveOn(ctx context.Context, path string, on bool) error
+	AddFolder(ctx context.Context, path string) error
+	SetAutostart(ctx context.Context, on bool) error
+	Welcomed(ctx context.Context) error
 	History() History
 	CopyBytes(id string) ([]byte, bool)
-	Restore(id string) error
-	Uninstall(keepData bool) error
+	Restore(ctx context.Context, id string) error
+	Uninstall(ctx context.Context, keepData bool) error
 	Quit()
+}
+
+// PlayerError is an error the player can fix, which the page shows as theirs (a 400) rather than the
+// companion's (a 500).
+type PlayerError interface {
+	error
+	PlayerError()
 }
 
 // Listen opens the page on a free port of 127.0.0.1.
@@ -225,38 +233,40 @@ func (h *handler) routes() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write(data)
 	})
-	post(m, "/api/link", func(b struct{ Token string }) error { return h.app.Link(b.Token) })
-	post(m, "/api/link/device", func(struct{}) error { return h.app.StartDeviceLink() })
-	post(m, "/api/unlink", func(struct{}) error { return h.app.Unlink() })
-	post(m, "/api/save", func(b struct {
+	post(m, "/api/link", func(ctx context.Context, b struct{ Token string }) error { return h.app.Link(ctx, b.Token) })
+	post(m, "/api/link/device", func(ctx context.Context, _ struct{}) error { return h.app.StartDeviceLink(ctx) })
+	post(m, "/api/unlink", func(ctx context.Context, _ struct{}) error { return h.app.Unlink(ctx) })
+	post(m, "/api/save", func(ctx context.Context, b struct {
 		Path string
 		On   bool
 	}) error {
-		return h.app.SetSaveOn(b.Path, b.On)
+		return h.app.SetSaveOn(ctx, b.Path, b.On)
 	})
-	post(m, "/api/folder", func(b struct{ Path string }) error { return h.app.AddFolder(b.Path) })
-	post(m, "/api/autostart", func(b struct{ On bool }) error { return h.app.SetAutostart(b.On) })
-	post(m, "/api/welcomed", func(struct{}) error { return h.app.Welcomed() })
-	post(m, "/api/restore", func(b struct {
+	post(m, "/api/folder", func(ctx context.Context, b struct{ Path string }) error { return h.app.AddFolder(ctx, b.Path) })
+	post(m, "/api/autostart", func(ctx context.Context, b struct{ On bool }) error { return h.app.SetAutostart(ctx, b.On) })
+	post(m, "/api/welcomed", func(ctx context.Context, _ struct{}) error { return h.app.Welcomed(ctx) })
+	post(m, "/api/restore", func(ctx context.Context, b struct {
 		ID        string
 		WoWClosed bool
 	}) error {
 		if !b.WoWClosed {
 			return errBadRequest("close World of Warcraft first: it overwrites the save when you log out")
 		}
-		return h.app.Restore(b.ID)
+		return h.app.Restore(ctx, b.ID)
 	})
-	post(m, "/api/uninstall", func(b struct{ KeepData bool }) error { return h.app.Uninstall(b.KeepData) })
-	post(m, "/api/quit", func(struct{}) error { go h.app.Quit(); return nil })
+	post(m, "/api/uninstall", func(ctx context.Context, b struct{ KeepData bool }) error { return h.app.Uninstall(ctx, b.KeepData) })
+	post(m, "/api/quit", func(context.Context, struct{}) error { go h.app.Quit(); return nil })
 }
 
-// errBadRequest is a request the page should not have sent; anything else the app returns is a 500.
+// errBadRequest is a request the page should not have sent.
 type errBadRequest string
 
 func (e errBadRequest) Error() string { return string(e) }
+func (errBadRequest) PlayerError()    {}
 
-// post decodes a small JSON body into B and runs act; the answer is {"ok":true} or the error.
-func post[B any](m *http.ServeMux, path string, act func(B) error) {
+// post decodes a small JSON body into B and runs act with the request's context; the answer is
+// {"ok":true} or the error.
+func post[B any](m *http.ServeMux, path string, act func(context.Context, B) error) {
 	m.HandleFunc("POST "+path, func(w http.ResponseWriter, r *http.Request) {
 		var body B
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -268,9 +278,9 @@ func post[B any](m *http.ServeMux, path string, act func(B) error) {
 			http.Error(w, "not JSON", http.StatusBadRequest)
 			return
 		}
-		if err := act(body); err != nil {
+		if err := act(r.Context(), body); err != nil {
 			status := http.StatusInternalServerError
-			var bad errBadRequest
+			var bad PlayerError
 			if errors.As(err, &bad) {
 				status = http.StatusBadRequest
 			}
@@ -281,9 +291,6 @@ func post[B any](m *http.ServeMux, path string, act func(B) error) {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 }
-
-// BadRequest marks an error as the player's to fix, so the page shows it as such.
-func BadRequest(format string, args ...any) error { return errBadRequest(fmt.Sprintf(format, args...)) }
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

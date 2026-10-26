@@ -15,10 +15,10 @@ import (
 // A token as /me/tokens makes one: gf_ and 43 letters and digits.
 var tokenShape = regexp.MustCompile(`^gf_[0-9A-Za-z]{43}$`)
 
-func (c *App) Link(token string) error {
+func (c *App) Link(ctx context.Context, token string) error {
 	token = strings.TrimSpace(token)
 	if !tokenShape.MatchString(token) {
-		return page.BadRequest("that is not a token: a token starts with gf_ and is 46 letters and digits, from your tokens page")
+		return ErrNotAToken
 	}
 	return c.settings.Update(func(cfg *config.Config) error { cfg.Token = token; return nil })
 }
@@ -28,7 +28,7 @@ const linkTimeout = 15 * time.Minute
 
 // StartDeviceLink starts linking by code in the background, opening the approval page in the browser;
 // the page follows it in State. A press while one waits starts nothing new.
-func (c *App) StartDeviceLink() error {
+func (c *App) StartDeviceLink(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.linking != nil && (c.linking.State == "starting" || c.linking.State == "waiting") {
@@ -36,7 +36,7 @@ func (c *App) StartDeviceLink() error {
 	}
 	c.linking = &page.Linking{State: "starting"}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), linkTimeout)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), linkTimeout) // outlives the press
 		defer cancel()
 		show := func(code server.DeviceCode) {
 			// The browser first, so a page that sees "waiting" knows the approval page was opened.
@@ -69,6 +69,6 @@ func (c *App) setLinking(l page.Linking) {
 	c.mu.Unlock()
 }
 
-func (c *App) Unlink() error {
+func (c *App) Unlink(ctx context.Context) error {
 	return c.settings.Update(func(cfg *config.Config) error { cfg.Token = ""; return nil })
 }
