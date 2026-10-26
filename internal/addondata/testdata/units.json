@@ -1,0 +1,5 @@
+{"v":1,"game":"retail","at":1761148800,
+ "markets":[{"market":"retail-EU-Draenor","items":[{"id":2589,"value":1234,"minBuyout":1100,"players":1,"scannedAt":1761140000,"week":1250,"units":3},
+                                                   {"id":14047,"value":0,"minBuyout":0,"players":3,"scannedAt":1761100000,"units":0},
+                                                   {"id":2592,"value":9007199254740991,"minBuyout":5,"players":12,"scannedAt":1761148799,"week":9007199254740991},
+                                                   {"id":2996,"value":40,"minBuyout":38,"players":2,"scannedAt":1761148000,"units":5}]}]}

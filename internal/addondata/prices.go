@@ -25,9 +25,12 @@ const maxExact = 1<<53 - 1
 var marketKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
 // Item is one item's pooled figures: copper, contributors, the newest scan in epoch seconds, and the
-// 7-day mean of daily values in copper, 0 when the server sent none.
+// 7-day mean of daily values in copper, 0 when the server sent none. A thin price, one resting on so
+// few units that one listing can move it, carries the units of its newest scan.
 type Item struct {
 	ID, Value, MinBuyout, Players, ScannedAt, Week int64
+	Units                                          int64
+	Thin                                           bool
 }
 
 // Prices is one market's items, sorted by id.
@@ -54,6 +57,7 @@ type rawMarket struct {
 		Players   json.RawMessage `json:"players"`
 		ScannedAt json.RawMessage `json:"scannedAt"`
 		Week      json.RawMessage `json:"week"`
+		Units     json.RawMessage `json:"units"`
 	} `json:"items"`
 }
 
@@ -142,6 +146,9 @@ func parseMarket(m rawMarket) (Prices, error) {
 			}
 		}
 		it.Week = optional(raw.Week, 1, maxExact)
+		if units, err := integer(raw.Units, 0, maxExact); err == nil {
+			it.Units, it.Thin = units, true
+		}
 		if seen[it.ID] {
 			return Prices{}, fmt.Errorf("market %s: item %d named twice", m.Market, it.ID)
 		}

@@ -19,16 +19,19 @@ package addondata
 //	  },
 //	  markets = {
 //	    [<market key>] = {
-//	      [<item id>] = { value, minBuyout, players, scannedAt [, week] },  -- integers; week optional
+//	      [<item id>] = { value, minBuyout, players, scannedAt [, week] [, units = <int>] },
 //	    },
 //	  },
 //	}
+//
+// An item's numbers are integers: week is optional, and units, keyed so that it never takes week's
+// place, is there only for a thin price.
 //
 // Keys and strings are quoted printable ASCII; every number is an integer Lua holds exactly.
 
 // formatVersion is Data.lua's v. It changes when an addon reading the file as it is would misread it:
 // a field removed, renamed or given another type, or the item figures reordered. A new optional field
-// does not: shared, dings and week were each added at v = 1.
+// does not: shared, dings, week and units were each added at v = 1.
 const formatVersion = 1
 
 // The addon's folder and its files.
@@ -55,4 +58,5 @@ const (
 	fieldWebhook    = "webhook"
 	fieldCharacters = "characters"
 	fieldMarkets    = "markets"
+	fieldUnits      = "units"
 )

@@ -41,6 +41,9 @@ func marketPart(p Prices) []byte {
 		if it.Week > 0 {
 			fmt.Fprintf(&b, ", %d", it.Week)
 		}
+		if it.Thin {
+			fmt.Fprintf(&b, ", %s = %d", fieldUnits, it.Units)
+		}
 		b.WriteString(" },\n")
 	}
 	b.WriteString("    },\n")
