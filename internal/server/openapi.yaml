@@ -541,6 +541,12 @@ components:
           type: integer
           minimum: 1
           maximum: 9007199254740991
+        units:
+          description: |
+            The units on sale in the item's newest pooled scan, only when the price is thin: it rests on so few units
+            (5 or fewer today) that one listing can move it. Absent otherwise; a companion that does not know it ignores it.
+          type: integer
+          minimum: 0
 
     AccountPrices:
       description: Every market of the token account's characters in the game that has pooled prices.
