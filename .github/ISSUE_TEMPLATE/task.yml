@@ -44,7 +44,21 @@ body:
     id: open-questions
     attributes:
       label: Open questions
-      description: Anything to decide before work starts. Leave empty or write "None" when nothing is open.
+      description: >-
+        Anything still to decide before work starts, one question each, in the format shown. Leave empty or write "None" when nothing is open.
+      placeholder: |
+        > **How to answer:** tick one box per question (⭐ = recommended). Tap "Why" for the details. A comment works too, e.g. "1b 2a".
+
+        #### 1. <the question, one plain sentence>
+
+        - [ ] **a)** <option>
+        - [ ] **b)** ⭐ <recommended option>
+        - [ ] **c)** <option>
+
+        <details><summary>Why</summary>
+
+        <why the recommendation; code paths and evidence go here, not in the options>
+        </details>
   - type: input
     id: depends-on
     attributes:
