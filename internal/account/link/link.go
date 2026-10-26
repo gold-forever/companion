@@ -6,8 +6,8 @@ package link
 import (
 	"context"
 
+	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/config"
 )
 
 // SharingLine is the site's own line on what an upload shares (frontend/src/app/sharing.ts, word for

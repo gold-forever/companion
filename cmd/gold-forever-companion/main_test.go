@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gold-forever/companion/internal/config"
+	"github.com/gold-forever/companion/internal/account/config"
+	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/instance"
-	"github.com/gold-forever/companion/internal/link"
 )
 
 func save(t *testing.T) string {

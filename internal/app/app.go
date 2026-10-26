@@ -20,11 +20,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gold-forever/companion/internal/account/config"
+	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/install"
-	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/page"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/app"
-	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/instance"
 	release "github.com/gold-forever/companion/internal/version"

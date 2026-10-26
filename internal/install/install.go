@@ -14,7 +14,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/gold-forever/companion/internal/config"
+	"github.com/gold-forever/companion/internal/account/config"
 )
 
 const (
