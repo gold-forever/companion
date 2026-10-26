@@ -4,19 +4,11 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +16,6 @@ import (
 	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/platform/install"
-	release "github.com/gold-forever/companion/internal/platform/version"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
@@ -32,11 +23,6 @@ import (
 	"github.com/gold-forever/companion/internal/ui/page"
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
-
-// A token as /me/tokens makes one: gf_ and 43 letters and digits.
-var tokenShape = regexp.MustCompile(`^gf_[0-9A-Za-z]{43}$`)
-
-const checkVersionEvery = 24 * time.Hour
 
 // RefusedFile, in the data folder, lists the saves the server refused as too large.
 const RefusedFile = "refused.json"
@@ -127,61 +113,6 @@ func newApp(o appOptions) *App {
 	return c
 }
 
-// setAsideSettings keeps an unreadable settings file aside, so the next save cannot overwrite the
-// token, folders and switched-off saves it may still hold, and says so for the page.
-func setAsideSettings(path string, readErr error) string {
-	aside, err := config.SetAside(path)
-	if err != nil {
-		return fmt.Sprintf("Your settings file %s could not be read (%v), nor moved aside (%v): the companion starts unlinked.", path, readErr, err)
-	}
-	return fmt.Sprintf("Your settings file could not be read (%v). It is kept as %s; the companion starts unlinked, so link this computer again.", readErr, aside)
-}
-
-// changes is closed at the next change the upload loop must see.
-func (c *App) changes() <-chan struct{} {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.changed
-}
-
-// update changes the settings, saves them, and wakes the loop.
-func (c *App) update(change func(*config.Config) error) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	next := c.cfg
-	next.Off = slices.Clone(c.cfg.Off)
-	next.Folders = slices.Clone(c.cfg.Folders)
-	if err := change(&next); err != nil {
-		return err
-	}
-	if err := config.Save(c.cfgPath, next); err != nil {
-		return err
-	}
-	c.cfg = next
-	close(c.changed)
-	c.changed = make(chan struct{})
-	return nil
-}
-
-func (c *App) settings() config.Config {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.cfg
-}
-
-func (c *App) saves() []find.Save {
-	return find.Saves(append(slices.Clone(c.settings().Folders), c.candidates...))
-}
-
-func (c *App) isOff(path string) bool { return c.settings().IsOff(path) }
-
-func (c *App) url() string {
-	if u := c.settings().URL; u != "" {
-		return u
-	}
-	return c.site
-}
-
 // State is what the settings page shows.
 func (c *App) State() page.State {
 	cfg := c.settings()
@@ -270,23 +201,6 @@ func (c *App) parts(server *server.Client) Parts {
 	}
 }
 
-// installed says, one line each, what installing the companion put on this computer.
-func (c *App) installed() []string {
-	target := c.layout.Target(c.running)
-	lines := []string{"The companion runs from " + target + "."}
-	if c.layout.Transient(target) {
-		lines = append(lines, moveToApplications)
-	}
-	if c.layout.Shortcut != "" {
-		lines = append(lines, "A shortcut to it: "+c.layout.Shortcut+".")
-	}
-	lines = append(lines,
-		"Starting with your computer is recorded in "+c.layout.AutostartAt+".",
-		"Its settings, with your token, are in "+c.layout.Config+"; copies of your saves and the upload log in "+c.dataDir+".",
-		"Uninstall, at the bottom of this page, removes all of it.")
-	return lines
-}
-
 // gameOf reads which game wrote a save, again only when the file has changed.
 func (c *App) gameOf(path string) string {
 	info, err := os.Stat(path)
@@ -308,258 +222,4 @@ func (c *App) gameOf(path string) string {
 	c.games[path] = gameSeen{info.ModTime(), info.Size(), game}
 	c.mu.Unlock()
 	return game
-}
-
-func (c *App) Link(token string) error {
-	token = strings.TrimSpace(token)
-	if !tokenShape.MatchString(token) {
-		return page.BadRequest("that is not a token: a token starts with gf_ and is 46 letters and digits, from your tokens page")
-	}
-	return c.update(func(cfg *config.Config) error { cfg.Token = token; return nil })
-}
-
-// linkTimeout outlasts a code's ten minutes, so the server's expiry is what ends a link.
-const linkTimeout = 15 * time.Minute
-
-// StartDeviceLink starts linking by code in the background, opening the approval page in the browser;
-// the page follows it in State. A press while one waits starts nothing new.
-func (c *App) StartDeviceLink() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.linking != nil && (c.linking.State == "starting" || c.linking.State == "waiting") {
-		return nil
-	}
-	c.linking = &page.Linking{State: "starting"}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), linkTimeout)
-		defer cancel()
-		show := func(code server.DeviceCode) {
-			// The browser first, so a page that sees "waiting" knows the approval page was opened.
-			if code.VerificationURIComplete != "" {
-				c.openURL(code.VerificationURIComplete)
-			}
-			c.setLinking(page.Linking{State: "waiting", UserCode: code.UserCode, URL: code.VerificationURIComplete})
-		}
-		save := func(token string) error {
-			return c.update(func(cfg *config.Config) error { cfg.Token = token; return nil })
-		}
-		err := c.linker(ctx, show, save)
-		switch {
-		case err == nil:
-			c.setLinking(page.Linking{State: "linked"})
-		case errors.Is(err, server.ErrLinkDenied):
-			c.setLinking(page.Linking{State: "denied"})
-		case errors.Is(err, server.ErrLinkExpired), errors.Is(err, context.DeadlineExceeded):
-			c.setLinking(page.Linking{State: "expired"})
-		default:
-			c.setLinking(page.Linking{State: "failed", Error: err.Error()})
-		}
-	}()
-	return nil
-}
-
-func (c *App) setLinking(l page.Linking) {
-	c.mu.Lock()
-	c.linking = &l
-	c.mu.Unlock()
-}
-
-func (c *App) Unlink() error {
-	return c.update(func(cfg *config.Config) error { cfg.Token = ""; return nil })
-}
-
-func (c *App) SetSaveOn(path string, on bool) error {
-	if !slices.ContainsFunc(c.saves(), func(s find.Save) bool { return s.Path == path }) {
-		return page.BadRequest("the companion has not found that save")
-	}
-	return c.update(func(cfg *config.Config) error {
-		cfg.Off = slices.DeleteFunc(cfg.Off, func(p string) bool { return p == path })
-		if !on {
-			cfg.Off = append(cfg.Off, path)
-		}
-		return nil
-	})
-}
-
-func (c *App) AddFolder(path string) error {
-	path = filepath.Clean(strings.TrimSpace(path))
-	if len(find.Saves([]string{path})) == 0 {
-		return page.BadRequest("no GoldForever.lua under %s yet: choose the World of Warcraft folder, the one with _retail_ or _forever_ in it, after playing once with the addon", path)
-	}
-	return c.update(func(cfg *config.Config) error {
-		if !slices.Contains(cfg.Folders, path) {
-			cfg.Folders = append(cfg.Folders, path)
-		}
-		return nil
-	})
-}
-
-// moveToApplications is why a macOS app run from its disk image, or from Downloads before macOS has
-// cleared it, cannot start with the computer.
-const moveToApplications = "Drag the app to Applications and open it from there: from where it runs now, it cannot start with your computer."
-
-func (c *App) SetAutostart(on bool) error {
-	if on && c.layout.Transient(c.layout.Target(c.running)) {
-		return page.BadRequest("%s", moveToApplications)
-	}
-	if on {
-		return c.layout.Autostart.Enable(c.layout.Target(c.running))
-	}
-	return c.layout.Autostart.Disable()
-}
-
-func (c *App) Welcomed() error {
-	return c.update(func(cfg *config.Config) error { cfg.Welcomed = true; return nil })
-}
-
-// kept is one copy of a save on disk, as the page names it.
-type kept struct {
-	page.Copy
-	path, source string
-}
-
-// copies lists every kept copy of every save found, by an ID made from its path: the page never sends
-// a path, so it can only ever reach a copy listed here.
-func (c *App) copies() map[string]kept {
-	out := map[string]kept{}
-	for _, save := range c.saves() {
-		list, _ := c.backups.Copies(save.Path)
-		for _, cp := range list {
-			info, err := os.Stat(cp.Path)
-			if err != nil {
-				continue
-			}
-			sum := sha256.Sum256([]byte(cp.Path))
-			id := hex.EncodeToString(sum[:8])
-			out[id] = kept{page.Copy{ID: id, Save: save.Label(), Taken: info.ModTime(), Pending: cp.Pending}, cp.Path, save.Path}
-		}
-	}
-	return out
-}
-
-func (c *App) History() page.History {
-	entries, _ := c.log.Read()
-	h := page.History{Entries: entries}
-	for _, k := range c.copies() {
-		h.Copies = append(h.Copies, k.Copy)
-	}
-	slices.SortFunc(h.Copies, func(a, b page.Copy) int { return a.Taken.Compare(b.Taken) })
-	return h
-}
-
-func (c *App) CopyBytes(id string) ([]byte, bool) {
-	k, ok := c.copies()[id]
-	if !ok {
-		return nil, false
-	}
-	data, err := os.ReadFile(k.path)
-	return data, err == nil
-}
-
-// Restore writes a kept copy back over its save. The page has the player confirm that WoW is closed.
-func (c *App) Restore(id string) error {
-	k, ok := c.copies()[id]
-	if !ok {
-		return page.BadRequest("that copy is no longer kept")
-	}
-	data, err := os.ReadFile(k.path)
-	if err != nil {
-		return err
-	}
-	tmp := k.source + ".restoring"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, k.source)
-}
-
-// Uninstall removes the companion and everything it put on the computer, then stops it.
-func (c *App) Uninstall(keepData bool) error {
-	err := c.layout.Uninstall(c.running, keepData)
-	_ = os.Remove(filepath.Join(c.dataDir, InstanceFile))
-	go func() {
-		time.Sleep(300 * time.Millisecond) // let the page get its answer first
-		c.quit()
-	}()
-	return err
-}
-
-func (c *App) Quit() { c.quit() }
-
-// loop runs the uploads until ctx ends: with the current token and folders, starting again whenever
-// they change, and waiting for a change while there is no token or the server refused it.
-func (c *App) loop(ctx context.Context) {
-	for ctx.Err() == nil {
-		changed := c.changes()
-		token := c.settings().Token
-		if token == "" {
-			c.status.Set("Not linked yet: open Settings and press \"Link this computer\".")
-		} else {
-			run, stop := context.WithCancel(ctx)
-			var started sync.WaitGroup
-			started.Go(func() {
-				select {
-				case <-changed:
-					stop()
-				case <-run.Done():
-				}
-			})
-			client := &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
-			err := NewUploads(c.parts(client)).Run(run)
-			stop()
-			started.Wait() // the next round, or the caller, owns the data folder alone
-			if err == nil {
-				continue // a change, or the companion is stopping
-			}
-		}
-		select {
-		case <-changed:
-		case <-ctx.Done():
-		}
-	}
-}
-
-// checkVersion asks the server once a day whether a newer release exists, for the page's notice.
-func (c *App) checkVersion(ctx context.Context) {
-	client := &server.Client{BaseURL: c.url(), Version: c.version, OS: goos}
-	for {
-		if latest, err := client.Latest(ctx); err == nil && release.Newer(latest.Version, c.version) {
-			c.mu.Lock()
-			c.notice = &page.Notice{Version: latest.Version, URL: latest.URL}
-			c.mu.Unlock()
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(checkVersionEvery):
-		}
-	}
-}
-
-// lastLine keeps the last line the upload loop wrote, for the tray and the page, and passes every
-// line on to standard output.
-type lastLine struct {
-	mu   sync.Mutex
-	line string
-	out  io.Writer
-}
-
-func (l *lastLine) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if lines := bytes.Split(bytes.TrimRight(p, "\n"), []byte("\n")); len(lines) > 0 {
-		l.line = string(lines[len(lines)-1])
-	}
-	if l.out != nil {
-		l.out.Write(p)
-	}
-	return len(p), nil
-}
-
-func (l *lastLine) Set(line string) { fmt.Fprintln(l, line) }
-
-func (l *lastLine) String() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.line
 }
