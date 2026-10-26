@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/config"
-	"github.com/gold-forever/companion/internal/find"
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/instance"
 	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/tray"
 )
 

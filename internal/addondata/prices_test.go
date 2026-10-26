@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/saves/find"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/Data.lua from testdata/answer.json")

@@ -17,7 +17,7 @@ import (
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/page"
-	"github.com/gold-forever/companion/internal/refused"
+	"github.com/gold-forever/companion/internal/saves/refused"
 )
 
 const validToken = "gf_0123456789abcdefghijABCDEFGHIJklmnopqrstuvw"

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/saves/find"
 )
 
 // Fetcher gets the server's answer for game (one market's, or the account's when market is empty) and

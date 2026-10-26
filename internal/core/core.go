@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/backup"
-	"github.com/gold-forever/companion/internal/find"
-	"github.com/gold-forever/companion/internal/refused"
+	"github.com/gold-forever/companion/internal/saves/backup"
+	"github.com/gold-forever/companion/internal/saves/find"
+	"github.com/gold-forever/companion/internal/saves/refused"
+	"github.com/gold-forever/companion/internal/saves/watch"
 	"github.com/gold-forever/companion/internal/sendlog"
-	"github.com/gold-forever/companion/internal/watch"
 )
 
 // Uploader sends one save; api.Client is the real one.

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gold-forever/companion/internal/find"
+	"github.com/gold-forever/companion/internal/saves/find"
 )
 
 // What the latest fetch of a game came to.

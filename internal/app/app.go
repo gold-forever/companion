@@ -22,13 +22,13 @@ import (
 
 	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/backup"
 	"github.com/gold-forever/companion/internal/config"
-	"github.com/gold-forever/companion/internal/find"
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/page"
-	"github.com/gold-forever/companion/internal/refused"
+	"github.com/gold-forever/companion/internal/saves/backup"
+	"github.com/gold-forever/companion/internal/saves/find"
+	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	release "github.com/gold-forever/companion/internal/version"
 )
