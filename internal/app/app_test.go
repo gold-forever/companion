@@ -23,7 +23,7 @@ import (
 const validToken = "gf_0123456789abcdefghijABCDEFGHIJklmnopqrstuvw"
 
 // fixture is a companion over a temporary home with one WoW install holding one Forever save.
-func fixture(t *testing.T) (*companion, string) {
+func fixture(t *testing.T) (*App, string) {
 	t.Helper()
 	home := t.TempDir()
 	wow := filepath.Join(home, "Games", "World of Warcraft")
@@ -34,7 +34,7 @@ func fixture(t *testing.T) (*companion, string) {
 	os.WriteFile(save, []byte("GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n"), 0o644)
 	layout := install.For(install.Env{GOOS: "linux", Home: home, Getenv: func(string) string { return "" }})
 	data := layout.Data[0]
-	c := newCompanion(companionOptions{
+	c := newApp(appOptions{
 		version:    "v0.1.0",
 		site:       "https://gold-forever.example",
 		running:    layout.Exe,
@@ -61,7 +61,7 @@ func TestAnUnreadableSettingsFileIsKeptAsideAndThePageSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := newCompanion(companionOptions{running: layout.Exe, layout: layout, cfgPath: cfgPath, dataDir: layout.Data[0], quit: func() {}})
+	c := newApp(appOptions{running: layout.Exe, layout: layout, cfgPath: cfgPath, dataDir: layout.Data[0], quit: func() {}})
 	if err := c.Welcomed(); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestAMacAppOnItsDiskImageSaysToMoveItAndRecordsNoAutostart(t *testing.T) {
 	home := t.TempDir()
 	layout := install.For(install.Env{GOOS: "darwin", Home: home, Getenv: func(string) string { return "" }})
 	onDiskImage := "/Volumes/Gold Forever Companion/Gold Forever Companion.app/Contents/MacOS/gold-forever-companion"
-	c := newCompanion(companionOptions{running: onDiskImage, layout: layout, cfgPath: filepath.Join(home, "config.json"), dataDir: layout.Data[0], quit: func() {}})
+	c := newApp(appOptions{running: onDiskImage, layout: layout, cfgPath: filepath.Join(home, "config.json"), dataDir: layout.Data[0], quit: func() {}})
 
 	if err := c.SetAutostart(true); err == nil || layout.Autostart.Enabled() {
 		t.Errorf("autostart recorded for a disk image: %v", err)
@@ -163,7 +163,7 @@ func TestASaveRefusedAsTooLargeSaysItIsRetriedDaily(t *testing.T) {
 	if note := c.State().Saves[0].Note; note != "refused as too large, retrying daily" {
 		t.Fatalf("note = %q", note)
 	}
-	if !refused.Load(filepath.Join(c.dataDir, refusedFile)).Holds(save) {
+	if !refused.Load(filepath.Join(c.dataDir, RefusedFile)).Holds(save) {
 		t.Fatal("the refusal is not kept in the data folder for the next start")
 	}
 }
@@ -255,7 +255,7 @@ func TestTheStatusIsTheLatestLineTheLoopWrote(t *testing.T) {
 }
 
 // linkingState waits until the page would show want for the link in progress.
-func linkingState(t *testing.T, c *companion, want string) {
+func linkingState(t *testing.T, c *App, want string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

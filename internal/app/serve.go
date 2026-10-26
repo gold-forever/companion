@@ -49,8 +49,8 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	if err != nil {
 		return err
 	}
-	instancePath := filepath.Join(o.DataDir, instanceFile)
-	c := newCompanion(companionOptions{
+	instancePath := filepath.Join(o.DataDir, InstanceFile)
+	c := newApp(appOptions{
 		version: o.Version, site: o.Site, running: o.Exe, layout: o.Layout, cfgPath: cfgPath, dataDir: o.DataDir,
 		candidates: find.Candidates(goos, o.Home, os.Getenv, find.RegistryInstall), quit: stop,
 	})

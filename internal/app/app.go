@@ -40,37 +40,27 @@ var tokenShape = regexp.MustCompile(`^gf_[0-9A-Za-z]{43}$`)
 
 const checkVersionEvery = 24 * time.Hour
 
-// refusedFile, in the data folder, lists the saves the server refused as too large.
-const refusedFile = "refused.json"
+// RefusedFile, in the data folder, lists the saves the server refused as too large.
+const RefusedFile = "refused.json"
 
+// The timings and data folder files the app shares with `run`.
 const (
-	pollEvery = 2 * time.Second
+	PollEvery = 2 * time.Second
 	// The prices' freshness without an upload of one's own: most refreshes cost a 304 (D-013.4).
-	refreshPricesEvery = time.Hour
+	RefreshPricesEvery = time.Hour
 	// Where the ETag of the prices in the game is kept, in the data folder.
-	pricesState = "prices.json"
-	keepCopies  = 10
-	keepLogFor  = 30 * 24 * time.Hour
-	// instanceFile, in the data folder, says which copy runs and where its page is.
-	instanceFile = "instance.json"
-)
-
-// The same timings and data folder, for `run`, which shares the folder with the app.
-const (
-	PollEvery          = pollEvery
-	RefreshPricesEvery = refreshPricesEvery
-	PricesState        = pricesState
-	KeepCopies         = keepCopies
-	KeepLogFor         = keepLogFor
-	RefusedFile        = refusedFile
-	InstanceFile       = instanceFile
+	PricesState = "prices.json"
+	KeepCopies  = 10
+	KeepLogFor  = 30 * 24 * time.Hour
+	// InstanceFile, in the data folder, says which copy runs and where its page is.
+	InstanceFile = "instance.json"
 )
 
 const goos = runtime.GOOS
 
-// companion is the running app: what the settings page and the tray show and change, and the upload
+// App is the running companion: what the settings page and the tray show and change, and the upload
 // loop, which starts again whenever the token or the folders change.
-type companion struct {
+type App struct {
 	version    string
 	site       string
 	running    string
@@ -104,25 +94,25 @@ type gameSeen struct {
 	game     string
 }
 
-type companionOptions struct {
+type appOptions struct {
 	version, site, running, cfgPath, dataDir string
 	layout                                   install.Layout
 	candidates                               []string
 	quit                                     func()
 }
 
-func newCompanion(o companionOptions) *companion {
+func newApp(o appOptions) *App {
 	cfg, err := config.Load(o.cfgPath)
 	var warning string
 	if err != nil {
 		warning = setAsideSettings(o.cfgPath, err)
 	}
-	c := &companion{
+	c := &App{
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
 		cfgPath: o.cfgPath, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
-		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: keepCopies, Now: time.Now},
-		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: keepLogFor},
-		refused: refused.Load(filepath.Join(o.dataDir, refusedFile)),
+		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: KeepCopies, Now: time.Now},
+		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: KeepLogFor},
+		refused: refused.Load(filepath.Join(o.dataDir, RefusedFile)),
 		status:  &lastLine{},
 		prices:  &prices.Report{Now: time.Now},
 		cfg:     cfg,
@@ -150,14 +140,14 @@ func setAsideSettings(path string, readErr error) string {
 }
 
 // changes is closed at the next change the upload loop must see.
-func (c *companion) changes() <-chan struct{} {
+func (c *App) changes() <-chan struct{} {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.changed
 }
 
 // update changes the settings, saves them, and wakes the loop.
-func (c *companion) update(change func(*config.Config) error) error {
+func (c *App) update(change func(*config.Config) error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	next := c.cfg
@@ -175,19 +165,19 @@ func (c *companion) update(change func(*config.Config) error) error {
 	return nil
 }
 
-func (c *companion) settings() config.Config {
+func (c *App) settings() config.Config {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.cfg
 }
 
-func (c *companion) saves() []find.Save {
+func (c *App) saves() []find.Save {
 	return find.Saves(append(slices.Clone(c.settings().Folders), c.candidates...))
 }
 
-func (c *companion) isOff(path string) bool { return c.settings().IsOff(path) }
+func (c *App) isOff(path string) bool { return c.settings().IsOff(path) }
 
-func (c *companion) url() string {
+func (c *App) url() string {
 	if u := c.settings().URL; u != "" {
 		return u
 	}
@@ -195,7 +185,7 @@ func (c *companion) url() string {
 }
 
 // State is what the settings page shows.
-func (c *companion) State() page.State {
+func (c *App) State() page.State {
 	cfg := c.settings()
 	s := page.State{
 		Version:   c.version,
@@ -270,15 +260,15 @@ func dingsLine(d prices.Dings) string {
 
 // refresher keeps the account's prices, dings state and shared lists and profiles in the game, fetched
 // with f, d and s.
-func (c *companion) refresher(f prices.Fetcher, d prices.DingsFetcher, s prices.SharedFetcher) *prices.Refresher {
+func (c *App) refresher(f prices.Fetcher, d prices.DingsFetcher, s prices.SharedFetcher) *prices.Refresher {
 	return &prices.Refresher{
 		Fetcher: f, Dings: d, Shared: s, Saves: c.saves, Market: c.settings().Market,
-		State: filepath.Join(c.dataDir, pricesState), Out: c.status, Report: c.prices,
+		State: filepath.Join(c.dataDir, PricesState), Out: c.status, Report: c.prices,
 	}
 }
 
 // installed says, one line each, what installing the companion put on this computer.
-func (c *companion) installed() []string {
+func (c *App) installed() []string {
 	target := c.layout.Target(c.running)
 	lines := []string{"The companion runs from " + target + "."}
 	if c.layout.Transient(target) {
@@ -295,7 +285,7 @@ func (c *companion) installed() []string {
 }
 
 // gameOf reads which game wrote a save, again only when the file has changed.
-func (c *companion) gameOf(path string) string {
+func (c *App) gameOf(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "unknown"
@@ -317,7 +307,7 @@ func (c *companion) gameOf(path string) string {
 	return game
 }
 
-func (c *companion) Link(token string) error {
+func (c *App) Link(token string) error {
 	token = strings.TrimSpace(token)
 	if !tokenShape.MatchString(token) {
 		return page.BadRequest("that is not a token: a token starts with gf_ and is 46 letters and digits, from your tokens page")
@@ -330,7 +320,7 @@ const linkTimeout = 15 * time.Minute
 
 // StartDeviceLink starts linking by code in the background, opening the approval page in the browser;
 // the page follows it in State. A press while one waits starts nothing new.
-func (c *companion) StartDeviceLink() error {
+func (c *App) StartDeviceLink() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.linking != nil && (c.linking.State == "starting" || c.linking.State == "waiting") {
@@ -365,17 +355,17 @@ func (c *companion) StartDeviceLink() error {
 	return nil
 }
 
-func (c *companion) setLinking(l page.Linking) {
+func (c *App) setLinking(l page.Linking) {
 	c.mu.Lock()
 	c.linking = &l
 	c.mu.Unlock()
 }
 
-func (c *companion) Unlink() error {
+func (c *App) Unlink() error {
 	return c.update(func(cfg *config.Config) error { cfg.Token = ""; return nil })
 }
 
-func (c *companion) SetSaveOn(path string, on bool) error {
+func (c *App) SetSaveOn(path string, on bool) error {
 	if !slices.ContainsFunc(c.saves(), func(s find.Save) bool { return s.Path == path }) {
 		return page.BadRequest("the companion has not found that save")
 	}
@@ -388,7 +378,7 @@ func (c *companion) SetSaveOn(path string, on bool) error {
 	})
 }
 
-func (c *companion) AddFolder(path string) error {
+func (c *App) AddFolder(path string) error {
 	path = filepath.Clean(strings.TrimSpace(path))
 	if len(find.Saves([]string{path})) == 0 {
 		return page.BadRequest("no GoldForever.lua under %s yet: choose the World of Warcraft folder, the one with _retail_ or _forever_ in it, after playing once with the addon", path)
@@ -405,7 +395,7 @@ func (c *companion) AddFolder(path string) error {
 // cleared it, cannot start with the computer.
 const moveToApplications = "Drag the app to Applications and open it from there: from where it runs now, it cannot start with your computer."
 
-func (c *companion) SetAutostart(on bool) error {
+func (c *App) SetAutostart(on bool) error {
 	if on && c.layout.Transient(c.layout.Target(c.running)) {
 		return page.BadRequest("%s", moveToApplications)
 	}
@@ -415,7 +405,7 @@ func (c *companion) SetAutostart(on bool) error {
 	return c.layout.Autostart.Disable()
 }
 
-func (c *companion) Welcomed() error {
+func (c *App) Welcomed() error {
 	return c.update(func(cfg *config.Config) error { cfg.Welcomed = true; return nil })
 }
 
@@ -427,7 +417,7 @@ type kept struct {
 
 // copies lists every kept copy of every save found, by an ID made from its path: the page never sends
 // a path, so it can only ever reach a copy listed here.
-func (c *companion) copies() map[string]kept {
+func (c *App) copies() map[string]kept {
 	out := map[string]kept{}
 	for _, save := range c.saves() {
 		list, _ := c.backups.Copies(save.Path)
@@ -444,7 +434,7 @@ func (c *companion) copies() map[string]kept {
 	return out
 }
 
-func (c *companion) History() page.History {
+func (c *App) History() page.History {
 	entries, _ := c.log.Read()
 	h := page.History{Entries: entries}
 	for _, k := range c.copies() {
@@ -454,7 +444,7 @@ func (c *companion) History() page.History {
 	return h
 }
 
-func (c *companion) CopyBytes(id string) ([]byte, bool) {
+func (c *App) CopyBytes(id string) ([]byte, bool) {
 	k, ok := c.copies()[id]
 	if !ok {
 		return nil, false
@@ -464,7 +454,7 @@ func (c *companion) CopyBytes(id string) ([]byte, bool) {
 }
 
 // Restore writes a kept copy back over its save. The page has the player confirm that WoW is closed.
-func (c *companion) Restore(id string) error {
+func (c *App) Restore(id string) error {
 	k, ok := c.copies()[id]
 	if !ok {
 		return page.BadRequest("that copy is no longer kept")
@@ -481,9 +471,9 @@ func (c *companion) Restore(id string) error {
 }
 
 // Uninstall removes the companion and everything it put on the computer, then stops it.
-func (c *companion) Uninstall(keepData bool) error {
+func (c *App) Uninstall(keepData bool) error {
 	err := c.layout.Uninstall(c.running, keepData)
-	_ = os.Remove(filepath.Join(c.dataDir, instanceFile))
+	_ = os.Remove(filepath.Join(c.dataDir, InstanceFile))
 	go func() {
 		time.Sleep(300 * time.Millisecond) // let the page get its answer first
 		c.quit()
@@ -491,11 +481,11 @@ func (c *companion) Uninstall(keepData bool) error {
 	return err
 }
 
-func (c *companion) Quit() { c.quit() }
+func (c *App) Quit() { c.quit() }
 
 // loop runs the uploads until ctx ends: with the current token and folders, starting again whenever
 // they change, and waiting for a change while there is no token or the server refused it.
-func (c *companion) loop(ctx context.Context) {
+func (c *App) loop(ctx context.Context) {
 	for ctx.Err() == nil {
 		changed := c.changes()
 		token := c.settings().Token
@@ -514,13 +504,13 @@ func (c *companion) loop(ctx context.Context) {
 			client := &api.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
 			imported, announce := prices.Trigger()
 			refresher := c.refresher(client, client, client)
-			started.Go(func() { refresher.Run(run, refreshPricesEvery, time.After, imported) })
+			started.Go(func() { refresher.Run(run, RefreshPricesEvery, time.After, imported) })
 			loop := &core.Core{
 				Uploader: client,
-				Backups:  c.backups, Log: c.log, Refused: c.refused, Watcher: watch.New(pollEvery),
+				Backups:  c.backups, Log: c.log, Refused: c.refused, Watcher: watch.New(PollEvery),
 				Saves: c.saves, IsOff: c.isOff, Out: c.status, Imported: announce,
 			}
-			err := loop.Run(run, pollEvery)
+			err := loop.Run(run, PollEvery)
 			stop()
 			started.Wait() // the next round, or the caller, owns the data folder alone
 			if err == nil {
@@ -535,7 +525,7 @@ func (c *companion) loop(ctx context.Context) {
 }
 
 // checkVersion asks the server once a day whether a newer release exists, for the page's notice.
-func (c *companion) checkVersion(ctx context.Context) {
+func (c *App) checkVersion(ctx context.Context) {
 	client := &api.Client{BaseURL: c.url(), Version: c.version, OS: goos}
 	for {
 		if latest, err := client.Latest(ctx); err == nil && release.Newer(latest.Version, c.version) {
