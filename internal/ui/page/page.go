@@ -32,6 +32,7 @@ type State struct {
 	Linked    bool        `json:"linked"`
 	Sharing   string      `json:"sharing"` // what every upload shares, shown where the player links
 	Status    string      `json:"status"`
+	Account   string      `json:"account,omitempty"` // whom the token uploads to: the public name, else the BattleTag; none until known
 	FirstRun  bool        `json:"firstRun"`
 	Installed []string    `json:"installed"` // what installing did, one line each, for the first-run panel
 	Autostart bool        `json:"autostart"`

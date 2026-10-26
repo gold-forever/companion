@@ -54,6 +54,8 @@ function showState(s) {
   $("tokens").href = s.site + "/me/tokens";
   $("revoke").href = s.site + "/me/tokens";
   $("site").href = s.site; $("site").textContent = s.site;
+  $("uploading-to").hidden = !s.account;
+  $("account").textContent = s.account || "";
   $("saves").replaceChildren(...(s.saves || []).map((save) => {
     const box = document.createElement("input");
     box.type = "checkbox"; box.checked = save.on;

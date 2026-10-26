@@ -72,6 +72,7 @@ type App struct {
 	notice  *page.Notice
 	warning string // what the page must tell the player about their settings
 	linking *page.Linking
+	account knownAccount
 	games   map[string]gameSeen
 }
 
@@ -126,6 +127,7 @@ func (c *App) State() page.State {
 		Sharing:   link.SharingLine,
 		Warning:   c.warning,
 		Status:    c.status.String(),
+		Account:   c.Account(),
 		FirstRun:  !cfg.Welcomed,
 		Installed: c.installed(),
 		Autostart: c.layout.Autostart.Enabled(),

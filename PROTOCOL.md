@@ -77,6 +77,21 @@ under `https://github.com/gold-forever/companion/releases/` or on the site is re
 curl https://gold-forever.app/api/v1/companion/latest
 ```
 
+## Which account the token uploads to
+
+```http
+GET /api/v1/companion/account
+Authorization: Bearer gf_...
+```
+
+`{"publicName":null,"battleTag":"Goldsmith#1234"}`
+
+Asked at start and after each link, so the settings page and the tray can say "Uploading to
+Goldsmith#1234", or the public name once one is set. The answer stays in the app's memory: it is shown
+only to you, in the app, and never logged or sent anywhere. A 404 (a server from before the route), a
+401 or 403, or no connection shows no account and changes nothing else; a failed ask keeps the account
+already shown, and while the server cannot be reached it is asked again later.
+
 ## Linking the app (a device code, as in RFC 8628)
 
 `gold-forever-companion link` does this, and so does "Link this computer" on the settings page. No token is sent: linking is

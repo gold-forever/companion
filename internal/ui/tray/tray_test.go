@@ -7,23 +7,26 @@ import (
 )
 
 type fakeApp struct {
-	status                 string
+	status, account        string
 	sites, settings, quits int
 }
 
-func (a *fakeApp) Status() string { return a.status }
-func (a *fakeApp) OpenSite()      { a.sites++ }
-func (a *fakeApp) OpenSettings()  { a.settings++ }
-func (a *fakeApp) Quit()          { a.quits++ }
+func (a *fakeApp) Status() string  { return a.status }
+func (a *fakeApp) Account() string { return a.account }
+func (a *fakeApp) OpenSite()       { a.sites++ }
+func (a *fakeApp) OpenSettings()   { a.settings++ }
+func (a *fakeApp) Quit()           { a.quits++ }
 
 func TestTheMenuReachesTheAppUntilQuit(t *testing.T) {
-	app := &fakeApp{status: "Uploaded GoldForever.lua"}
+	app := &fakeApp{status: "Uploaded GoldForever.lua", account: "Goldsmith#1234"}
 	site, settings, quit := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	tick := make(chan time.Time)
-	var shown []string
+	var shown, accounts []string
 	done := make(chan struct{})
 	go func() {
-		follow(t.Context(), app, clicks{site: site, settings: settings, quit: quit}, tick, func(s string) { shown = append(shown, s) })
+		follow(t.Context(), app, clicks{site: site, settings: settings, quit: quit}, tick, func(s, a string) {
+			shown, accounts = append(shown, s), append(accounts, a)
+		})
 		close(done)
 	}()
 
@@ -43,13 +46,16 @@ func TestTheMenuReachesTheAppUntilQuit(t *testing.T) {
 	if len(shown) != 1 || shown[0] != "Uploaded GoldForever.lua" {
 		t.Errorf("status shown %q", shown)
 	}
+	if len(accounts) != 1 || accounts[0] != "Uploading to Goldsmith#1234" {
+		t.Errorf("account shown %q", accounts)
+	}
 }
 
 func TestTheMenuStopsWhenTheCompanionStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
-		follow(ctx, &fakeApp{}, clicks{}, nil, func(string) {})
+		follow(ctx, &fakeApp{}, clicks{}, nil, func(string, string) {})
 		close(done)
 	}()
 
@@ -68,5 +74,14 @@ func TestTheStatusSaysStartingBeforeTheFirstLine(t *testing.T) {
 	}
 	if got := statusOf(&fakeApp{status: "Watching 2 saves"}); got != "Watching 2 saves" {
 		t.Errorf("status = %q", got)
+	}
+}
+
+func TestTheAccountLineShowsOnlyOnceTheAccountIsKnown(t *testing.T) {
+	if got := accountOf(&fakeApp{}); got != "" {
+		t.Errorf("account line = %q", got)
+	}
+	if got := accountOf(&fakeApp{account: "Goldsmith"}); got != "Uploading to Goldsmith" {
+		t.Errorf("account line = %q", got)
 	}
 }

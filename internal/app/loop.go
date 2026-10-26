@@ -29,6 +29,7 @@ func (c *App) loop(ctx context.Context) {
 				}
 			})
 			client := &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
+			started.Go(func() { c.followAccount(run, client) })
 			err := NewUploads(c.parts(client)).Run(run)
 			stop()
 			started.Wait() // the next round, or the caller, owns the data folder alone

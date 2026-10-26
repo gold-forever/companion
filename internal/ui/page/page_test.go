@@ -30,11 +30,12 @@ type fakeApp struct {
 	linked      string
 	deviceLinks int
 	prices      []PriceFile
+	account     string
 	quits       atomic.Int32
 }
 
 func (a *fakeApp) State() State {
-	return State{Version: "v0.1.0", Linked: a.linked != "", Prices: a.prices}
+	return State{Version: "v0.1.0", Linked: a.linked != "", Prices: a.prices, Account: a.account}
 }
 func (a *fakeApp) Link(_ context.Context, token string) error { a.linked = token; return nil }
 func (a *fakeApp) Unlink(context.Context) error               { a.linked = ""; return nil }
@@ -199,6 +200,23 @@ func TestThePageHasAPlaceForWhatEveryUploadShares(t *testing.T) {
 	script := serve(&fakeApp{}, "GET", "/app.js", "", nil).Body.String()
 	if !strings.Contains(page, `id="sharing"`) || !strings.Contains(script, `$("sharing").textContent = s.sharing`) {
 		t.Errorf("the page does not show the state's sharing line where the player links")
+	}
+}
+
+func TestThePageSaysWhichAccountTheSavesGoToOnceItIsKnown(t *testing.T) {
+	var got map[string]any
+	_ = json.Unmarshal(serve(&fakeApp{}, "GET", "/api/state", "", nil).Body.Bytes(), &got)
+	if _, sent := got["account"]; sent {
+		t.Errorf("an account not yet known is sent: %v", got["account"])
+	}
+	_ = json.Unmarshal(serve(&fakeApp{account: "Goldsmith#1234"}, "GET", "/api/state", "", nil).Body.Bytes(), &got)
+	if got["account"] != "Goldsmith#1234" {
+		t.Errorf("account = %v", got["account"])
+	}
+	page := serve(&fakeApp{}, "GET", "/", "", nil).Body.String()
+	script := serve(&fakeApp{}, "GET", "/app.js", "", nil).Body.String()
+	if !strings.Contains(page, `id="account"`) || !strings.Contains(script, `$("account").textContent = s.account`) {
+		t.Errorf("the page does not show the account where it says it is linked")
 	}
 }
 

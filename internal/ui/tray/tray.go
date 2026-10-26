@@ -13,7 +13,8 @@ import (
 
 // App is what the tray shows and does.
 type App interface {
-	Status() string // the latest line the uploads wrote; "" before the first
+	Status() string  // the latest line the uploads wrote; "" before the first
+	Account() string // whom the uploads go to, for this player's eyes; "" until known
 	OpenSite()
 	OpenSettings()
 	Quit()
@@ -33,7 +34,7 @@ func Run(ctx context.Context, app App) {
 		case m := <-built:
 			tick := time.NewTicker(2 * time.Second)
 			defer tick.Stop()
-			follow(ctx, app, m.clicks, tick.C, m.status.SetTitle)
+			follow(ctx, app, m.clicks, tick.C, m.show)
 		case <-ctx.Done():
 		}
 	})
@@ -42,10 +43,21 @@ func Run(ctx context.Context, app App) {
 	following.Wait()
 }
 
-// menu is the built menu: its status line and the items that send clicks.
+// menu is the built menu: its status and account lines and the items that send clicks.
 type menu struct {
-	status *systray.MenuItem
-	clicks clicks
+	status, account *systray.MenuItem
+	clicks          clicks
+}
+
+// show sets the status line, and the account line, hidden while there is none.
+func (m menu) show(status, account string) {
+	m.status.SetTitle(status)
+	if account == "" {
+		m.account.Hide()
+		return
+	}
+	m.account.SetTitle(account)
+	m.account.Show()
 }
 
 func build(app App) menu {
@@ -57,12 +69,17 @@ func build(app App) menu {
 	systray.SetTooltip("Gold Forever Companion")
 	status := systray.AddMenuItem(statusOf(app), "")
 	status.Disable()
+	account := systray.AddMenuItem(accountOf(app), "")
+	account.Disable()
+	if accountOf(app) == "" {
+		account.Hide()
+	}
 	systray.AddSeparator()
 	site := systray.AddMenuItem("Open Gold Forever", "The site, in your browser")
 	settings := systray.AddMenuItem("Settings", "What the companion finds and sends")
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit", "Stop uploading until the companion starts again")
-	return menu{status: status, clicks: clicks{site: site.ClickedCh, settings: settings.ClickedCh, quit: quit.ClickedCh}}
+	return menu{status: status, account: account, clicks: clicks{site: site.ClickedCh, settings: settings.ClickedCh, quit: quit.ClickedCh}}
 }
 
 // clicks are the menu's items, each sending when clicked.
@@ -70,8 +87,9 @@ type clicks struct {
 	site, settings, quit <-chan struct{}
 }
 
-// follow passes each click on to app until Quit or ctx's end, and shows app's status at every tick.
-func follow(ctx context.Context, app App, c clicks, tick <-chan time.Time, show func(status string)) {
+// follow passes each click on to app until Quit or ctx's end, and shows app's status and account at
+// every tick.
+func follow(ctx context.Context, app App, c clicks, tick <-chan time.Time, show func(status, account string)) {
 	for {
 		select {
 		case <-c.site:
@@ -82,7 +100,7 @@ func follow(ctx context.Context, app App, c clicks, tick <-chan time.Time, show 
 			app.Quit()
 			return
 		case <-tick:
-			show(statusOf(app))
+			show(statusOf(app), accountOf(app))
 		case <-ctx.Done():
 			return
 		}
@@ -95,4 +113,12 @@ func statusOf(app App) string {
 		return s
 	}
 	return "Starting…"
+}
+
+// accountOf is the line naming whom the uploads go to; "" while that is not known.
+func accountOf(app App) string {
+	if a := app.Account(); a != "" {
+		return "Uploading to " + a
+	}
+	return ""
 }
