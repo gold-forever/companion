@@ -1,4 +1,7 @@
-package main
+// Package app is the running companion: its settings and their changes, linking, the saves found and
+// switched on or off, restore, uninstall, version checks, the upload loop, and the State the settings
+// page shows.
+package app
 
 import (
 	"bytes"
@@ -11,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -38,6 +42,31 @@ const checkVersionEvery = 24 * time.Hour
 
 // refusedFile, in the data folder, lists the saves the server refused as too large.
 const refusedFile = "refused.json"
+
+const (
+	pollEvery = 2 * time.Second
+	// The prices' freshness without an upload of one's own: most refreshes cost a 304 (D-013.4).
+	refreshPricesEvery = time.Hour
+	// Where the ETag of the prices in the game is kept, in the data folder.
+	pricesState = "prices.json"
+	keepCopies  = 10
+	keepLogFor  = 30 * 24 * time.Hour
+	// instanceFile, in the data folder, says which copy runs and where its page is.
+	instanceFile = "instance.json"
+)
+
+// The same timings and data folder, for `run`, which shares the folder with the app.
+const (
+	PollEvery          = pollEvery
+	RefreshPricesEvery = refreshPricesEvery
+	PricesState        = pricesState
+	KeepCopies         = keepCopies
+	KeepLogFor         = keepLogFor
+	RefusedFile        = refusedFile
+	InstanceFile       = instanceFile
+)
+
+const goos = runtime.GOOS
 
 // companion is the running app: what the settings page and the tray show and change, and the upload
 // loop, which starts again whenever the token or the folders change.
@@ -104,7 +133,7 @@ func newCompanion(o companionOptions) *companion {
 	}
 	c.linker = func(ctx context.Context, show func(api.DeviceCode), save func(string) error) error {
 		hostname, _ := os.Hostname()
-		client := &api.Client{BaseURL: c.url(), Version: c.version, OS: goos, Sleep: pollSleep}
+		client := &api.Client{BaseURL: c.url(), Version: c.version, OS: goos}
 		return link.Run(ctx, client, hostname, show, save)
 	}
 	return c

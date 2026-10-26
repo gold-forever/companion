@@ -2,29 +2,21 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/gold-forever/companion/internal/app"
 	"github.com/gold-forever/companion/internal/config"
-	"github.com/gold-forever/companion/internal/find"
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/instance"
-	"github.com/gold-forever/companion/internal/page"
-	"github.com/gold-forever/companion/internal/tray"
 	release "github.com/gold-forever/companion/internal/version"
 )
-
-const instanceFile = "instance.json"
 
 var goos = runtime.GOOS
 
@@ -45,7 +37,7 @@ func player(ctx context.Context, mode string) int {
 	home, _ := os.UserHomeDir()
 	layout := install.For(install.Env{GOOS: goos, Home: home, Getenv: os.Getenv, RunKey: install.RunKey()})
 	dataDir := config.DataDir(goos, home, os.Getenv)
-	instancePath := filepath.Join(dataDir, instanceFile)
+	instancePath := filepath.Join(dataDir, app.InstanceFile)
 	other, err := instance.Read(instancePath)
 	alive := err == nil && instance.Alive(other)
 	switch {
@@ -123,7 +115,10 @@ func serveAlone(ctx context.Context, layout install.Layout, exe, home, dataDir, 
 		release, err := instance.Claim(dataDir)
 		if err == nil {
 			defer release()
-			return serve(ctx, layout, exe, home, dataDir, instancePath, mode)
+			return app.Serve(ctx, app.ServeOptions{
+				Version: version, Site: defaultURL, Layout: layout, Exe: exe, Home: home, DataDir: dataDir, Mode: mode,
+				OpenBrowser: openBrowser,
+			})
 		}
 		if !errors.Is(err, instance.ErrRunning) {
 			return fmt.Errorf("could not make sure only one companion runs: %w", err)
@@ -134,78 +129,6 @@ func serveAlone(ctx context.Context, layout install.Layout, exe, home, dataDir, 
 		if time.Now().After(deadline) {
 			return errors.New("another copy of the companion is starting but does not answer: try again in a moment")
 		}
-	}
-}
-
-// serve runs the installed companion until Quit, Uninstall or ctx's end.
-func serve(ctx context.Context, layout install.Layout, exe, home, dataDir, instancePath, mode string) error {
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
-	secret := make([]byte, 16)
-	if _, err := rand.Read(secret); err != nil {
-		return err
-	}
-	listener, port, err := page.Listen()
-	if err != nil {
-		return fmt.Errorf("could not open the settings page: %w", err)
-	}
-	cfgPath, err := config.Path()
-	if err != nil {
-		return err
-	}
-	c := newCompanion(companionOptions{
-		version: version, site: defaultURL, running: exe, layout: layout, cfgPath: cfgPath, dataDir: dataDir,
-		candidates: find.Candidates(goos, home, os.Getenv, find.RegistryInstall), quit: stop,
-	})
-	c.status.out = os.Stdout
-	c.openURL = func(url string) { _ = openBrowser(url) }
-	_ = c.log.Prune(time.Now())
-	_ = layout.FollowApp(exe, !c.settings().Welcomed)
-
-	info := instance.Info{PID: os.Getpid(), Port: port, Secret: hex.EncodeToString(secret), Version: version}
-	srv := &http.Server{Handler: page.New(c, info.Secret, port), ReadHeaderTimeout: 10 * time.Second}
-	go srv.Serve(listener)
-	defer srv.Close()
-	if err := instance.Write(instancePath, info); err != nil {
-		return err
-	}
-	defer removeIfOurs(instancePath, info)
-	var loops sync.WaitGroup
-	defer func() { stop(); loops.Wait() }()
-	loops.Go(func() { c.loop(ctx) })
-	loops.Go(func() { c.checkVersion(ctx) })
-
-	pageURL := instance.PageURL(info)
-	withTray := tray.Available()
-	if mode != "--autostart" || !withTray {
-		_ = openBrowser(pageURL)
-	}
-	if !withTray {
-		<-ctx.Done()
-		return nil
-	}
-	go func() {
-		<-ctx.Done()
-		tray.Stop()
-	}()
-	tray.Run(tray.Menu{
-		Status: func() string {
-			if s := c.status.String(); s != "" {
-				return s
-			}
-			return "Starting…"
-		},
-		OpenSite: func() { _ = openBrowser(c.url()) },
-		Settings: func() { _ = openBrowser(pageURL) },
-		Quit:     stop,
-	})
-	return nil
-}
-
-// removeIfOurs removes the instance file unless a newer copy has written its own since.
-func removeIfOurs(path string, ours instance.Info) {
-	if now, err := instance.Read(path); err == nil && now.Secret == ours.Secret {
-		_ = os.Remove(path)
 	}
 }
 

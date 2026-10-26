@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gold-forever/companion/internal/api"
+	"github.com/gold-forever/companion/internal/app"
 	"github.com/gold-forever/companion/internal/backup"
 	"github.com/gold-forever/companion/internal/config"
 	"github.com/gold-forever/companion/internal/core"
@@ -35,18 +36,9 @@ var version = "dev"
 
 const defaultURL = "https://gold-forever.app"
 
-const (
-	pollEvery = 2 * time.Second
-	// The prices' freshness without an upload of one's own: most refreshes cost a 304 (D-013.4).
-	refreshPricesEvery = time.Hour
-	// Where the ETag of the prices in the game is kept, in the data folder.
-	pricesState = "prices.json"
-	keepCopies  = 10
-	keepLogFor  = 30 * 24 * time.Hour
-	usageAdvice = "usage: gold-forever-companion link   (connect this computer to your Gold Forever account)\n" +
-		"       gold-forever-companion run    (watch every WoW install and upload each new save)\n" +
-		"       gold-forever-companion --once --file <GoldForever.lua>"
-)
+const usageAdvice = "usage: gold-forever-companion link   (connect this computer to your Gold Forever account)\n" +
+	"       gold-forever-companion run    (watch every WoW install and upload each new save)\n" +
+	"       gold-forever-companion --once --file <GoldForever.lua>"
 
 // pollSleep paces the wait for a link; nil is the real clock. Tests make it instant.
 var pollSleep func(ctx context.Context, d time.Duration) error
@@ -140,7 +132,7 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		return 1
 	}
 	defer release()
-	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: keepLogFor}
+	log := &sendlog.Log{Path: filepath.Join(data, "sent.jsonl"), Keep: app.KeepLogFor}
 	_ = log.Prune(time.Now())
 	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)
 	if *market == "" {
@@ -149,10 +141,10 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	imported, announce := prices.Trigger()
 	c := &core.Core{
 		Uploader: client(url, token),
-		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: keepCopies, Now: time.Now},
+		Backups:  &backup.Store{Dir: filepath.Join(data, "backups"), Keep: app.KeepCopies, Now: time.Now},
 		Log:      log,
-		Refused:  refused.Load(filepath.Join(data, refusedFile)),
-		Watcher:  watch.New(pollEvery),
+		Refused:  refused.Load(filepath.Join(data, app.RefusedFile)),
+		Watcher:  watch.New(app.PollEvery),
 		Saves:    func() []find.Save { return find.Saves(installs) },
 		IsOff:    cfg.IsOff,
 		Out:      stdout,
@@ -168,12 +160,12 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	server := client(url, token)
 	refresher := &prices.Refresher{
 		Fetcher: server, Dings: server, Shared: server, Saves: c.Saves, Market: *market,
-		State: filepath.Join(data, pricesState), Out: stdout,
+		State: filepath.Join(data, app.PricesState), Out: stdout,
 	}
 	ctx, stop := context.WithCancel(ctx)
 	var refreshing sync.WaitGroup
-	refreshing.Go(func() { refresher.Run(ctx, refreshPricesEvery, time.After, imported) })
-	err = c.Run(ctx, pollEvery)
+	refreshing.Go(func() { refresher.Run(ctx, app.RefreshPricesEvery, time.After, imported) })
+	err = c.Run(ctx, app.PollEvery)
 	stop()
 	refreshing.Wait() // nothing writes into the data folder once run has returned
 	if err != nil {
