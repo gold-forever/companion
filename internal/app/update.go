@@ -9,13 +9,18 @@ import (
 	"github.com/gold-forever/companion/internal/ui/page"
 )
 
+// releaseAsker says which release of the companion is the latest.
+type releaseAsker interface {
+	Latest(ctx context.Context) (server.Release, error)
+}
+
 const checkVersionEvery = 24 * time.Hour
 
 // checkVersion checks for an update once a day.
 func (c *App) checkVersion(ctx context.Context) {
-	client := &server.Client{BaseURL: c.url(), Version: c.version, OS: goos}
+	asker := c.connect("")
 	for {
-		_ = c.checkForUpdate(ctx, client)
+		_ = c.checkForUpdate(ctx, asker)
 		select {
 		case <-ctx.Done():
 			return
@@ -26,11 +31,11 @@ func (c *App) checkVersion(ctx context.Context) {
 
 // CheckForUpdate asks the server whether a newer release exists, for the page's notice.
 func (c *App) CheckForUpdate(ctx context.Context) error {
-	return c.checkForUpdate(ctx, &server.Client{BaseURL: c.url(), Version: c.version, OS: goos})
+	return c.checkForUpdate(ctx, c.connect(""))
 }
 
-func (c *App) checkForUpdate(ctx context.Context, client *server.Client) error {
-	latest, err := client.Latest(ctx)
+func (c *App) checkForUpdate(ctx context.Context, asker releaseAsker) error {
+	latest, err := asker.Latest(ctx)
 	if err != nil {
 		return err
 	}

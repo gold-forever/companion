@@ -10,13 +10,21 @@ import (
 	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/watch"
-	"github.com/gold-forever/companion/internal/server"
 	"github.com/gold-forever/companion/internal/upload/core"
 )
 
+// Server is what the uploads ask of the Gold Forever server: to take a save, and the prices, dings state
+// and shared lists they keep in the game.
+type Server interface {
+	core.Uploader
+	addondata.Fetcher
+	addondata.DingsFetcher
+	addondata.SharedFetcher
+}
+
 // Parts is what the uploads are built from: the server, what the data folder keeps, and the saves.
 type Parts struct {
-	Server *server.Client
+	Server Server
 	Records
 	Saves func() []find.Save
 	IsOff func(path string) bool

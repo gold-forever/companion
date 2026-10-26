@@ -1,9 +1,7 @@
 package app
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,47 +11,41 @@ import (
 
 const otherToken = "gf_9876543210abcdefghijABCDEFGHIJklmnopqrstuvw"
 
-// accountServer answers the account route with whatever answer holds for the token asked with.
-func accountServer(t *testing.T, answer map[string]func(w http.ResponseWriter)) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/companion/account" {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
+// accounts answers the account route with whatever answer holds for the token asked with, and refuses
+// any other token.
+func accounts(answer map[string]func() (server.Account, error)) *fakeServer {
+	return &fakeServer{account: func(token string) (server.Account, error) {
+		if a, ok := answer[token]; ok {
+			return a()
 		}
-		if a, ok := answer[r.Header.Get("Authorization")]; ok {
-			a(w)
-			return
-		}
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	t.Cleanup(srv.Close)
-	return srv
+		return server.Account{}, server.ErrUnauthorized
+	}}
 }
 
-func answers(status int, body string) func(w http.ResponseWriter) {
-	return func(w http.ResponseWriter) { w.WriteHeader(status); io.WriteString(w, body) }
+func answers(a server.Account, err error) func() (server.Account, error) {
+	return func() (server.Account, error) { return a, err }
 }
 
-// linkedTo is the fixture's companion linked with token to srv.
-func linkedTo(t *testing.T, srv *httptest.Server, token string) *App {
+// linkedTo is the fixture's companion linked with token, asking srv.
+func linkedTo(t *testing.T, srv *fakeServer, token string) *App {
 	t.Helper()
 	c, _ := fixture(t)
-	if err := c.settings.Update(func(cfg *config.Config) error { cfg.Token, cfg.URL = token, srv.URL; return nil }); err != nil {
+	if err := c.settings.Update(func(cfg *config.Config) error { cfg.Token = token; return nil }); err != nil {
 		t.Fatal(err)
 	}
+	srv.connects(c)
 	return c
 }
 
 func (c *App) askAccountWith(t *testing.T, token string) {
 	t.Helper()
-	_ = c.askAccount(t.Context(), &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos})
+	_ = c.askAccount(t.Context(), token, c.connect(token))
 }
 
 func TestTheCompanionShowsTheAccountsBattleTagUntilAPublicNameIsSet(t *testing.T) {
-	body := `{"publicName":null,"battleTag":"Goldsmith#1234"}`
-	srv := accountServer(t, map[string]func(http.ResponseWriter){
-		"Bearer " + validToken: func(w http.ResponseWriter) { io.WriteString(w, body) },
+	account := server.Account{BattleTag: "Goldsmith#1234"}
+	srv := accounts(map[string]func() (server.Account, error){
+		validToken: func() (server.Account, error) { return account, nil },
 	})
 	c := linkedTo(t, srv, validToken)
 
@@ -65,7 +57,7 @@ func TestTheCompanionShowsTheAccountsBattleTagUntilAPublicNameIsSet(t *testing.T
 	if got := c.Account(); got != "Goldsmith#1234" {
 		t.Errorf("the tray shows %q", got)
 	}
-	body = `{"publicName":"Goldsmith","battleTag":"Goldsmith#1234"}`
+	account.PublicName = "Goldsmith"
 	c.askAccountWith(t, validToken)
 	if got := c.State().Account; got != "Goldsmith" {
 		t.Errorf("with a public name the page shows %q", got)
@@ -73,13 +65,11 @@ func TestTheCompanionShowsTheAccountsBattleTagUntilAPublicNameIsSet(t *testing.T
 }
 
 func TestAServerThatCannotSayShowsNoAccountAndChangesNothingElse(t *testing.T) {
-	offline := httptest.NewServer(http.NotFoundHandler())
-	offline.Close()
-	for name, srv := range map[string]*httptest.Server{
-		"404":     accountServer(t, map[string]func(http.ResponseWriter){"Bearer " + validToken: answers(404, `{"reason":"not found"}`)}),
-		"401":     accountServer(t, nil),
-		"403":     accountServer(t, map[string]func(http.ResponseWriter){"Bearer " + validToken: answers(403, `{"reason":"suspended"}`)}),
-		"offline": offline,
+	for name, srv := range map[string]*fakeServer{
+		"404":     accounts(map[string]func() (server.Account, error){validToken: answers(server.Account{}, server.ErrNoAccount)}),
+		"401":     accounts(nil),
+		"403":     accounts(map[string]func() (server.Account, error){validToken: answers(server.Account{}, &server.ForbiddenError{Reason: "suspended"})}),
+		"offline": accounts(map[string]func() (server.Account, error){validToken: answers(server.Account{}, errors.New("connection refused"))}),
 	} {
 		c := linkedTo(t, srv, validToken)
 		c.status.Set("Watching 1 save")
@@ -94,14 +84,14 @@ func TestAServerThatCannotSayShowsNoAccountAndChangesNothingElse(t *testing.T) {
 }
 
 func TestTheAccountShownIsKeptWhenAskingAgainFails(t *testing.T) {
-	answer := answers(200, `{"publicName":"Goldsmith"}`)
-	srv := accountServer(t, map[string]func(http.ResponseWriter){
-		"Bearer " + validToken: func(w http.ResponseWriter) { answer(w) },
+	answer := answers(server.Account{PublicName: "Goldsmith"}, nil)
+	srv := accounts(map[string]func() (server.Account, error){
+		validToken: func() (server.Account, error) { return answer() },
 	})
 	c := linkedTo(t, srv, validToken)
 	c.askAccountWith(t, validToken)
 
-	answer = answers(503, "")
+	answer = answers(server.Account{}, errors.New("server unavailable"))
 	c.askAccountWith(t, validToken)
 
 	if got := c.State().Account; got != "Goldsmith" {
@@ -110,8 +100,8 @@ func TestTheAccountShownIsKeptWhenAskingAgainFails(t *testing.T) {
 }
 
 func TestAnotherTokenShowsNoAccountUntilItsOwnIsKnown(t *testing.T) {
-	srv := accountServer(t, map[string]func(http.ResponseWriter){
-		"Bearer " + validToken: answers(200, `{"publicName":"Goldsmith"}`),
+	srv := accounts(map[string]func() (server.Account, error){
+		validToken: answers(server.Account{PublicName: "Goldsmith"}, nil),
 	})
 	c := linkedTo(t, srv, validToken)
 	c.askAccountWith(t, validToken)
@@ -145,9 +135,9 @@ func accountShown(t *testing.T, c *App, want string) {
 }
 
 func TestTheUploadLoopAsksTheAccountAtStartAndAfterLinking(t *testing.T) {
-	srv := accountServer(t, map[string]func(http.ResponseWriter){
-		"Bearer " + validToken: answers(200, `{"publicName":null,"battleTag":"Goldsmith#1234"}`),
-		"Bearer " + otherToken: answers(200, `{"publicName":null,"battleTag":"Silversmith#5678"}`),
+	srv := accounts(map[string]func() (server.Account, error){
+		validToken: answers(server.Account{BattleTag: "Goldsmith#1234"}, nil),
+		otherToken: answers(server.Account{BattleTag: "Silversmith#5678"}, nil),
 	})
 	c := linkedTo(t, srv, validToken)
 	c.owned.Go(func() { c.loop(c.life) })

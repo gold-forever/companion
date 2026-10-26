@@ -7,6 +7,11 @@ import (
 	"github.com/gold-forever/companion/internal/server"
 )
 
+// accountAsker says whom its token uploads to.
+type accountAsker interface {
+	Account(ctx context.Context) (server.Account, error)
+}
+
 // knownAccount is whom token uploads to, as the server last said: kept through a failed ask so what the
 // page and tray show does not flicker. The name stays in the companion's own UI, never in a log.
 type knownAccount struct {
@@ -26,17 +31,17 @@ func (c *App) Account() string {
 	return c.account.name
 }
 
-// followAccount asks whom client's token uploads to, unless that is known, trying again while the
-// server is unreachable, until ctx ends.
-func (c *App) followAccount(ctx context.Context, client *server.Client) {
+// followAccount asks whom token uploads to, unless that is known, trying again while the server is
+// unreachable, until ctx ends.
+func (c *App) followAccount(ctx context.Context, token string, asker accountAsker) {
 	c.mu.Lock()
-	known := c.account.token == client.Token
+	known := c.account.token == token
 	c.mu.Unlock()
 	if known {
 		return
 	}
 	var wait time.Duration
-	for err := c.askAccount(ctx, client); server.Retryable(err); err = c.askAccount(ctx, client) {
+	for err := c.askAccount(ctx, token, asker); server.Retryable(err); err = c.askAccount(ctx, token, asker) {
 		wait = server.NextWait(wait)
 		select {
 		case <-ctx.Done():
@@ -47,8 +52,8 @@ func (c *App) followAccount(ctx context.Context, client *server.Client) {
 }
 
 // askAccount asks once; any failure, a server without the route among them, leaves what is shown as it is.
-func (c *App) askAccount(ctx context.Context, client *server.Client) error {
-	a, err := client.Account(ctx)
+func (c *App) askAccount(ctx context.Context, token string, asker accountAsker) error {
+	a, err := asker.Account(ctx)
 	if err != nil {
 		return err
 	}
@@ -57,7 +62,7 @@ func (c *App) askAccount(ctx context.Context, client *server.Client) error {
 		name = a.BattleTag
 	}
 	c.mu.Lock()
-	c.account = knownAccount{token: client.Token, name: name}
+	c.account = knownAccount{token: token, name: name}
 	c.mu.Unlock()
 	return nil
 }

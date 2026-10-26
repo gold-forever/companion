@@ -80,6 +80,8 @@ type App struct {
 	owned  sync.WaitGroup
 	status *lastLine
 	prices *addondata.Report // how each price fetch and write went, kept across the loop's restarts
+	// connect is the server at the settings' site, asked with token ("" for what needs none).
+	connect func(token string) connection
 	// linker links by code: it shows the code, waits for the approval and saves the token with save.
 	linker func(ctx context.Context, show func(server.DeviceCode), save func(token string) error) error
 	// openURL opens a page in the player's browser.
@@ -93,6 +95,13 @@ type App struct {
 	linking *page.Linking
 	account knownAccount
 	games   map[string]gameSeen
+}
+
+// connection is everything the app asks of the server.
+type connection interface {
+	Server
+	accountAsker
+	releaseAsker
 }
 
 type gameSeen struct {
@@ -126,6 +135,9 @@ func newApp(o appOptions) *App {
 		warning: warning,
 		games:   map[string]gameSeen{},
 		openURL: func(string) {},
+	}
+	c.connect = func(token string) connection {
+		return &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
 	}
 	c.linker = func(ctx context.Context, show func(server.DeviceCode), save func(string) error) error {
 		hostname, _ := os.Hostname()
@@ -217,7 +229,7 @@ func (c *App) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addonda
 }
 
 // parts is what an upload round with server is built from, with the current settings.
-func (c *App) parts(server *server.Client) Parts {
+func (c *App) parts(server Server) Parts {
 	return Parts{
 		Server: server, Records: Records{Backups: c.backups, Log: c.log, Refused: c.refused}, Saves: c.saves, IsOff: c.isOff,
 		Market: c.settings.Get().Market, DataDir: c.dataDir, Out: c.status, Report: c.prices,

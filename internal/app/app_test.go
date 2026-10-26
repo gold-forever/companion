@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -493,17 +490,14 @@ func TestTheUploadLoopEndsOnlyOnceItsPriceLoopHasEnded(t *testing.T) {
 	c, _ := fixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/prices" {
-			cancel()
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		_, _ = io.Copy(io.Discard, r.Body)
-		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
-	}))
-	defer srv.Close()
-	if err := c.settings.Update(func(cfg *config.Config) error { cfg.Token, cfg.URL = validToken, srv.URL; return nil }); err != nil {
+	srv := &fakeServer{
+		prices: func(context.Context) ([]byte, string, error) { cancel(); return nil, "", errNotServed },
+		upload: func(context.Context, []byte) (server.Answer, error) {
+			return server.Answer{Status: "imported", Saves: 1}, nil
+		},
+	}
+	srv.connects(c)
+	if err := c.settings.Update(func(cfg *config.Config) error { cfg.Token = validToken; return nil }); err != nil {
 		t.Fatal(err)
 	}
 
@@ -527,15 +521,14 @@ func TestEveryRefusalIsThePlayersToFix(t *testing.T) {
 
 func TestCheckingForAnUpdateShowsANewerReleaseOnly(t *testing.T) {
 	for latest, notice := range map[string]bool{"v0.2.0": true, "v0.1.0": false} {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			io.WriteString(w, `{"version":"`+latest+`","url":"https://github.com/gold-forever/companion/releases/tag/`+latest+`"}`)
-		}))
 		c, _ := fixture(t)
-		c.site = srv.URL
+		srv := &fakeServer{latest: func() (server.Release, error) {
+			return server.Release{Version: latest, URL: "https://github.com/gold-forever/companion/releases/tag/" + latest}, nil
+		}}
+		srv.connects(c)
 
 		err := c.CheckForUpdate(t.Context())
 
-		srv.Close()
 		if err != nil || (c.State().Notice != nil) != notice {
 			t.Errorf("latest %s: notice %+v, err %v", latest, c.State().Notice, err)
 		}

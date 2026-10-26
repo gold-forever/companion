@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-
-	"github.com/gold-forever/companion/internal/server"
 )
 
 // loop runs the uploads until ctx ends: with the current token and folders, starting again whenever
@@ -28,8 +26,8 @@ func (c *App) loop(ctx context.Context) {
 				case <-run.Done():
 				}
 			})
-			client := &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
-			started.Go(func() { c.followAccount(run, client) })
+			client := c.connect(token)
+			started.Go(func() { c.followAccount(run, token, client) })
 			err := NewUploads(c.parts(client)).Run(run)
 			stop()
 			started.Wait() // the next round, or the caller, owns the data folder alone
