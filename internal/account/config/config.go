@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/gold-forever/companion/internal/atomicfile"
+	"github.com/gold-forever/companion/internal/platform/atomicfile"
 )
 
 // Config is everything the player sets.

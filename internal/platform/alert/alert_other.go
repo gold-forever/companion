@@ -1,18 +1,19 @@
 //go:build !windows
 
-package main
+package alert
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 )
 
-// alert prints the error and shows it on the desktop: a companion started by a double-click or at
+// Show prints the error and shows it on the desktop: a companion started by a double-click or at
 // login has no terminal, so stderr alone would reach nobody.
-func alert(title, message string) {
+func Show(title, message string) {
 	fmt.Fprintf(os.Stderr, "%s: %s\n", title, message)
-	for _, c := range alertCommands(goos, title, message) {
+	for _, c := range alertCommands(runtime.GOOS, title, message) {
 		if _, err := exec.LookPath(c[0]); err == nil && exec.Command(c[0], c[1:]...).Run() == nil {
 			return
 		}

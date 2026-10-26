@@ -20,7 +20,7 @@ import (
 	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/app"
-	"github.com/gold-forever/companion/internal/instance"
+	"github.com/gold-forever/companion/internal/platform/instance"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"

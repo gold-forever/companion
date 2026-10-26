@@ -15,8 +15,8 @@ import (
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/platform/install"
 	"github.com/gold-forever/companion/internal/saves/refused"
 )
 

@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gold-forever/companion/internal/instance"
+	"github.com/gold-forever/companion/internal/platform/instance"
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 

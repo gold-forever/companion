@@ -13,9 +13,10 @@ import (
 
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/app"
-	"github.com/gold-forever/companion/internal/install"
-	"github.com/gold-forever/companion/internal/instance"
-	release "github.com/gold-forever/companion/internal/version"
+	"github.com/gold-forever/companion/internal/platform/alert"
+	"github.com/gold-forever/companion/internal/platform/install"
+	"github.com/gold-forever/companion/internal/platform/instance"
+	release "github.com/gold-forever/companion/internal/platform/version"
 )
 
 var goos = runtime.GOOS
@@ -51,7 +52,7 @@ func player(ctx context.Context, mode string) int {
 		err = serveAlone(ctx, layout, exe, home, dataDir, instancePath, mode)
 	}
 	if err != nil {
-		alert("Gold Forever Companion", err.Error())
+		alert.Show("Gold Forever Companion", err.Error())
 		return 1
 	}
 	return 0

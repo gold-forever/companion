@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gold-forever/companion/internal/install"
-	"github.com/gold-forever/companion/internal/instance"
+	"github.com/gold-forever/companion/internal/platform/install"
+	"github.com/gold-forever/companion/internal/platform/instance"
 )
 
 // A double-clicked download that is no newer starts the installed copy as the installed one: started

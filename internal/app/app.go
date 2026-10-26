@@ -24,13 +24,13 @@ import (
 	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/api"
-	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/page"
+	"github.com/gold-forever/companion/internal/platform/install"
+	release "github.com/gold-forever/companion/internal/platform/version"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/upload/sendlog"
-	release "github.com/gold-forever/companion/internal/version"
 )
 
 // A token as /me/tokens makes one: gf_ and 43 letters and digits.

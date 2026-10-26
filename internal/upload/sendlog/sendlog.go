@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gold-forever/companion/internal/atomicfile"
+	"github.com/gold-forever/companion/internal/platform/atomicfile"
 )
 
 // Entry is one upload and the server's answer.
