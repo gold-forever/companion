@@ -20,11 +20,11 @@ var limits = map[string]limit{
 func Lua(a Answer) []byte {
 	var b strings.Builder
 	b.WriteString("-- Written by the Gold Forever companion and replaced on every refresh: do not edit.\n")
-	b.WriteString("GoldForever_Prices = {\n  v = 1,\n")
-	fmt.Fprintf(&b, "  at = %d,\n", a.At)
+	fmt.Fprintf(&b, "%s = {\n  %s = %d,\n", dataGlobal, fieldVersion, formatVersion)
+	fmt.Fprintf(&b, "  %s = %d,\n", fieldAt, a.At)
 	b.WriteString(sharedPart(a.Shared))
 	b.WriteString(dingsPart(a.Dings))
-	b.WriteString("  markets = {\n")
+	fmt.Fprintf(&b, "  %s = {\n", fieldMarkets)
 	for _, p := range a.Markets {
 		b.Write(marketPart(p))
 	}
@@ -70,5 +70,5 @@ func quote(s string) string {
 
 // TOC is the data addon's table of contents for a flavour's interface number.
 func TOC(iface int) []byte {
-	return fmt.Appendf(nil, "## Interface: %d\n## Title: Gold Forever Data\n## Notes: Prices written by the Gold Forever companion\n\nData.lua\n", iface)
+	return fmt.Appendf(nil, "## Interface: %d\n## Title: Gold Forever Data\n## Notes: Prices written by the Gold Forever companion\n\n%s\n", iface, dataFile)
 }

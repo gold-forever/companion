@@ -114,7 +114,8 @@ func dingsPart(d *Dings) string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "  dings = {\n    at = %d,\n    webhook = %t,\n    characters = {\n", d.At, d.Webhook)
+	fmt.Fprintf(&b, "  %s = {\n    %s = %d,\n    %s = %t,\n    %s = {\n",
+		fieldDings, fieldAt, d.At, fieldWebhook, d.Webhook, fieldCharacters)
 	guids := make([]string, 0, len(d.Characters))
 	for guid := range d.Characters {
 		guids = append(guids, guid)

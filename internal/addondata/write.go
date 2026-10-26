@@ -279,7 +279,7 @@ func (r *Refresher) saveState(state map[string]held) error {
 // allHaveData says whether every flavour already has a Data.lua, which a 304 would leave as it is.
 func allHaveData(flavours map[string]int) bool {
 	for dir := range flavours {
-		if _, err := os.Stat(filepath.Join(addonDir(dir), "Data.lua")); err != nil {
+		if _, err := os.Stat(filepath.Join(addonDir(dir), dataFile)); err != nil {
 			return false
 		}
 	}
@@ -312,14 +312,14 @@ func Write(flavourDir string, iface int, lua []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := replace(filepath.Join(dir, "GoldForever_Data.toc"), TOC(iface)); err != nil {
+	if err := replace(filepath.Join(dir, tocFile), TOC(iface)); err != nil {
 		return err
 	}
-	return replace(filepath.Join(dir, "Data.lua"), lua)
+	return replace(filepath.Join(dir, dataFile), lua)
 }
 
 func addonDir(flavourDir string) string {
-	return filepath.Join(flavourDir, "Interface", "AddOns", "GoldForever_Data")
+	return filepath.Join(flavourDir, "Interface", "AddOns", addonName)
 }
 
 func replace(path string, data []byte) error {

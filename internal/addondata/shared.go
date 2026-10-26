@@ -153,14 +153,15 @@ func sharedPart(s *Shared) string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "  shared = {\n    at = %d,\n", s.At)
+	fmt.Fprintf(&b, "  %s = {\n    %s = %d,\n", fieldShared, fieldAt, s.At)
 	for _, kind := range []struct {
 		name  string
 		items []SharedItem
-	}{{"lists", s.Lists}, {"profiles", s.Profiles}} {
+	}{{fieldLists, s.Lists}, {fieldProfiles, s.Profiles}} {
 		fmt.Fprintf(&b, "    %s = {\n", kind.name)
 		for _, it := range kind.items {
-			fmt.Fprintf(&b, "      { id = %s, edited = %d, string = %s },\n", quote(it.ID), it.Edited, quote(it.String))
+			fmt.Fprintf(&b, "      { %s = %s, %s = %d, %s = %s },\n",
+				fieldID, quote(it.ID), fieldEdited, it.Edited, fieldString, quote(it.String))
 		}
 		b.WriteString("    },\n")
 	}
