@@ -27,6 +27,16 @@ func (e DeviceErrorError) Valid() bool {
 	}
 }
 
+// Account defines model for Account.
+type Account struct {
+	// BattleTag The BattleTag of the account's first login, as the site's Settings page lists it; null when it has
+	// none. Optional: a server before it answers without it. For the companion to show its own player only.
+	BattleTag string `json:"battleTag,omitempty"`
+
+	// PublicName The name the player chose to be shown by; null while they have chosen none.
+	PublicName string `json:"publicName"`
+}
+
 // DeviceCode defines model for DeviceCode.
 type DeviceCode struct {
 	// DeviceCode The app's secret for polling; never shown.
@@ -153,6 +163,12 @@ type IfNoneMatch = string
 
 // UserAgent defines model for UserAgent.
 type UserAgent = string
+
+// GetCompanionAccountParams defines parameters for GetCompanionAccount.
+type GetCompanionAccountParams struct {
+	// UserAgent The companion names itself `gold-forever-companion/<version> (<os>)`, so the server can tell its requests apart and show the version on the token.
+	UserAgent UserAgent `json:"User-Agent,omitempty"`
+}
 
 // GetLatestCompanionParams defines parameters for GetLatestCompanion.
 type GetLatestCompanionParams struct {

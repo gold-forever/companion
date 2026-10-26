@@ -375,6 +375,37 @@ paths:
         "404":
           description: The site names no release. No body.
 
+  /api/v1/companion/account:
+    get:
+      operationId: getCompanionAccount
+      summary: Which account the token uploads to
+      description: |
+        The account's public name and BattleTag, so the companion can show its player which account it
+        uploads to. Nothing else that would identify the account, and never another account's.
+      security:
+        - bearer: []
+      parameters:
+        - $ref: "#/components/parameters/UserAgent"
+      responses:
+        "200":
+          description: The token account's public name and BattleTag.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlPrivate"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+              examples:
+                named:
+                  value: {"publicName": "Goldsmith", "battleTag": "Goldsmith#1234"}
+                unnamed:
+                  value: {"publicName": null, "battleTag": "Goldsmith#1234"}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
 components:
   securitySchemes:
     bearer:
@@ -700,6 +731,20 @@ components:
         error:
           type: string
           enum: [authorization_pending, slow_down, access_denied, expired_token]
+
+    Account:
+      type: object
+      additionalProperties: false
+      required: [publicName]
+      properties:
+        publicName:
+          description: The name the player chose to be shown by; null while they have chosen none.
+          type: [string, "null"]
+        battleTag:
+          description: |
+            The BattleTag of the account's first login, as the site's Settings page lists it; null when it has
+            none. Optional: a server before it answers without it. For the companion to show its own player only.
+          type: [string, "null"]
 
     Release:
       type: object
