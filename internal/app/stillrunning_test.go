@@ -11,7 +11,7 @@ func stillRunning() string {
 	buf = buf[:runtime.Stack(buf, true)]
 	var left []string
 	for g := range strings.SplitSeq(string(buf), "\n\n") {
-		if strings.Contains(g, "companion/internal/prices.") || strings.Contains(g, "companion/internal/core.") {
+		if strings.Contains(g, "companion/internal/addondata.") || strings.Contains(g, "companion/internal/core.") {
 			left = append(left, g)
 		}
 	}

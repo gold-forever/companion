@@ -1,7 +1,7 @@
-// Package prices turns the server's pooled prices into the GoldForever_Data addon the game loads. The
-// server sends JSON, never Lua: every number is checked and the Lua is written here, so a server can
-// send wrong prices but cannot run code in the game.
-package prices
+// Package addondata turns the server's pooled prices, dings and shared lists into the GoldForever_Data
+// addon the game loads. The server sends JSON, never Lua: every number is checked and the Lua is
+// written here, so a server can send wrong prices but cannot run code in the game.
+package addondata
 
 import (
 	"bytes"

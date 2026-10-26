@@ -10,7 +10,7 @@ import (
 var ErrNoDings = errors.New("the server has no dings state")
 
 // DingsState fetches the site's side of the in-game "Announce dings on Discord" switch as the server
-// sent it, with its ETag; internal/prices checks it. With the ETag of the state already held, an
+// sent it, with its ETag; internal/addondata checks it. With the ETag of the state already held, an
 // unchanged one is ErrNotModified.
 func (c *Client) DingsState(ctx context.Context, etag string) ([]byte, string, error) {
 	body, etag, err := c.conditionalGet(ctx, "/api/v1/dings/state", etag, maxAnswerBytes)

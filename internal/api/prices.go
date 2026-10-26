@@ -23,7 +23,7 @@ func pricesLimit(game string) int64 {
 // ErrNotModified means the answer is still that of the ETag sent: the file stays as it is.
 var ErrNotModified = errors.New("not changed since the ETag sent")
 
-// Prices fetches the pooled prices as the server sent them, with their ETag; internal/prices checks
+// Prices fetches the pooled prices as the server sent them, with their ETag; internal/addondata checks
 // them. Without a market the answer holds every market of the account's characters in game. With the
 // ETag of the prices already held, an unchanged answer is ErrNotModified.
 func (c *Client) Prices(ctx context.Context, game, market, etag string) ([]byte, string, error) {

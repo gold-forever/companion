@@ -13,7 +13,7 @@ var ErrNoShared = errors.New("the server has no shared lists and profiles")
 const sharedLimit = 1 << 20
 
 // SharedState fetches the account's shopping lists and sale profiles as the server sent them, with
-// their ETag; internal/prices checks them. With the ETag of the state already held, an unchanged one
+// their ETag; internal/addondata checks them. With the ETag of the state already held, an unchanged one
 // is ErrNotModified.
 func (c *Client) SharedState(ctx context.Context, etag string) ([]byte, string, error) {
 	body, etag, err := c.conditionalGet(ctx, "/api/v1/shared/state", etag, sharedLimit)

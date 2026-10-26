@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/backup"
 	"github.com/gold-forever/companion/internal/config"
@@ -27,7 +28,6 @@ import (
 	"github.com/gold-forever/companion/internal/install"
 	"github.com/gold-forever/companion/internal/link"
 	"github.com/gold-forever/companion/internal/page"
-	"github.com/gold-forever/companion/internal/prices"
 	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	release "github.com/gold-forever/companion/internal/version"
@@ -71,7 +71,7 @@ type App struct {
 	refused    *refused.List
 	quit       func()
 	status     *lastLine
-	prices     *prices.Report // how each price fetch and write went, kept across the loop's restarts
+	prices     *addondata.Report // how each price fetch and write went, kept across the loop's restarts
 	// linker links by code: it shows the code, waits for the approval and saves the token with save.
 	linker func(ctx context.Context, show func(api.DeviceCode), save func(token string) error) error
 	// openURL opens a page in the player's browser.
@@ -112,7 +112,7 @@ func newApp(o appOptions) *App {
 		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: KeepLogFor},
 		refused: refused.Load(filepath.Join(o.dataDir, RefusedFile)),
 		status:  &lastLine{},
-		prices:  &prices.Report{Now: time.Now},
+		prices:  &addondata.Report{Now: time.Now},
 		cfg:     cfg,
 		warning: warning,
 		changed: make(chan struct{}),
@@ -218,7 +218,7 @@ func (c *App) State() page.State {
 }
 
 // priceFile is a flavour's price file as the page shows it, its folder named as saves are.
-func priceFile(f prices.File) page.PriceFile {
+func priceFile(f addondata.File) page.PriceFile {
 	p := page.PriceFile{
 		Flavour: filepath.Base(filepath.Dir(f.Flavour)) + " › " + filepath.Base(f.Flavour),
 		Game:    f.Game, Items: f.Items, Size: f.Size, Outcome: f.Outcome, Error: f.Error,
@@ -239,7 +239,7 @@ func priceFile(f prices.File) page.PriceFile {
 }
 
 // dingsLine is the in-game dings switch as a price file carries it: "Dings: webhook on · 2 characters on".
-func dingsLine(d prices.Dings) string {
+func dingsLine(d addondata.Dings) string {
 	webhook, on := "off", 0
 	if d.Webhook {
 		webhook = "on"
@@ -258,7 +258,7 @@ func dingsLine(d prices.Dings) string {
 
 // refresher keeps the account's prices, dings state and shared lists and profiles in the game, fetched
 // with f, d and s.
-func (c *App) refresher(f prices.Fetcher, d prices.DingsFetcher, s prices.SharedFetcher) *prices.Refresher {
+func (c *App) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addondata.SharedFetcher) *addondata.Refresher {
 	return c.parts(nil).refresher(f, d, s)
 }
 

@@ -1,4 +1,4 @@
-package prices
+package addondata
 
 import (
 	"fmt"

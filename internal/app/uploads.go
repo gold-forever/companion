@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/api"
 	"github.com/gold-forever/companion/internal/backup"
 	"github.com/gold-forever/companion/internal/core"
 	"github.com/gold-forever/companion/internal/find"
-	"github.com/gold-forever/companion/internal/prices"
 	"github.com/gold-forever/companion/internal/refused"
 	"github.com/gold-forever/companion/internal/sendlog"
 	"github.com/gold-forever/companion/internal/watch"
@@ -29,20 +29,20 @@ type Parts struct {
 	Market  string
 	DataDir string
 	Out     io.Writer
-	Report  *prices.Report // may be nil
+	Report  *addondata.Report // may be nil
 }
 
 // Uploads is the upload core and, beside it, the refresher that keeps prices, dings and shared lists
 // in the game, fetching again whenever an upload was imported.
 type Uploads struct {
 	core      *core.Core
-	refresher *prices.Refresher
+	refresher *addondata.Refresher
 	imported  <-chan struct{}
 }
 
 // NewUploads builds the upload core and the price refresher from p.
 func NewUploads(p Parts) *Uploads {
-	imported, announce := prices.Trigger()
+	imported, announce := addondata.Trigger()
 	return &Uploads{
 		core: &core.Core{
 			Uploader: p.Server,
@@ -56,8 +56,8 @@ func NewUploads(p Parts) *Uploads {
 
 // refresher keeps the account's prices, dings state and shared lists and profiles in the game, fetched
 // with f, d and s.
-func (p Parts) refresher(f prices.Fetcher, d prices.DingsFetcher, s prices.SharedFetcher) *prices.Refresher {
-	return &prices.Refresher{
+func (p Parts) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addondata.SharedFetcher) *addondata.Refresher {
+	return &addondata.Refresher{
 		Fetcher: f, Dings: d, Shared: s, Saves: p.Saves, Market: p.Market,
 		State: filepath.Join(p.DataDir, PricesState), Out: p.Out, Report: p.Report,
 	}
