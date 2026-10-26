@@ -20,5 +20,5 @@ func (c *App) installed() []string {
 }
 
 func (c *App) Welcomed() error {
-	return c.update(func(cfg *config.Config) error { cfg.Welcomed = true; return nil })
+	return c.settings.Update(func(cfg *config.Config) error { cfg.Welcomed = true; return nil })
 }

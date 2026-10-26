@@ -57,7 +57,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	c.status.out = os.Stdout
 	c.openURL = func(url string) { _ = o.OpenBrowser(url) }
 	_ = c.log.Prune(time.Now())
-	_ = o.Layout.FollowApp(o.Exe, !c.settings().Welcomed)
+	_ = o.Layout.FollowApp(o.Exe, !c.settings.Get().Welcomed)
 
 	info := instance.Info{PID: os.Getpid(), Port: port, Secret: hex.EncodeToString(secret), Version: o.Version}
 	srv := &http.Server{Handler: page.New(c, info.Secret, port), ReadHeaderTimeout: 10 * time.Second}

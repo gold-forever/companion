@@ -19,13 +19,12 @@ const SharingLine = "Every upload adds its auction scans, item details and loot 
 // for the approval, and saves the token into the settings at cfgPath. Nothing is saved on failure.
 func Link(ctx context.Context, c *server.Client, hostname, cfgPath string, show func(server.DeviceCode)) error {
 	return Run(ctx, c, hostname, show, func(token string) error {
-		// Read the settings only now: the player may have changed them while the code waited.
-		cfg, err := config.Load(cfgPath)
+		// Open the settings only now: the running companion may have changed them while the code waited.
+		settings, err := config.Open(cfgPath)
 		if err != nil {
 			return err
 		}
-		cfg.Token = token
-		return config.Save(cfgPath, cfg)
+		return settings.Update(func(cfg *config.Config) error { cfg.Token = token; return nil })
 	})
 }
 

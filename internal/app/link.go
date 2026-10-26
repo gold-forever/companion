@@ -20,7 +20,7 @@ func (c *App) Link(token string) error {
 	if !tokenShape.MatchString(token) {
 		return page.BadRequest("that is not a token: a token starts with gf_ and is 46 letters and digits, from your tokens page")
 	}
-	return c.update(func(cfg *config.Config) error { cfg.Token = token; return nil })
+	return c.settings.Update(func(cfg *config.Config) error { cfg.Token = token; return nil })
 }
 
 // linkTimeout outlasts a code's ten minutes, so the server's expiry is what ends a link.
@@ -46,7 +46,7 @@ func (c *App) StartDeviceLink() error {
 			c.setLinking(page.Linking{State: "waiting", UserCode: code.UserCode, URL: code.VerificationURIComplete})
 		}
 		save := func(token string) error {
-			return c.update(func(cfg *config.Config) error { cfg.Token = token; return nil })
+			return c.settings.Update(func(cfg *config.Config) error { cfg.Token = token; return nil })
 		}
 		err := c.linker(ctx, show, save)
 		switch {
@@ -70,5 +70,5 @@ func (c *App) setLinking(l page.Linking) {
 }
 
 func (c *App) Unlink() error {
-	return c.update(func(cfg *config.Config) error { cfg.Token = ""; return nil })
+	return c.settings.Update(func(cfg *config.Config) error { cfg.Token = ""; return nil })
 }

@@ -97,14 +97,14 @@ func TestLinkTakesOnlyATokenAndKeepsItForItsOwner(t *testing.T) {
 	if c.State().Linked {
 		t.Fatal("a refused token linked the companion")
 	}
-	before := c.changes()
+	before := c.settings.Changes()
 	if err := c.Link(validToken); err != nil {
 		t.Fatal(err)
 	}
 	if !c.State().Linked {
 		t.Error("not linked")
 	}
-	if info, err := os.Stat(c.cfgPath); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(c.settings.Path()); err != nil || info.Mode().Perm() != 0o600 {
 		t.Errorf("the token's file must be the owner's only: %v %v", info.Mode(), err)
 	}
 	select {
@@ -202,7 +202,7 @@ func TestCopiesAreReachedByIDOnlyAndRestoreWritesTheSaveBack(t *testing.T) {
 	if err := c.Link(validToken); err != nil { // so the config file exists, holding a token
 		t.Fatal(err)
 	}
-	if data, ok := c.CopyBytes(c.cfgPath); ok || strings.Contains(string(data), validToken) {
+	if data, ok := c.CopyBytes(c.settings.Path()); ok || strings.Contains(string(data), validToken) {
 		t.Error("a path is not an ID: the config holds the token")
 	}
 	if err := c.Restore(copies[0].ID); err != nil {
@@ -236,7 +236,7 @@ func TestUninstallRemovesTheInstanceFileAndQuits(t *testing.T) {
 	if _, err := os.Stat(instanceFile); !os.IsNotExist(err) {
 		t.Error("the instance file names a page that no longer runs")
 	}
-	if _, err := os.Stat(c.cfgPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(c.settings.Path()); !os.IsNotExist(err) {
 		t.Error("the token stays on the computer after uninstalling")
 	}
 	select {
@@ -293,7 +293,7 @@ func TestLinkingByCodeShowsTheCodeOpensTheSiteAndSavesTheToken(t *testing.T) {
 	}
 	close(approved)
 	linkingState(t, c, "linked")
-	if !c.State().Linked || c.settings().Token != validToken {
+	if !c.State().Linked || c.settings.Get().Token != validToken {
 		t.Error("an approved link must leave the companion linked")
 	}
 }
@@ -430,7 +430,7 @@ func TestTheUploadLoopEndsOnlyOnceItsPriceLoopHasEnded(t *testing.T) {
 		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
 	}))
 	defer srv.Close()
-	if err := c.update(func(cfg *config.Config) error { cfg.Token, cfg.URL = validToken, srv.URL; return nil }); err != nil {
+	if err := c.settings.Update(func(cfg *config.Config) error { cfg.Token, cfg.URL = validToken, srv.URL; return nil }); err != nil {
 		t.Fatal(err)
 	}
 

@@ -49,7 +49,7 @@ type App struct {
 	site       string
 	running    string
 	layout     install.Layout
-	cfgPath    string
+	settings   *config.Settings // the settings, which announce each change the loop must see
 	dataDir    string
 	candidates []string
 	backups    *backup.Store
@@ -64,11 +64,9 @@ type App struct {
 	openURL func(url string)
 
 	mu      sync.Mutex
-	cfg     config.Config
 	notice  *page.Notice
 	warning string // what the page must tell the player about their settings
 	linking *page.Linking
-	changed chan struct{} // closed and replaced on every change the loop must see
 	games   map[string]gameSeen
 }
 
@@ -86,22 +84,21 @@ type appOptions struct {
 }
 
 func newApp(o appOptions) *App {
-	cfg, err := config.Load(o.cfgPath)
+	settings, err := config.Open(o.cfgPath)
 	var warning string
 	if err != nil {
 		warning = setAsideSettings(o.cfgPath, err)
+		settings = config.New(o.cfgPath, config.Config{})
 	}
 	c := &App{
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
-		cfgPath: o.cfgPath, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
+		settings: settings, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
 		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: KeepCopies, Now: time.Now},
 		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: KeepLogFor},
 		refused: refused.Load(filepath.Join(o.dataDir, RefusedFile)),
 		status:  &lastLine{},
 		prices:  &addondata.Report{Now: time.Now},
-		cfg:     cfg,
 		warning: warning,
-		changed: make(chan struct{}),
 		games:   map[string]gameSeen{},
 		openURL: func(string) {},
 	}
@@ -115,7 +112,7 @@ func newApp(o appOptions) *App {
 
 // State is what the settings page shows.
 func (c *App) State() page.State {
-	cfg := c.settings()
+	cfg := c.settings.Get()
 	s := page.State{
 		Version:   c.version,
 		Site:      c.url(),
@@ -197,7 +194,7 @@ func (c *App) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addonda
 func (c *App) parts(server *server.Client) Parts {
 	return Parts{
 		Server: server, Backups: c.backups, Log: c.log, Refused: c.refused, Saves: c.saves, IsOff: c.isOff,
-		Market: c.settings().Market, DataDir: c.dataDir, Out: c.status, Report: c.prices,
+		Market: c.settings.Get().Market, DataDir: c.dataDir, Out: c.status, Report: c.prices,
 	}
 }
 

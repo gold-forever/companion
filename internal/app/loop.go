@@ -14,8 +14,8 @@ import (
 // they change, and waiting for a change while there is no token or the server refused it.
 func (c *App) loop(ctx context.Context) {
 	for ctx.Err() == nil {
-		changed := c.changes()
-		token := c.settings().Token
+		changed := c.settings.Changes()
+		token := c.settings.Get().Token
 		if token == "" {
 			c.status.Set("Not linked yet: open Settings and press \"Link this computer\".")
 		} else {

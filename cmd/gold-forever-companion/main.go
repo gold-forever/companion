@@ -98,11 +98,12 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	cfg, err := config.Load(cfgPath)
+	settings, err := config.Open(cfgPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "cannot read %s: %v\n", cfgPath, err)
 		return 1
 	}
+	cfg := settings.Get()
 	token := cfg.Token
 	if token == "" {
 		token = getenv("GF_TOKEN")
@@ -188,10 +189,9 @@ func linkAccount(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	}
 	if *url != defaultURL {
 		// Remember a site other than the public one, so `run` uploads where the account was linked.
-		cfg, err := config.Load(cfgPath)
+		settings, err := config.Open(cfgPath)
 		if err == nil {
-			cfg.URL = *url
-			err = config.Save(cfgPath, cfg)
+			err = settings.Update(func(cfg *config.Config) error { cfg.URL = *url; return nil })
 		}
 		if err != nil {
 			fmt.Fprintln(stderr, err)
