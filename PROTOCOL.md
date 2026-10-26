@@ -8,7 +8,9 @@ so the companion carries the token across a redirect only to `https://gold-forev
 host (`internal/server`, `carryToken`). Another client that follows the 308 should do the same, or use
 the new address directly.
 Anything here can be done with `curl`, so you can check the app against this list or write your own
-client. A request not listed here is a bug.
+client. A request not listed here is a bug. The server's own statement of these routes is the OpenAPI
+spec in [`internal/server/openapi.yaml`](internal/server/openapi.yaml), which the app's request and
+answer types are generated from; where this page and the spec differ, the spec is right.
 
 ## Your token
 
@@ -49,7 +51,7 @@ curl -H "Authorization: Bearer $GF_TOKEN" -H 'Content-Type: application/octet-st
 | 413 | `{"status":"too large","reason":"a forever save may be at most 10 MB"}` (no `reason` past the 32 MiB transport limit) | Shows it, with the reason; sends the same save again at the next start and once a day, until it goes through or a newer save replaces it |
 | 415 | `{"status":"send the file as application/octet-stream"}` | A client bug; doesn't resend |
 | 422 | `{"status":"rejected","reason":"…"}` (not readable as a save) | Waits for the next save |
-| 429 | `Retry-After: <seconds>`, `{"status":"rate limited","reason":"too many uploads with this token; try again in 40 s"}` | Waits that long, then tries again |
+| 429 | `Retry-After: <seconds>`, `{"status":"rate limited","reason":"too many uploads from this account; try again in 40 s"}` (the limit is per account, across all its tokens) | Waits that long, then tries again |
 | 429 | `Retry-After: 10`–`30`, `{"status":"busy","reason":"too many uploads at once; try again shortly"}` (the import queue is full) | Waits that long, then tries again |
 | 503 | `Retry-After: 600`, `{"status":"paused","reason":"<the operator's message>"}` (uploads are paused) | Shows the reason; waits at least that long, then tries again |
 | other 5xx, or no answer | — | Tries again later, waiting longer each time (1 minute, doubling to 30), and at least `Retry-After` when sent |
@@ -148,8 +150,8 @@ A failing game leaves the other's prices written.
   copper. The app checks every field (version 1, the game and market it asked for, plain integers,
   ids above 0, nothing negative or past 2^53, market keys of letters, digits, `-` and `_`, none twice);
   any fault refuses the whole answer and the last good file stays. No markets writes an empty table.
-  An item may also carry `"week"`, the 7-day mean of its daily values in copper, absent when the
-  server has too little history; one that is not an integer from 1 to 2^53−1 is read as absent for
+  An item may also carry `"week"`, the median of its daily pooled values over the 7 days before its
+  `scannedAt`, in copper, absent when the server has too little history; one that is not an integer from 1 to 2^53−1 is read as absent for
   that item and refuses nothing.
 - An answer over 4 MB (retail: 8 MB), or one whose `Data.lua` would be over 1 MB (retail: 4 MB), is
   refused and the last good file stays; a market taking over 200 KB of it (retail: 1 MB) is written
@@ -184,8 +186,8 @@ If-None-Match: "<the ETag of the dings state held>"
   none twice); any fault, a state without `at` too, keeps the last good state (or writes none), as
   does a failed request. It is kept with its ETag in `prices.json`.
 - 304: the state held is still current.
-- 404 (a server from before it): no state; `Data.lua` goes without one, and the addon leaves its switch
-  changeable.
+- 404: historical, from servers before the dings state; still accepted as no state: `Data.lua` goes
+  without one, and the addon leaves its switch changeable.
 
 `Data.lua` carries it beside `at` as `dings = { at = <n>, webhook = true, characters = { ["Player-…"] =
 true } }`; the addon compares its own choices against `dings.at`.
@@ -210,7 +212,8 @@ If-None-Match: "<the ETag of the shared state held>"
   the last good state (or writes none), as does a failed request. Up to 1 MB; it is kept with its ETag
   in `prices.json`. 401 and 403 are as for prices.
 - 304: the state held is still current.
-- 404 (a server from before it): no state; `Data.lua` goes without one, and the addon keeps its own.
+- 404: historical, from servers before shared lists and profiles; still accepted as no state:
+  `Data.lua` goes without one, and the addon keeps its own.
 
 `Data.lua` carries it beside `dings` as `shared = { at = <n>, lists = { { id = "…", edited = <n>,
 string = "GFL1:…" } }, profiles = { { id = "…", edited = <n>, string = "GFP1:…" } } }`, counted in the
