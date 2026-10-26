@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/gold-forever/companion/internal/account/config"
@@ -52,7 +51,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	instancePath := filepath.Join(o.DataDir, InstanceFile)
 	c := newApp(appOptions{
 		version: o.Version, site: o.Site, running: o.Exe, layout: o.Layout, cfgPath: cfgPath, dataDir: o.DataDir,
-		candidates: find.Candidates(goos, o.Home, os.Getenv, find.RegistryInstall), quit: stop,
+		candidates: find.Candidates(goos, o.Home, os.Getenv, find.RegistryInstall), quit: stop, life: ctx,
 	})
 	c.status.out = os.Stdout
 	c.openURL = func(url string) { _ = o.OpenBrowser(url) }
@@ -61,16 +60,18 @@ func Serve(ctx context.Context, o ServeOptions) error {
 
 	info := instance.Info{PID: os.Getpid(), Port: port, Secret: hex.EncodeToString(secret), Version: o.Version}
 	srv := &http.Server{Handler: page.New(c, info.Secret, port), ReadHeaderTimeout: 10 * time.Second}
-	go srv.Serve(listener)
-	defer srv.Close()
+	defer func() {
+		stop()
+		shutdown(srv)
+		c.owned.Wait()
+	}()
+	c.owned.Go(func() { _ = srv.Serve(listener) })
 	if err := instance.Write(instancePath, info); err != nil {
 		return err
 	}
 	defer removeIfOurs(instancePath, info)
-	var loops sync.WaitGroup
-	defer func() { stop(); loops.Wait() }()
-	loops.Go(func() { c.loop(ctx) })
-	loops.Go(func() { c.checkVersion(ctx) })
+	c.owned.Go(func() { c.loop(ctx) })
+	c.owned.Go(func() { c.checkVersion(ctx) })
 
 	pageURL := instance.PageURL(info)
 	c.pageURL = pageURL
@@ -82,12 +83,22 @@ func Serve(ctx context.Context, o ServeOptions) error {
 		<-ctx.Done()
 		return nil
 	}
-	go func() {
-		<-ctx.Done()
-		tray.Stop()
-	}()
-	tray.Run(c)
+	tray.Run(ctx, c)
 	return nil
+}
+
+// answerFor is how long the page's requests in flight, a quit's among them, have to get their answer
+// once the companion stops.
+const answerFor = 2 * time.Second
+
+// shutdown stops the page, letting the requests in flight answer first; after that, no use case starts
+// anything more.
+func shutdown(srv *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), answerFor)
+	defer cancel()
+	if srv.Shutdown(ctx) != nil {
+		_ = srv.Close()
+	}
 }
 
 // removeIfOurs removes the instance file unless a newer copy has written its own since.

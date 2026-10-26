@@ -3,6 +3,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +29,7 @@ func TestADownloadNoNewerThanTheInstalledCopyStartsItAsInstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := installFromDownload(l, filepath.Join(t.TempDir(), "gold-forever-companion"), instance.Info{}, false); err != nil {
+	if err := installFromDownload(t.Context(), l, filepath.Join(t.TempDir(), "gold-forever-companion"), instance.Info{}, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -40,5 +42,32 @@ func TestADownloadNoNewerThanTheInstalledCopyStartsItAsInstalled(t *testing.T) {
 	}
 	if string(args) != "--installed\n" {
 		t.Fatalf("the installed copy was started with %q, want --installed", args)
+	}
+}
+
+// A launch that is told to stop while another copy holds the claim stops waiting for it.
+func TestALaunchWaitingForTheClaimStopsWithItsContext(t *testing.T) {
+	dataDir := t.TempDir()
+	release, err := instance.Claim(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	l := install.For(install.Env{GOOS: "linux", Home: t.TempDir(), Getenv: func(string) string { return "" }})
+
+	done := make(chan error, 1)
+	go func() {
+		done <- serveAlone(ctx, l, l.Exe, t.TempDir(), dataDir, filepath.Join(dataDir, "instance.json"), "")
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("err = %v, want the context's end", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the launch still waits for the claim after its context ended")
 	}
 }

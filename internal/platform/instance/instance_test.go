@@ -1,6 +1,7 @@
 package instance
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // running stands in for a companion's settings server: it answers a ping's nonce with its proof.
@@ -49,11 +51,11 @@ func TestTheFileIsTheOwnersOnlyAndReadsBack(t *testing.T) {
 
 func TestAnInstanceThatAnswersItsSecretIsRunning(t *testing.T) {
 	info := running(t, "right")
-	if !Alive(info) {
+	if !Alive(t.Context(), info) {
 		t.Error("a companion that answers its ping is running")
 	}
 	info.Secret = "wrong"
-	if Alive(info) {
+	if Alive(t.Context(), info) {
 		t.Error("whatever answers on that port without the secret is not this companion")
 	}
 }
@@ -66,7 +68,7 @@ func TestAnotherProgramOnTheSamePortIsNotTheCompanionAndNeverSeesTheSecret(t *te
 		w.Write([]byte(`<!doctype html><title>a dev server</title>`))
 	})
 
-	if Alive(info) {
+	if Alive(t.Context(), info) {
 		t.Error("a program that answers 200 to anything was taken for the running companion")
 	}
 	for _, s := range seen {
@@ -80,7 +82,24 @@ func TestAStaleFileIsNotARunningInstance(t *testing.T) {
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	port := l.Addr().(*net.TCPAddr).Port
 	l.Close() // nothing listens there any more: the companion that wrote the file has gone
-	if Alive(Info{Port: port, Secret: "x"}) {
+	if Alive(t.Context(), Info{Port: port, Secret: "x"}) {
 		t.Error("a port nobody listens on is not a running instance")
+	}
+}
+
+// A launch that is told to stop does not wait out the client's timeout on a copy that never answers.
+func TestAskingTheRunningCopyEndsWithTheCallersContext(t *testing.T) {
+	hung := make(chan struct{})
+	info := listening(t, "s3cret", func(w http.ResponseWriter, r *http.Request) { <-hung })
+	t.Cleanup(func() { close(hung) }) // before the server's Close, which waits for its handlers
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	alive := Alive(ctx, info)
+	quitErr := Quit(ctx, info)
+
+	if took := time.Since(start); alive || quitErr == nil || took > time.Second {
+		t.Errorf("alive %v, quit %v after %v: want both to give up with the context", alive, quitErr, took)
 	}
 }

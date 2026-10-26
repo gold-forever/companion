@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ type fakeApp struct {
 	linked      string
 	deviceLinks int
 	prices      []PriceFile
+	quits       atomic.Int32
 }
 
 func (a *fakeApp) State() State {
@@ -46,7 +48,7 @@ func (a *fakeApp) Welcomed(context.Context) error             { return nil }
 func (a *fakeApp) History() History                           { return History{} }
 func (a *fakeApp) Restore(_ context.Context, id string) error { a.restored = id; return nil }
 func (a *fakeApp) Uninstall(context.Context, bool) error      { a.uninstalls++; return nil }
-func (a *fakeApp) Quit()                                      {}
+func (a *fakeApp) Quit()                                      { a.quits.Add(1) }
 func (a *fakeApp) CopyBytes(id string) ([]byte, bool) {
 	if id == "known" {
 		return []byte("GoldForeverDB = {\n}\n"), true
@@ -234,10 +236,10 @@ func TestAnotherLaunchFindsTheRunningCopyWithoutSendingItsSecret(t *testing.T) {
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
 
-	if !instance.Alive(instance.Info{Port: live, Secret: secret}) {
+	if !instance.Alive(t.Context(), instance.Info{Port: live, Secret: secret}) {
 		t.Error("the running copy was not recognised")
 	}
-	if instance.Alive(instance.Info{Port: live, Secret: "another copy's secret"}) {
+	if instance.Alive(t.Context(), instance.Info{Port: live, Secret: "another copy's secret"}) {
 		t.Error("a copy with another secret was taken for this one")
 	}
 }
@@ -255,8 +257,20 @@ func TestANewerDownloadCanAskTheRunningCopyToQuit(t *testing.T) {
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
 
-	if err := instance.Quit(instance.Info{Port: live, Secret: secret}); err != nil {
+	if err := instance.Quit(t.Context(), instance.Info{Port: live, Secret: secret}); err != nil {
 		t.Errorf("the running copy refused to quit: %v", err)
+	}
+}
+
+// The page's Quit is the app's own: done by the time the page has its answer, so no goroutine is left
+// behind it that nothing waits for.
+func TestQuitHasQuitByTheTimeThePageHasItsAnswer(t *testing.T) {
+	app := &fakeApp{}
+	if rec := serve(app, "POST", "/api/quit", "{}", nil); rec.Code != http.StatusOK {
+		t.Fatalf("quit: %d", rec.Code)
+	}
+	if n := app.quits.Load(); n != 1 {
+		t.Errorf("the app was asked to quit %d times by the answer, want 1", n)
 	}
 }
 

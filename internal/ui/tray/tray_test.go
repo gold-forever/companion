@@ -1,6 +1,7 @@
 package tray
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -22,7 +23,7 @@ func TestTheMenuReachesTheAppUntilQuit(t *testing.T) {
 	var shown []string
 	done := make(chan struct{})
 	go func() {
-		follow(app, clicks{site: site, settings: settings, quit: quit}, tick, func(s string) { shown = append(shown, s) })
+		follow(t.Context(), app, clicks{site: site, settings: settings, quit: quit}, tick, func(s string) { shown = append(shown, s) })
 		close(done)
 	}()
 
@@ -41,6 +42,23 @@ func TestTheMenuReachesTheAppUntilQuit(t *testing.T) {
 	}
 	if len(shown) != 1 || shown[0] != "Uploaded GoldForever.lua" {
 		t.Errorf("status shown %q", shown)
+	}
+}
+
+func TestTheMenuStopsWhenTheCompanionStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		follow(ctx, &fakeApp{}, clicks{}, nil, func(string) {})
+		close(done)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("the menu still runs after the companion stopped")
 	}
 }
 

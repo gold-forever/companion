@@ -11,9 +11,14 @@ import (
 func (c *App) Uninstall(ctx context.Context, keepData bool) error {
 	err := c.layout.Uninstall(c.running, keepData)
 	_ = os.Remove(filepath.Join(c.dataDir, InstanceFile))
-	go func() {
-		time.Sleep(300 * time.Millisecond) // let the page get its answer first
-		c.quit()
-	}()
+	c.owned.Go(func() {
+		wait := time.NewTimer(300 * time.Millisecond) // let the page get its answer first
+		defer wait.Stop()
+		select {
+		case <-wait.C:
+			c.quit()
+		case <-c.life.Done():
+		}
+	})
 	return err
 }

@@ -56,8 +56,11 @@ type App struct {
 	log        *sendlog.Log
 	refused    *refused.List
 	quit       func()
-	status     *lastLine
-	prices     *addondata.Report // how each price fetch and write went, kept across the loop's restarts
+	// life ends when the companion stops; every goroutine the app starts is in owned, which ends with it.
+	life   context.Context
+	owned  sync.WaitGroup
+	status *lastLine
+	prices *addondata.Report // how each price fetch and write went, kept across the loop's restarts
 	// linker links by code: it shows the code, waits for the approval and saves the token with save.
 	linker func(ctx context.Context, show func(server.DeviceCode), save func(token string) error) error
 	// openURL opens a page in the player's browser.
@@ -83,6 +86,7 @@ type appOptions struct {
 	layout                                   install.Layout
 	candidates                               []string
 	quit                                     func()
+	life                                     context.Context
 }
 
 func newApp(o appOptions) *App {
@@ -94,7 +98,7 @@ func newApp(o appOptions) *App {
 	}
 	c := &App{
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
-		settings: settings, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit,
+		settings: settings, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit, life: o.life,
 		backups: &backup.Store{Dir: filepath.Join(o.dataDir, "backups"), Keep: KeepCopies, Now: time.Now},
 		log:     &sendlog.Log{Path: filepath.Join(o.dataDir, "sent.jsonl"), Keep: KeepLogFor},
 		refused: refused.Load(filepath.Join(o.dataDir, RefusedFile)),

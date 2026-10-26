@@ -3,7 +3,9 @@
 package tray
 
 import (
+	"context"
 	"runtime"
+	"sync"
 	"time"
 
 	"fyne.io/systray"
@@ -17,15 +19,36 @@ type App interface {
 	Quit()
 }
 
-// Run shows the icon and blocks until Stop; on macOS it must be called from the main goroutine.
-func Run(app App) {
-	systray.Run(func() { ready(app) }, func() {})
+// Run shows the icon until ctx ends or the player quits, and returns once its menu has stopped; on
+// macOS it must be called from the main goroutine.
+func Run(ctx context.Context, app App) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(ctx, systray.Quit)()
+	// The menu is built on systray's own goroutine; the clicks are followed on one Run waits for.
+	built := make(chan menu, 1)
+	var following sync.WaitGroup
+	following.Go(func() {
+		select {
+		case m := <-built:
+			tick := time.NewTicker(2 * time.Second)
+			defer tick.Stop()
+			follow(ctx, app, m.clicks, tick.C, m.status.SetTitle)
+		case <-ctx.Done():
+		}
+	})
+	systray.Run(func() { built <- build(app) }, cancel)
+	cancel()
+	following.Wait()
 }
 
-// Stop removes the icon and makes Run return.
-func Stop() { systray.Quit() }
+// menu is the built menu: its status line and the items that send clicks.
+type menu struct {
+	status *systray.MenuItem
+	clicks clicks
+}
 
-func ready(app App) {
+func build(app App) menu {
 	if runtime.GOOS == "windows" {
 		systray.SetIcon(icoIcon())
 	} else {
@@ -39,11 +62,7 @@ func ready(app App) {
 	settings := systray.AddMenuItem("Settings", "What the companion finds and sends")
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit", "Stop uploading until the companion starts again")
-	go func() {
-		tick := time.NewTicker(2 * time.Second)
-		defer tick.Stop()
-		follow(app, clicks{site: site.ClickedCh, settings: settings.ClickedCh, quit: quit.ClickedCh}, tick.C, status.SetTitle)
-	}()
+	return menu{status: status, clicks: clicks{site: site.ClickedCh, settings: settings.ClickedCh, quit: quit.ClickedCh}}
 }
 
 // clicks are the menu's items, each sending when clicked.
@@ -51,8 +70,8 @@ type clicks struct {
 	site, settings, quit <-chan struct{}
 }
 
-// follow passes each click on to app until Quit, and shows app's status at every tick.
-func follow(app App, c clicks, tick <-chan time.Time, show func(status string)) {
+// follow passes each click on to app until Quit or ctx's end, and shows app's status at every tick.
+func follow(ctx context.Context, app App, c clicks, tick <-chan time.Time, show func(status string)) {
 	for {
 		select {
 		case <-c.site:
@@ -64,6 +83,8 @@ func follow(app App, c clicks, tick <-chan time.Time, show func(status string)) 
 			return
 		case <-tick:
 			show(statusOf(app))
+		case <-ctx.Done():
+			return
 		}
 	}
 }

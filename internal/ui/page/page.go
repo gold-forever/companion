@@ -255,7 +255,7 @@ func (h *handler) routes() {
 		return h.app.Restore(ctx, b.ID)
 	})
 	post(m, "/api/uninstall", func(ctx context.Context, b struct{ KeepData bool }) error { return h.app.Uninstall(ctx, b.KeepData) })
-	post(m, "/api/quit", func(context.Context, struct{}) error { go h.app.Quit(); return nil })
+	post(m, "/api/quit", func(context.Context, struct{}) error { h.app.Quit(); return nil })
 }
 
 // errBadRequest is a request the page should not have sent.

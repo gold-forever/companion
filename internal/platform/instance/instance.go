@@ -5,6 +5,7 @@
 package instance
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -74,13 +75,17 @@ const PingPath = "/api/ping"
 
 // Alive says whether the copy i describes is running: its page answers a fresh nonce with the proof
 // only its secret makes.
-func Alive(i Info) bool {
+func Alive(ctx context.Context, i Info) bool {
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err != nil {
 		return false
 	}
 	asked := hex.EncodeToString(nonce)
-	res, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d%s?nonce=%s", i.Port, PingPath, asked))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s?nonce=%s", i.Port, PingPath, asked), nil)
+	if err != nil {
+		return false
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		return false
 	}
@@ -95,8 +100,8 @@ func Alive(i Info) bool {
 }
 
 // Quit asks the running copy to stop, so a newer download can take its place.
-func Quit(i Info) error {
-	res, err := post(i, "/api/quit")
+func Quit(ctx context.Context, i Info) error {
+	res, err := post(ctx, i, "/api/quit")
 	if err != nil {
 		return err
 	}
@@ -114,8 +119,8 @@ func PageURL(i Info) string {
 
 // post asks the running copy, with its secret, to act. The page takes JSON bodies only, so it carries
 // an empty object rather than nothing.
-func post(i Info, path string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d%s", i.Port, path), strings.NewReader("{}"))
+func post(ctx context.Context, i Info, path string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d%s", i.Port, path), strings.NewReader("{}"))
 	if err != nil {
 		return nil, err
 	}

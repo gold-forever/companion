@@ -44,7 +44,9 @@ func fixture(t *testing.T) (*App, string) {
 		dataDir:    data,
 		candidates: []string{wow},
 		quit:       func() {},
+		life:       t.Context(),
 	})
+	t.Cleanup(func() { waitForOwned(t, c) })
 	return c, save
 }
 
@@ -250,6 +252,43 @@ func TestUninstallRemovesTheInstanceFileAndQuits(t *testing.T) {
 	}
 }
 
+// Uninstalling quits a moment later, so the page gets its answer first; a companion that stops sooner
+// leaves no goroutine waiting to quit it.
+func TestUninstallLeavesNothingRunningOnceTheCompanionStops(t *testing.T) {
+	c, _ := fixture(t)
+	life, stop := context.WithCancel(t.Context())
+	c.life = life
+	os.MkdirAll(c.dataDir, 0o700)
+	if err := c.Uninstall(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+
+	stopped(t, c, stop)
+
+	if left := stillRunning(); left != "" {
+		t.Fatalf("the companion stopped with an uninstall still running:\n%s", left)
+	}
+}
+
+// stopped stops the companion c and waits for what it started.
+func stopped(t *testing.T, c *App, stop context.CancelFunc) {
+	t.Helper()
+	stop()
+	waitForOwned(t, c)
+}
+
+// waitForOwned waits for the goroutines the stopped companion c started.
+func waitForOwned(t *testing.T, c *App) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { c.owned.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("the companion's goroutines still run after it stopped:\n%s", stillRunning())
+	}
+}
+
 func TestTheStatusIsTheLatestLineTheLoopWrote(t *testing.T) {
 	c, _ := fixture(t)
 	c.status.Write([]byte("12:00:00 sent _forever_: imported\n"))
@@ -338,6 +377,36 @@ func TestASecondLinkWhileOneWaitsStartsNone(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if starts != 1 {
 		t.Errorf("a second press started %d links in all, want 1", starts)
+	}
+}
+
+// A link outlives the press that started it but not the companion: it waits for an approval on a
+// goroutine the companion stops and waits for.
+func TestALinkWaitingForApprovalEndsWhenTheCompanionStops(t *testing.T) {
+	c, _ := fixture(t)
+	life, stop := context.WithCancel(t.Context())
+	c.life = life
+	c.linker = func(ctx context.Context, show func(server.DeviceCode), save func(string) error) error {
+		show(testCode)
+		<-ctx.Done()
+		time.Sleep(50 * time.Millisecond) // a linker takes a moment to give up
+		return ctx.Err()
+	}
+	press, released := context.WithCancel(t.Context())
+	if err := c.StartDeviceLink(press); err != nil {
+		t.Fatal(err)
+	}
+	linkingState(t, c, "waiting")
+	released()
+	time.Sleep(100 * time.Millisecond) // longer than a linker takes to give up
+	if l := c.State().Linking; l.State != "waiting" {
+		t.Fatalf("the link ended with the press that started it: %+v", l)
+	}
+
+	stopped(t, c, stop)
+
+	if left := stillRunning(); left != "" {
+		t.Fatalf("the companion stopped with a link still waiting:\n%s", left)
 	}
 }
 

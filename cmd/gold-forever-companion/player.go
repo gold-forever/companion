@@ -40,12 +40,12 @@ func player(ctx context.Context, mode string) int {
 	dataDir := config.DataDir(goos, home, os.Getenv)
 	instancePath := filepath.Join(dataDir, app.InstanceFile)
 	other, err := instance.Read(instancePath)
-	alive := err == nil && instance.Alive(other)
+	alive := err == nil && instance.Alive(ctx, other)
 	switch {
 	// Only a double-click installs: a copy started --installed or --autostart is the installed one, so it
 	// never hands off again, whatever a path comparison says (a symlinked home once made that a loop).
 	case mode == "" && layout.NeedsInstall(exe):
-		err = installFromDownload(layout, exe, other, alive)
+		err = installFromDownload(ctx, layout, exe, other, alive)
 	case alive:
 		err = openBrowser(instance.PageURL(other))
 	default:
@@ -60,7 +60,7 @@ func player(ctx context.Context, mode string) int {
 
 // installFromDownload installs the download when nothing is installed or it is newer, stopping the
 // running copy first; a download no newer than what is installed only starts or shows that.
-func installFromDownload(l install.Layout, exe string, other instance.Info, alive bool) error {
+func installFromDownload(ctx context.Context, l install.Layout, exe string, other instance.Info, alive bool) error {
 	_, statErr := os.Stat(l.Exe)
 	fresh := os.IsNotExist(statErr)
 	installed := other.Version
@@ -74,11 +74,13 @@ func installFromDownload(l install.Layout, exe string, other instance.Info, aliv
 		return start(l.Exe, "--installed")
 	}
 	if alive {
-		if err := instance.Quit(other); err != nil {
+		if err := instance.Quit(ctx, other); err != nil {
 			return fmt.Errorf("could not stop the running companion to update it: %w", err)
 		}
-		for deadline := time.Now().Add(10 * time.Second); instance.Alive(other) && time.Now().Before(deadline); {
-			time.Sleep(200 * time.Millisecond)
+		for deadline := time.Now().Add(10 * time.Second); instance.Alive(ctx, other) && time.Now().Before(deadline); {
+			if err := pause(ctx, retryEvery); err != nil {
+				return err
+			}
 		}
 	}
 	autostartWasOn := l.Autostart.Enabled()
@@ -112,7 +114,7 @@ const claimWait = 15 * time.Second
 // serveAlone serves while holding the one-copy claim. Two launches at once (autostart and a click)
 // both find no running copy; the one without the claim opens the other's page instead.
 func serveAlone(ctx context.Context, layout install.Layout, exe, home, dataDir, instancePath, mode string) error {
-	for deadline := time.Now().Add(claimWait); ; time.Sleep(200 * time.Millisecond) {
+	for deadline := time.Now().Add(claimWait); ; {
 		release, err := instance.Claim(dataDir)
 		if err == nil {
 			defer release()
@@ -124,12 +126,30 @@ func serveAlone(ctx context.Context, layout install.Layout, exe, home, dataDir, 
 		if !errors.Is(err, instance.ErrRunning) {
 			return fmt.Errorf("could not make sure only one companion runs: %w", err)
 		}
-		if other, err := instance.Read(instancePath); err == nil && instance.Alive(other) {
+		if other, err := instance.Read(instancePath); err == nil && instance.Alive(ctx, other) {
 			return openBrowser(instance.PageURL(other))
 		}
 		if time.Now().After(deadline) {
 			return errors.New("another copy of the companion is starting but does not answer: try again in a moment")
 		}
+		if err := pause(ctx, retryEvery); err != nil {
+			return err
+		}
+	}
+}
+
+// How often a launch asks again whether another copy has quit or let go of the claim.
+const retryEvery = 200 * time.Millisecond
+
+// pause waits d, or less when ctx ends first: then it returns ctx's error.
+func pause(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
 }
 

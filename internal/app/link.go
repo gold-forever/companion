@@ -26,8 +26,8 @@ func (c *App) Link(ctx context.Context, token string) error {
 // linkTimeout outlasts a code's ten minutes, so the server's expiry is what ends a link.
 const linkTimeout = 15 * time.Minute
 
-// StartDeviceLink starts linking by code in the background, opening the approval page in the browser;
-// the page follows it in State. A press while one waits starts nothing new.
+// StartDeviceLink starts linking by code in the background, until the companion stops, opening the
+// approval page in the browser; the page follows it in State. A press while one waits starts nothing new.
 func (c *App) StartDeviceLink(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -35,8 +35,8 @@ func (c *App) StartDeviceLink(ctx context.Context) error {
 		return nil
 	}
 	c.linking = &page.Linking{State: "starting"}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), linkTimeout) // outlives the press
+	c.owned.Go(func() {
+		ctx, cancel := context.WithTimeout(c.life, linkTimeout) // outlives the press, not the companion
 		defer cancel()
 		show := func(code server.DeviceCode) {
 			// The browser first, so a page that sees "waiting" knows the approval page was opened.
@@ -59,7 +59,7 @@ func (c *App) StartDeviceLink(ctx context.Context) error {
 		default:
 			c.setLinking(page.Linking{State: "failed", Error: err.Error()})
 		}
-	}()
+	})
 	return nil
 }
 
