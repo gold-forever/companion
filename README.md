@@ -108,6 +108,7 @@ What `run` does, in order:
 1. **Finds the installs:** Battle.net's registry entry and `Program Files (x86)` on Windows,
    `/Applications` on macOS, the usual Wine, Lutris, Bottles and Steam prefixes on Linux, plus your
    `folders`. In each, every `_flavour_` folder's `WTF/Account/*/SavedVariables/GoldForever.lua`.
+   Two accounts played at once on one install, from one Battle.net login or two, are supported: each save is uploaded on its own.
 2. **Waits for the game to finish writing:** a save counts once it has been unchanged for 2 seconds
    and ends with the bare `}` that closes `GoldForeverDB`. A cut-off file waits for the next change.
 3. **Keeps a copy** in your data folder (`~/.local/share/gold-forever-companion/backups` on Linux), the

@@ -1142,3 +1142,69 @@ func TestRetailHasItsOwnFileLimitAndMarketBudget(t *testing.T) {
 		})
 	}
 }
+
+func TestTwoAccountsInOneFlavourGetTheirPriceFileWrittenOnce(t *testing.T) {
+	install, _ := tree(t, map[string]int{"_forever_": 16001})
+	second := filepath.Join(install, "_forever_", "WTF", "Account", "987654321#1", "SavedVariables")
+	if err := os.MkdirAll(second, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	save := "GoldForeverDB = {\n[\"client\"] = {\n[\"interface\"] = 16001,\n},\n}\n"
+	if err := os.WriteFile(filepath.Join(second, "GoldForever.lua"), []byte(save), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	saves := find.Saves([]string{install})
+	if len(saves) != 2 {
+		t.Fatalf("found %d saves, want both accounts'", len(saves))
+	}
+	var out strings.Builder
+	r := refresher(&fetcher{body: canned(t)}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	r.Out = &out
+
+	if err := r.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := strings.Count(out.String(), "written into"); n != 1 {
+		t.Fatalf("the price file was written %d times, want once for the install:\n%s", n, out.String())
+	}
+	assertOnly(t, dataDir(install, "_forever_"), "Data.lua", "GoldForever_Data.toc")
+}
+
+func TestAGameReadingThePriceFileWhileItIsWrittenNeverSeesHalfAFile(t *testing.T) {
+	flavour := filepath.Join(t.TempDir(), "_forever_")
+	versions := [][]byte{bytes.Repeat([]byte("a"), 4<<20), bytes.Repeat([]byte("b"), 4<<20)}
+	if err := Write(flavour, 16001, versions[0]); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	var torn, missing, reads int
+	go func() {
+		defer close(done)
+		for i := range 20 {
+			if err := Write(flavour, 16001, versions[(i+1)%2]); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	for running := true; running; {
+		select {
+		case <-done:
+			running = false
+		default:
+		}
+		data, err := os.ReadFile(filepath.Join(addonDir(flavour), "Data.lua"))
+		reads++
+		if err != nil {
+			missing++
+			continue
+		}
+		if !bytes.Equal(data, versions[0]) && !bytes.Equal(data, versions[1]) {
+			torn++
+		}
+	}
+	if torn > 0 || missing > 0 {
+		t.Fatalf("of %d reads, %d saw a half-written price file and %d none", reads, torn, missing)
+	}
+}

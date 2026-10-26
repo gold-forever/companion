@@ -176,3 +176,26 @@ func TestInterfaceReadsTheClientsInterfaceNumber(t *testing.T) {
 		t.Errorf("a save without an interface reads as 0, got %d", got)
 	}
 }
+
+func TestSavesFindsEachAccountFolderOfOneLoginOrOfSeveralLoginsOnOneInstall(t *testing.T) {
+	root := t.TempDir()
+	// One login's WoW accounts are <id>#1, <id>#2; a second login on the same install adds its own id.
+	var want []string
+	for _, account := range []string{"123456789#1", "123456789#2", "987654321#1"} {
+		path := install(t, root, "_forever_", account)
+		// The game keeps the previous save beside it as a .bak: never a save of its own.
+		if err := os.WriteFile(path+".bak", []byte("GoldForeverDB = {\n}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, path)
+	}
+
+	var got []string
+	for _, s := range Saves([]string{filepath.Join(root, "World of Warcraft")}) {
+		got = append(got, s.Path)
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("saves = %q, want %q", got, want)
+	}
+}
