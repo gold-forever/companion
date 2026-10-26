@@ -130,6 +130,9 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// noted is a state with something the log says once, when it arrives.
+type noted interface{ note() string }
+
 // accountState fetches the account's state under key (the dings or shared state) with the ETag of the
 // one held. A failed fetch or a state out of shape keeps the one held; a server without it (none, a
 // 404) has none. nil is none: the files then go without that entry, as an older companion's.
@@ -157,6 +160,9 @@ func accountState[T any](ctx context.Context, r *Refresher, state map[string]hel
 	if err != nil {
 		fmt.Fprintf(r.Out, "%s refused: %v\n", label, err)
 		return last, nil
+	}
+	if n, ok := any(v).(noted); ok && n.note() != "" {
+		fmt.Fprintf(r.Out, "%s: %s\n", label, n.note())
 	}
 	state[key] = held{ETag: etag, State: body}
 	return &v, nil

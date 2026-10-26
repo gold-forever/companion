@@ -182,9 +182,10 @@ If-None-Match: "<the ETag of the dings state held>"
 
 - 200 `{"v":1,"at":<epoch s>,"webhook":true,"characters":{"Player-4620-006C0FC1":true}}`: when the
   state last changed, whether a level-up webhook is connected, and each character's choice. The app
-  checks it (version 1, `at` a plain integer, booleans only, keys of the form `Player-<digits>-<hex>`,
-  none twice); any fault, a state without `at` too, keeps the last good state (or writes none), as
-  does a failed request. It is kept with its ETag in `prices.json`.
+  checks it (version 1, `at` a plain integer, booleans only, no key twice); any fault, a state without
+  `at` too, keeps the last good state (or writes none), as does a failed request. A character whose key
+  is not of the form `Player-<digits>-<hex>` is only left out: the others are written, and the log
+  says so once for that state. It is kept with its ETag in `prices.json`.
 - 304: the state held is still current.
 - 404: historical, from servers before the dings state; still accepted as no state: `Data.lua` goes
   without one, and the addon leaves its switch changeable.

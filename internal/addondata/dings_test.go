@@ -74,15 +74,31 @@ var malformedDings = map[string]string{
 	"a choice null":           dingsWith("characters", `{"`+me+`":null}`),
 	"a character twice":       dingsWith("characters", `{"`+me+`":true,"`+me+`":false}`),
 	"trailing data":           dings + `{}`,
-	"a guid with a quote":     dingsWith("characters", `{"Player-1-0A\"]":true}`),
-	"a guid with a newline":   dingsWith("characters", `{"Player-1-0A\n":true}`),
-	"a creature guid":         dingsWith("characters", `{"Creature-0-4620-0-12-8661-000A":true}`),
-	"a lower-case prefix":     dingsWith("characters", `{"player-4620-006C0FC1":true}`),
-	"no realm digits":         dingsWith("characters", `{"Player--006C0FC1":true}`),
-	"no hex":                  dingsWith("characters", `{"Player-4620-":true}`),
-	"not hex":                 dingsWith("characters", `{"Player-4620-006C0FCG":true}`),
-	"a realm too long":        dingsWith("characters", `{"Player-12345678901-0A":true}`),
-	"hex too long":            dingsWith("characters", `{"Player-1-0123456789ABCDEF0":true}`),
+}
+
+var unreadableKeys = map[string]string{
+	"a guid with a quote":   `Player-1-0A\"]`,
+	"a guid with a newline": `Player-1-0A\n`,
+	"a creature guid":       `Creature-0-4620-0-12-8661-000A`,
+	"a lower-case prefix":   `player-4620-006C0FC1`,
+	"no realm digits":       `Player--006C0FC1`,
+	"no hex":                `Player-4620-`,
+	"not hex":               `Player-4620-006C0FCG`,
+	"a realm too long":      `Player-12345678901-0A`,
+	"hex too long":          `Player-1-0123456789ABCDEF0`,
+	"empty":                 ``,
+}
+
+func TestParseDingsSkipsOnlyACharacterWithAnUnreadableKey(t *testing.T) {
+	for name, key := range unreadableKeys {
+		body := `{"v":1,"at":1761150000,"webhook":true,"characters":{"` + alt + `":false,"` + key + `":true,"` + me + `":true}}`
+		d, err := ParseDings([]byte(body))
+		want := wantDings
+		want.Skipped = 1
+		if err != nil || !reflect.DeepEqual(d, want) {
+			t.Errorf("%s: ParseDings = %+v, %v; want %+v", name, d, err, want)
+		}
+	}
 }
 
 func TestParseDingsRefusesAMalformedState(t *testing.T) {
@@ -170,8 +186,8 @@ func FuzzDingsGuidKeys(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if !guid.MatchString(key) || d.At != at {
-			t.Fatalf("guid %q accepted", key)
+		if _, kept := d.Characters[key]; d.At != at || kept != guid.MatchString(key) || d.Skipped+len(d.Characters) != 1 {
+			t.Fatalf("guid %q read as %+v", key, d)
 		}
 		a := Answer{At: 1, Dings: &d}
 		lua := Lua(a)
@@ -180,7 +196,7 @@ func FuzzDingsGuidKeys(f *testing.F) {
 				t.Fatalf("byte %#x in Data.lua", b)
 			}
 		}
-		if back := readDings(t, lua); back == nil || !reflect.DeepEqual(*back, d) {
+		if back := readDings(t, lua); back == nil || !reflect.DeepEqual(back.Characters, d.Characters) {
 			t.Fatalf("Data.lua does not read back as the state:\n%s", lua)
 		}
 	})
@@ -382,7 +398,7 @@ func TestAStateWithoutAtAndNoneHeldWritesNoDingsTable(t *testing.T) {
 
 func TestAMalformedOrFailedDingsStateKeepsTheLastGoodOne(t *testing.T) {
 	for name, server := range map[string]*dingsServer{
-		"malformed":     {body: strings.Replace(dings, me, `Player-1-0A\"]`, 1), etag: `"d2"`},
+		"malformed":     {body: strings.Replace(dings, `":true}`, `":1}`, 1), etag: `"d2"`},
 		"without at":    {body: strings.Replace(dings, `"at":1761150000,`, "", 1), etag: `"d2"`},
 		"unauthorized":  {err: server.ErrUnauthorized},
 		"server failed": {err: errors.New("status 500")},
@@ -455,5 +471,23 @@ func TestTheReportShowsTheDingsStateEachFileHolds(t *testing.T) {
 	got := report.Files(saves)[0]
 	if got.Dings == nil || !reflect.DeepEqual(*got.Dings, wantDings) || got.Items != 3 || len(got.Markets) != 1 {
 		t.Fatalf("Files = %+v, dings %+v", got, got.Dings)
+	}
+}
+
+func TestAnUnreadableKeyIsLeftOutOfDataLuaAndNotedOnce(t *testing.T) {
+	install, saves := tree(t, map[string]int{"_forever_": 16001})
+	var log bytes.Buffer
+	r := refresher(&fetcher{body: canned(t), etag: `"e1"`}, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	r.Out = &log
+	r.Dings = &dingsServer{body: strings.Replace(dings, `"`+me+`":true`, `"`+me+`":true,"Player-1-0A\"]":true`, 1), etag: `"d1"`}
+
+	_ = r.Refresh(context.Background())
+	_ = r.Refresh(context.Background())
+
+	if got := dataLua(t, install); !bytes.Equal(got, withDings(t, canned(t), &wantDings)) {
+		t.Fatalf("Data.lua =\n%s", got)
+	}
+	if n := strings.Count(log.String(), "dings state: left out"); n != 1 {
+		t.Errorf("the skip noted %d times over two refreshes, want once:\n%s", n, log.String())
 	}
 }

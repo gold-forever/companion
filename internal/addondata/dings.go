@@ -21,11 +21,13 @@ type DingsFetcher interface {
 
 // Dings is the site's side of the switch, the same for every game of the account: when it last changed
 // (epoch seconds, which the addon compares its own choices against), whether a level-up webhook is
-// connected, and each character's choice by its guid.
+// connected, and each character's choice by its guid; Skipped counts the characters left out, the
+// server naming them by a key that is not a player's guid.
 type Dings struct {
 	At         int64
 	Webhook    bool
 	Characters map[string]bool
+	Skipped    int
 }
 
 // A player's guid as the game names one (Player-4620-006C0FC1): nothing a Lua string needs escaped.
@@ -38,8 +40,9 @@ type rawDings struct {
 	Characters json.RawMessage `json:"characters"`
 }
 
-// ParseDings checks the server's dings state: version 1, a plain integer at, booleans only, guids of a
-// player. Any field out of shape refuses all of it; an older server's state without at too.
+// ParseDings checks the server's dings state: version 1, a plain integer at, booleans only. Any field
+// out of shape refuses all of it, an older server's state without at too; a character keyed by
+// anything but a player's guid is only skipped.
 func ParseDings(body []byte) (Dings, error) {
 	var raw rawDings
 	dec := json.NewDecoder(bytes.NewReader(body))
@@ -60,41 +63,54 @@ func ParseDings(body []byte) (Dings, error) {
 	if err != nil {
 		return Dings{}, fmt.Errorf("webhook: %w", err)
 	}
-	characters, err := choices(raw.Characters)
+	characters, skipped, err := choices(raw.Characters)
 	if err != nil {
 		return Dings{}, fmt.Errorf("characters: %w", err)
 	}
-	return Dings{At: at, Webhook: webhook, Characters: characters}, nil
+	return Dings{At: at, Webhook: webhook, Characters: characters, Skipped: skipped}, nil
 }
 
-// choices reads an object of player guids to booleans, none named twice.
-func choices(raw json.RawMessage) (map[string]bool, error) {
+// choices reads an object of player guids to booleans, none named twice, and counts the choices
+// skipped for a key that is not a player's guid: one the Lua string could not hold safely.
+func choices(raw json.RawMessage) (map[string]bool, int, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return nil, errors.New("not an object")
+		return nil, 0, errors.New("not an object")
 	}
-	out := map[string]bool{}
+	out, skipped := map[string]bool{}, 0
 	for dec.More() {
 		tok, err := dec.Token()
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		guid, _ := tok.(string)
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return nil, 0, err
+		}
+		choice, err := boolean(raw)
+		if err != nil {
+			return nil, 0, fmt.Errorf("%q: %w", guid, err)
+		}
 		if !guidKey.MatchString(guid) {
-			return nil, fmt.Errorf("%q is not a player's guid", guid)
+			skipped++
+			continue
 		}
 		if _, seen := out[guid]; seen {
-			return nil, fmt.Errorf("%s named twice", guid)
+			return nil, 0, fmt.Errorf("%s named twice", guid)
 		}
-		var choice json.RawMessage
-		if err := dec.Decode(&choice); err != nil {
-			return nil, err
-		}
-		if out[guid], err = boolean(choice); err != nil {
-			return nil, fmt.Errorf("%s: %w", guid, err)
-		}
+		out[guid] = choice
 	}
-	return out, nil
+	return out, skipped, nil
+}
+
+// note is what the companion's log says once of a state received with characters skipped; empty
+// when none were.
+func (d Dings) note() string {
+	if d.Skipped == 0 {
+		return ""
+	}
+	return fmt.Sprintf("left out %d character(s) whose key is not a player's guid", d.Skipped)
 }
 
 // boolean reads a JSON true or false: 1, "true" and null are not.
