@@ -18,6 +18,10 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: The generated code is that of its spec
+        run: |
+          go generate ./...
+          test -z "$(git status --porcelain)" || { git status --porcelain; git diff; exit 1; }
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
