@@ -1,0 +1,13 @@
+# Types only: the client stays hand-written for its redirects, size limits and retry rules.
+package: server
+output: types.gen.go
+generate:
+  models: true
+output-options:
+  name-normalizer: ToCamelCaseWithInitialisms
+  prefer-skip-optional-pointer: true
+  prefer-skip-optional-pointer-on-container-types: true
+  # The prices are handed on as bytes for internal/addondata; their oneOf answer would need oapi-codegen's runtime.
+  exclude-operation-ids: [getPrices]
+  overlay:
+    path: go.overlay.yaml

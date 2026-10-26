@@ -1,6 +1,8 @@
 // Package server is the companion's HTTP client for the Gold Forever server. Every request it can make
-// is listed in PROTOCOL.md.
+// is listed in PROTOCOL.md; the requests and answers are the types generated from openapi.yaml.
 package server
+
+//go:generate go tool oapi-codegen -config oapi-codegen.yaml openapi.yaml
 
 import (
 	"bytes"
@@ -21,12 +23,6 @@ const saveName = "GoldForever.lua"
 
 // A 429 without Retry-After waits this long.
 const defaultRetryAfter = time.Minute
-
-// The statuses of a 200: the save is the server's now.
-const (
-	statusImported        = "imported"
-	statusAlreadyImported = "already imported"
-)
 
 // How long the server may take to answer once the request is sent, and the whole of a small call.
 const answerTimeout = 2 * time.Minute
@@ -54,16 +50,14 @@ type Client struct {
 }
 
 // Answer is what the server says about an upload it took.
-type Answer struct {
-	Status   string `json:"status"`
-	Problems int    `json:"problems"`
-	Saves    int    `json:"saves"`
-	Reason   string `json:"reason"`
-}
+type Answer = ImportResult
 
 // StatusImported is an upload's status when the server took new data from it; "already imported" is
 // one it had.
-const StatusImported = "imported"
+const (
+	StatusImported        = "imported"
+	statusAlreadyImported = "already imported"
+)
 
 // ErrUnauthorized means the token is wrong or revoked: uploads stop until the player links again.
 var ErrUnauthorized = errors.New("the server does not accept this token")
@@ -164,18 +158,20 @@ func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
 func answer(res *http.Response, body []byte) (Answer, error) {
 	var a Answer
 	unreadable := json.Unmarshal(body, &a) != nil
+	var refusal UploadRefusal
+	_ = json.Unmarshal(body, &refusal)
 	switch {
 	case res.StatusCode == http.StatusOK:
-		if unreadable || (a.Status != statusImported && a.Status != statusAlreadyImported) {
+		if unreadable || (a.Status != StatusImported && a.Status != statusAlreadyImported) {
 			return a, &unavailableError{cause: errors.New("an answer that is not the server's")}
 		}
 		return a, nil
 	case res.StatusCode == http.StatusUnauthorized:
 		return a, ErrUnauthorized
 	case res.StatusCode == http.StatusForbidden:
-		return a, &ForbiddenError{reasonOf(a)}
+		return a, &ForbiddenError{reasonOf(refusal)}
 	case res.StatusCode == http.StatusRequestEntityTooLarge:
-		return a, &TooLargeError{a.Reason}
+		return a, &TooLargeError{refusal.Reason}
 	case res.StatusCode == http.StatusTooManyRequests:
 		wait, ok := retryAfter(res.Header.Get("Retry-After"))
 		if !ok {
@@ -184,21 +180,21 @@ func answer(res *http.Response, body []byte) (Answer, error) {
 		return a, &RateLimitedError{wait}
 	case res.StatusCode == http.StatusBadRequest, res.StatusCode == http.StatusUnsupportedMediaType,
 		res.StatusCode == http.StatusUnprocessableEntity:
-		return a, &RefusedError{res.StatusCode, reasonOf(a)}
+		return a, &RefusedError{res.StatusCode, reasonOf(refusal)}
 	case res.StatusCode >= 500:
 		wait, _ := retryAfter(res.Header.Get("Retry-After"))
-		return a, &unavailableError{withReason(fmt.Sprintf("status %d", res.StatusCode), a.Reason), wait}
+		return a, &unavailableError{withReason(fmt.Sprintf("status %d", res.StatusCode), refusal.Reason), wait}
 	default:
 		return a, &unavailableError{cause: fmt.Errorf("unexpected answer %d", res.StatusCode)}
 	}
 }
 
-// reasonOf is the answer's reason, else its status, which carries it on some answers.
-func reasonOf(a Answer) string {
-	if a.Reason != "" {
-		return a.Reason
+// reasonOf is the refusal's reason, else its status, which carries it on some answers.
+func reasonOf(r UploadRefusal) string {
+	if r.Reason != "" {
+		return r.Reason
 	}
-	return a.Status
+	return r.Status
 }
 
 // withReason is what failed, with the server's own words when it gave them.
@@ -298,12 +294,6 @@ func webPage(link string) (*url.URL, bool) {
 		return nil, false
 	}
 	return l, true
-}
-
-// Release is the newest companion the server knows of.
-type Release struct {
-	Version string `json:"version"`
-	URL     string `json:"url"`
 }
 
 // Latest asks the server for the newest release, without the token. No release named (404) is an

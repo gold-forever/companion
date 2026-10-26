@@ -61,9 +61,9 @@ func (c *Client) conditionalGet(ctx context.Context, path, etag string, limit in
 	}
 	if res.StatusCode == http.StatusNotFound {
 		// For a GET a 404 is the server's word: no such market, or a server from before the request.
-		var a Answer
-		_ = json.Unmarshal(body, &a)
-		return nil, "", &RefusedError{res.StatusCode, reasonOf(a)}
+		var r UploadRefusal
+		_ = json.Unmarshal(body, &r)
+		return nil, "", &RefusedError{res.StatusCode, reasonOf(r)}
 	}
 	if res.StatusCode != http.StatusOK {
 		_, err := answer(res, body)

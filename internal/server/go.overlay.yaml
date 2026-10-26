@@ -1,0 +1,22 @@
+# Where the spec alone would generate the wrong Go: openapi.yaml stays a plain copy of the server's.
+overlay: 1.0.0
+info:
+  title: Go shapes
+  version: "1"
+actions:
+  # An upload's status is a plain string to its callers, who log it as the server's word.
+  - target: $.components.schemas.ImportResult.properties.status
+    update: {x-go-type: string}
+  # DeviceCode's fields in the order the spec lists them; the generator sorts them by name otherwise.
+  - target: $.components.schemas.DeviceCode.properties.device_code
+    update: {x-order: 1}
+  - target: $.components.schemas.DeviceCode.properties.user_code
+    update: {x-order: 2}
+  - target: $.components.schemas.DeviceCode.properties.verification_uri
+    update: {x-order: 3}
+  - target: $.components.schemas.DeviceCode.properties.verification_uri_complete
+    update: {x-order: 4}
+  - target: $.components.schemas.DeviceCode.properties.expires_in
+    update: {x-order: 5}
+  - target: $.components.schemas.DeviceCode.properties.interval
+    update: {x-order: 6}

@@ -27,16 +27,6 @@ const slowDownStep = 5 * time.Second
 // The poll interval when the server names none (RFC 8628's default).
 const defaultInterval = 5 * time.Second
 
-// DeviceCode is the server's answer to a link request.
-type DeviceCode struct {
-	DeviceCode              string `json:"device_code"` // the app's secret for polling; never shown
-	UserCode                string `json:"user_code"`   // what the player checks on the site, ABCD-EFGH
-	VerificationURI         string `json:"verification_uri"`
-	VerificationURIComplete string `json:"verification_uri_complete"` // the page with the code filled in
-	ExpiresIn               int    `json:"expires_in"`                // seconds
-	Interval                int    `json:"interval"`                  // seconds between polls
-}
-
 // ErrLinkDenied means the player said no on the site.
 var ErrLinkDenied = errors.New("the link was denied on the site")
 
@@ -49,7 +39,7 @@ func (c *Client) StartLink(ctx context.Context, hostname string) (DeviceCode, er
 		hostname = unnamedComputer
 	}
 	var code DeviceCode
-	res, body, err := c.postJSON(ctx, "/api/v1/device/code", map[string]string{"client": clientName, "hostname": hostname})
+	res, body, err := c.postJSON(ctx, "/api/v1/device/code", DeviceCodeRequest{Client: clientName, Hostname: hostname})
 	if err != nil {
 		return code, err
 	}
@@ -91,12 +81,12 @@ func (c *Client) WaitForToken(ctx context.Context, code DeviceCode) (string, err
 			return "", err
 		case token != "":
 			return token, nil
-		case verdict == "authorization_pending":
-		case verdict == "slow_down":
+		case verdict == AuthorizationPending:
+		case verdict == SlowDown:
 			interval += slowDownStep
-		case verdict == "access_denied":
+		case verdict == AccessDenied:
 			return "", ErrLinkDenied
-		case verdict == "expired_token":
+		case verdict == ExpiredToken:
 			return "", ErrLinkExpired
 		default:
 			return "", fmt.Errorf("unexpected answer while linking: %q", verdict)
@@ -105,21 +95,20 @@ func (c *Client) WaitForToken(ctx context.Context, code DeviceCode) (string, err
 }
 
 // pollToken asks once: the token when approved, else the server's error word.
-func (c *Client) pollToken(ctx context.Context, deviceCode string) (token, verdict string, err error) {
-	res, body, err := c.postJSON(ctx, "/api/v1/device/token", map[string]string{"device_code": deviceCode})
+func (c *Client) pollToken(ctx context.Context, deviceCode string) (token string, verdict DeviceErrorError, err error) {
+	res, body, err := c.postJSON(ctx, "/api/v1/device/token", DeviceTokenRequest{DeviceCode: deviceCode})
 	if err != nil {
 		return "", "", err
 	}
-	var reply struct {
-		AccessToken string `json:"access_token"`
-		Error       string `json:"error"`
-	}
-	_ = json.Unmarshal(body, &reply)
+	var granted DeviceToken
+	var refused DeviceError
+	_ = json.Unmarshal(body, &granted)
+	_ = json.Unmarshal(body, &refused)
 	switch {
-	case res.StatusCode == http.StatusOK && reply.AccessToken != "":
-		return reply.AccessToken, "", nil
-	case res.StatusCode == http.StatusBadRequest && reply.Error != "":
-		return "", reply.Error, nil
+	case res.StatusCode == http.StatusOK && granted.AccessToken != "":
+		return granted.AccessToken, "", nil
+	case res.StatusCode == http.StatusBadRequest && refused.Error != "":
+		return "", refused.Error, nil
 	case res.StatusCode == http.StatusOK:
 		return "", "", errors.New("the server answered without a token")
 	default:
