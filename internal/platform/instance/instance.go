@@ -74,29 +74,53 @@ func Proof(secret, nonce string) string {
 const PingPath = "/api/ping"
 
 // Alive says whether the copy i describes is running: its page answers a fresh nonce with the proof
-// only its secret makes.
+// only its secret makes. A copy from before the proof (v0.1.0-rc.12 and earlier) refuses that ping;
+// while its process still runs, it is asked as it asked itself, with the secret.
 func Alive(ctx context.Context, i Info) bool {
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err != nil {
 		return false
 	}
 	asked := hex.EncodeToString(nonce)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s?nonce=%s", i.Port, PingPath, asked), nil)
-	if err != nil {
-		return false
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer res.Body.Close()
 	var answer struct {
 		Proof string `json:"proof"`
 	}
-	if res.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(res.Body, 4<<10)).Decode(&answer) != nil {
-		return false
+	status := get(ctx, fmt.Sprintf("http://127.0.0.1:%d%s?nonce=%s", i.Port, PingPath, asked), "", &answer)
+	if status == http.StatusForbidden && Running(i) {
+		return answersAsOlder(ctx, i)
 	}
-	return hmac.Equal([]byte(answer.Proof), []byte(Proof(i.Secret, asked)))
+	return status == http.StatusOK && hmac.Equal([]byte(answer.Proof), []byte(Proof(i.Secret, asked)))
+}
+
+// answersAsOlder says whether a copy from before the proof answers its ping, given its secret, with
+// the version its file records.
+func answersAsOlder(ctx context.Context, i Info) bool {
+	var answer struct {
+		Version string `json:"version"`
+	}
+	status := get(ctx, fmt.Sprintf("http://127.0.0.1:%d%s", i.Port, PingPath), i.Secret, &answer)
+	return status == http.StatusOK && answer.Version == i.Version
+}
+
+// get asks url, with secret unless it is "", and decodes its answer into v: the answer's status, or 0
+// when there was none or it was not JSON.
+func get(ctx context.Context, url, secret string, v any) int {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0
+	}
+	if secret != "" {
+		req.Header.Set(SecretHeader, secret)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(res.Body, 4<<10)).Decode(v) != nil {
+		return 0
+	}
+	return res.StatusCode
 }
 
 // Quit asks the running copy to stop, so a newer download can take its place.

@@ -77,7 +77,8 @@ func installFromDownload(ctx context.Context, l install.Layout, exe string, othe
 		if err := instance.Quit(ctx, other); err != nil {
 			return fmt.Errorf("could not stop the running companion to update it: %w", err)
 		}
-		for deadline := time.Now().Add(10 * time.Second); instance.Alive(ctx, other) && time.Now().Before(deadline); {
+		// Until its process has exited: a copy closes its page before its uploads have finished.
+		for deadline := time.Now().Add(10 * time.Second); (instance.Alive(ctx, other) || instance.Running(other)) && time.Now().Before(deadline); {
 			if err := pause(ctx, retryEvery); err != nil {
 				return err
 			}

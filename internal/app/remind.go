@@ -43,7 +43,7 @@ func (c *App) remindOfUpdate(ctx context.Context) {
 	}
 	// The desktop's question may not end with the companion, so it is waited for only until then.
 	answer := make(chan bool, 1)
-	go func() { answer <- c.ask(ctx, "Version "+version+" of the companion is out.") }()
+	go func() { answer <- c.ask(ctx, "Version "+version+" of the companion is out.", "Update now", "Later") }()
 	select {
 	case yes := <-answer:
 		if yes {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/platform/alert"
 	"github.com/gold-forever/companion/internal/platform/install"
+	"github.com/gold-forever/companion/internal/platform/instance"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
 	"github.com/gold-forever/companion/internal/saves/refused"
@@ -102,14 +104,20 @@ type App struct {
 	releaseFile  string
 	runInstaller func(path string) error
 	// ask puts a question to the player on the desktop: true for its yes. now is the clock.
-	ask func(ctx context.Context, message string) bool
+	ask func(ctx context.Context, message, yes, no string) bool
 	now func() time.Time
+	// olderRuns says whether an older copy's process still runs, and closeOlder stops it; olderGrace is
+	// how long one that was asked to quit has to exit.
+	olderRuns  func(instance.Info) bool
+	closeOlder func(instance.Info) error
+	olderGrace time.Duration
 
 	mu      sync.Mutex
 	notice  *page.Notice
 	update  page.Update
 	warning string // what the page must tell the player about their settings
 	linking *page.Linking
+	older   *instance.Info // an older copy still running beside this one, which could not be asked to quit
 	account knownAccount
 	games   map[string]gameSeen
 }
@@ -155,10 +163,13 @@ func newApp(o appOptions) *App {
 		releases:     &http.Client{Timeout: downloadFor},
 		releaseFile:  releaseFile(goos, runtime.GOARCH),
 		runInstaller: install.Run,
-		ask: func(ctx context.Context, message string) bool {
-			return alert.Ask(ctx, "Gold Forever Companion", message, "Update now", "Later")
+		ask: func(ctx context.Context, message, yes, no string) bool {
+			return alert.Ask(ctx, "Gold Forever Companion", message, yes, no)
 		},
-		now: time.Now,
+		now:        time.Now,
+		olderRuns:  instance.Running,
+		closeOlder: instance.Close,
+		olderGrace: olderGrace,
 	}
 	c.connect = func(token string) connection {
 		return &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
@@ -179,7 +190,7 @@ func (c *App) State() page.State {
 		Site:      c.url(),
 		Linked:    cfg.Token != "",
 		Sharing:   link.SharingLine,
-		Warning:   c.warning,
+		Warning:   c.pageWarning(),
 		Status:    c.status.String(),
 		Account:   c.Account(),
 		FirstRun:  !cfg.Welcomed,
@@ -206,6 +217,18 @@ func (c *App) State() page.State {
 	}
 	c.mu.Unlock()
 	return s
+}
+
+// pageWarning is what the page must tell the player: an older copy running beside this one, then a
+// problem with their settings.
+func (c *App) pageWarning() string {
+	var lines []string
+	for _, line := range []string{c.olderLine(), c.warning} {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, " ")
 }
 
 // priceFile is a flavour's price file as the page shows it, its folder named as saves are.

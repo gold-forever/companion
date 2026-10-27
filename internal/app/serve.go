@@ -65,10 +65,14 @@ func Serve(ctx context.Context, o ServeOptions) error {
 		c.owned.Wait()
 	}()
 	c.owned.Go(func() { _ = srv.Serve(listener) })
+	previous, readErr := instance.Read(instancePath)
 	if err := instance.Write(instancePath, info); err != nil {
 		return err
 	}
 	defer removeIfOurs(instancePath, info)
+	if readErr == nil && previous.PID != info.PID {
+		c.owned.Go(func() { c.offerToCloseOlder(ctx, previous) })
+	}
 	c.owned.Go(func() { c.loop(ctx) })
 	c.owned.Go(func() { c.checkVersion(ctx) })
 

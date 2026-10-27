@@ -19,8 +19,14 @@ var (
 	pricesNotWritten = regexp.MustCompile(`^prices not written into `)
 )
 
-// Status is the latest line the upload loop wrote, short enough for the tray's menu.
-func (c *App) Status() string { return trayStatus(c.status.String()) }
+// Status is the latest line the upload loop wrote, short enough for the tray's menu; while an older copy
+// runs beside this one, that comes first.
+func (c *App) Status() string {
+	if c.olderLine() != "" {
+		return "An older copy is still running: see Settings"
+	}
+	return trayStatus(c.status.String())
+}
 
 func trayStatus(line string) string {
 	if m := pricesWritten.FindStringSubmatch(line); m != nil {

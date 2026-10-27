@@ -15,7 +15,7 @@ func reminding(t *testing.T, c *App, latest *string, answer bool) *[]string {
 		return server.Release{Version: *latest, URL: releaseTag + *latest}, nil
 	}}).connects(c)
 	var asked []string
-	c.ask = func(_ context.Context, message string) bool { asked = append(asked, message); return answer }
+	c.ask = func(_ context.Context, message, _, _ string) bool { asked = append(asked, message); return answer }
 	return &asked
 }
 
@@ -112,7 +112,7 @@ func TestAReminderStillOpenDoesNotKeepTheCompanionRunning(t *testing.T) {
 	reminding(t, c, &latest, false)
 	closed := make(chan struct{}) // the player answers only once the test is over
 	t.Cleanup(func() { close(closed) })
-	c.ask = func(context.Context, string) bool { <-closed; return false }
+	c.ask = func(context.Context, string, string, string) bool { <-closed; return false }
 	c.now = time.Now
 	c.CheckForUpdate(t.Context())
 	ctx, stop := context.WithCancel(t.Context())
