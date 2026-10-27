@@ -16,6 +16,7 @@ import (
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/addondata"
+	"github.com/gold-forever/companion/internal/platform/alert"
 	"github.com/gold-forever/companion/internal/platform/install"
 	"github.com/gold-forever/companion/internal/saves/backup"
 	"github.com/gold-forever/companion/internal/saves/find"
@@ -42,6 +43,8 @@ const (
 	instanceFile = "instance.json"
 	// refusedFile, in the data folder, lists the saves the server refused as too large.
 	refusedFile = "refused.json"
+	// remindedFile, in the data folder, says which release the player was last reminded of, and when.
+	remindedFile = "reminded.json"
 )
 
 // InstancePath is the file in dataDir that says which copy runs and where its page is.
@@ -98,6 +101,9 @@ type App struct {
 	releases     *http.Client
 	releaseFile  string
 	runInstaller func(path string) error
+	// ask puts a question to the player on the desktop: true for its yes. now is the clock.
+	ask func(ctx context.Context, message string) bool
+	now func() time.Time
 
 	mu      sync.Mutex
 	notice  *page.Notice
@@ -149,6 +155,10 @@ func newApp(o appOptions) *App {
 		releases:     &http.Client{Timeout: downloadFor},
 		releaseFile:  releaseFile(goos, runtime.GOARCH),
 		runInstaller: install.Run,
+		ask: func(ctx context.Context, message string) bool {
+			return alert.Ask(ctx, "Gold Forever Companion", message, "Update now", "Later")
+		},
+		now: time.Now,
 	}
 	c.connect = func(token string) connection {
 		return &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}

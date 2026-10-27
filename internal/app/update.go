@@ -65,6 +65,7 @@ func (c *App) checkVersion(ctx context.Context) {
 	asker := c.connect("")
 	for {
 		_ = c.checkForUpdate(ctx, asker)
+		c.remindOfUpdate(ctx)
 		select {
 		case <-ctx.Done():
 			return
