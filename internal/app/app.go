@@ -34,6 +34,8 @@ const (
 	pricesState = "prices.json"
 	keepCopies  = 10
 	keepLogFor  = 30 * 24 * time.Hour
+	// sentPerPage is how many uploads a page of "What was sent" shows.
+	sentPerPage = 10
 	// downloadFor is how long downloading an update may take.
 	downloadFor = 10 * time.Minute
 	// instanceFile, in the data folder, says which copy runs and where its page is.

@@ -35,9 +35,14 @@ func (c *App) copies() map[string]kept {
 	return out
 }
 
-func (c *App) History() page.History {
+// History is page n of the upload log, newest first; a page outside the log is the nearest one.
+func (c *App) History(n int) page.History {
 	entries, _ := c.log.Read()
-	h := page.History{Entries: entries}
+	slices.Reverse(entries)
+	pages := max(1, (len(entries)+sentPerPage-1)/sentPerPage)
+	n = min(max(n, 1), pages)
+	from := (n - 1) * sentPerPage
+	h := page.History{Entries: entries[from:min(from+sentPerPage, len(entries))], Page: n, Pages: pages}
 	for _, k := range c.copies() {
 		h.Copies = append(h.Copies, k.Copy)
 	}

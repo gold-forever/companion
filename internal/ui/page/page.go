@@ -100,9 +100,11 @@ type Update struct {
 	Error      string `json:"error,omitempty"` // why the last check or update failed
 }
 
-// History is the upload log and the copies still kept.
+// History is one page of the upload log, newest first, and the copies still kept.
 type History struct {
 	Entries []sendlog.Entry `json:"entries"`
+	Page    int             `json:"page"`  // from 1
+	Pages   int             `json:"pages"` // at least 1, for an empty log too
 	Copies  []Copy          `json:"copies"`
 }
 
@@ -125,7 +127,7 @@ type App interface {
 	AddFolder(ctx context.Context, path string) error
 	SetAutostart(ctx context.Context, on bool) error
 	Welcomed(ctx context.Context) error
-	History() History
+	History(page int) History
 	CopyBytes(id string) ([]byte, bool)
 	Restore(ctx context.Context, id string) error
 	Uninstall(ctx context.Context, keepData bool) error
@@ -238,7 +240,13 @@ func (h *handler) routes() {
 	m := h.mux
 	m.Handle("GET /", http.FileServerFS(mustSub(static, "static")))
 	m.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, h.app.State()) })
-	m.HandleFunc("GET /api/history", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, h.app.History()) })
+	m.HandleFunc("GET /api/history", func(w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err != nil {
+			n = 1
+		}
+		writeJSON(w, h.app.History(n))
+	})
 	m.HandleFunc("GET /api/copy", func(w http.ResponseWriter, r *http.Request) {
 		data, ok := h.app.CopyBytes(r.URL.Query().Get("id"))
 		if !ok {

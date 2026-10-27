@@ -164,9 +164,17 @@ function showLinking(l, linked) {
   schedule(waiting ? 1500 : 5000);
 }
 
+// The page of "What was sent" the player is on: it stays while new uploads arrive, which come in on page 1.
+let logPage = 1;
+
 function showHistory(h) {
-  $("log").replaceChildren(...(h.entries || []).slice().reverse().map((e) =>
+  logPage = h.page || 1;
+  $("log").replaceChildren(...(h.entries || []).map((e) =>
     row(new Date(e.time).toLocaleString(), e.save, `${Math.round(e.size / 1024)} KB`, e.answer)));
+  $("log-pages").hidden = (h.pages || 1) < 2;
+  $("log-page").textContent = `page ${logPage} of ${h.pages || 1}`;
+  $("newer").disabled = logPage <= 1;
+  $("older").disabled = logPage >= (h.pages || 1);
   $("copies").replaceChildren(...(h.copies || []).slice().reverse().map((c) => {
     const view = button("View", () => window.open("/api/copy?id=" + encodeURIComponent(c.id), "_blank"));
     const restore = button("Restore", () => {
@@ -180,7 +188,7 @@ function showHistory(h) {
 
 async function refresh() {
   showState(await call("/api/state"));
-  showHistory(await call("/api/history"));
+  showHistory(await call("/api/history?page=" + logPage));
 }
 
 $("autostart").onchange = () => act(call("/api/autostart", { on: $("autostart").checked }));
@@ -189,6 +197,8 @@ $("device").onclick = () => act(call("/api/link/device", {}));
 $("link").onsubmit = (e) => { e.preventDefault(); act(call("/api/link", { token: $("token").value.trim() })); $("token").value = ""; };
 $("unlink").onclick = () => act(call("/api/unlink", {}));
 $("folder").onsubmit = (e) => { e.preventDefault(); act(call("/api/folder", { path: $("path").value.trim() })); $("path").value = ""; };
+$("newer").onclick = () => { logPage--; refresh(); };
+$("older").onclick = () => { logPage++; refresh(); };
 $("check").onclick = () => call("/api/update/check", {}).then(refresh, refresh);
 $("update").onclick = () => {
   $("update").disabled = true;

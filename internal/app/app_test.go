@@ -192,7 +192,7 @@ func TestCopiesAreReachedByIDOnlyAndRestoreWritesTheSaveBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.WriteFile(save, []byte("GoldForeverDB = {\n-- the game lost everything\n}\n"), 0o644)
-	copies := c.History().Copies
+	copies := c.History(1).Copies
 	if len(copies) != 1 || strings.Contains(copies[0].ID, string(os.PathSeparator)) {
 		t.Fatalf("copies: %+v", copies)
 	}

@@ -33,6 +33,7 @@ type fakeApp struct {
 	account     string
 	quits       atomic.Int32
 	checks      int
+	page        int // the page of the log last asked for
 	updates     int
 }
 
@@ -48,7 +49,7 @@ func (a *fakeApp) SetSaveOn(context.Context, string, bool) error {
 func (a *fakeApp) AddFolder(context.Context, string) error    { return a.err }
 func (a *fakeApp) SetAutostart(context.Context, bool) error   { return nil }
 func (a *fakeApp) Welcomed(context.Context) error             { return nil }
-func (a *fakeApp) History() History                           { return History{} }
+func (a *fakeApp) History(page int) History                   { a.page = page; return History{Page: page} }
 func (a *fakeApp) Restore(_ context.Context, id string) error { a.restored = id; return nil }
 func (a *fakeApp) Uninstall(context.Context, bool) error      { a.uninstalls++; return nil }
 func (a *fakeApp) Quit()                                      { a.quits.Add(1) }
@@ -379,9 +380,18 @@ func TestTheUpdateSectionChecksAndUpdatesThroughTheApp(t *testing.T) {
 
 func TestThePageHasAnUpdateSection(t *testing.T) {
 	body := serve(&fakeApp{}, "GET", "/", "", nil).Body.String()
-	for _, id := range []string{`id="running"`, `id="latest"`, `id="check"`, `id="update"`, `id="update-error"`} {
+	for _, id := range []string{`id="running"`, `id="latest"`, `id="check"`, `id="update"`, `id="update-error"`, `id="log-page"`, `id="newer"`, `id="older"`} {
 		if !strings.Contains(body, id) {
 			t.Errorf("the page has no %s", id)
+		}
+	}
+}
+
+func TestTheLogIsAskedForByPage(t *testing.T) {
+	for query, want := range map[string]int{"?page=3": 3, "": 1, "?page=x": 1} {
+		app := &fakeApp{}
+		if rec := serve(app, "GET", "/api/history"+query, "", nil); rec.Code != http.StatusOK || app.page != want {
+			t.Errorf("%q: %d, page %d", query, rec.Code, app.page)
 		}
 	}
 }
