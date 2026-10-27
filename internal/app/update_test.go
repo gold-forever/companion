@@ -72,6 +72,9 @@ func TestUpToDateShowsTheLatestReleaseAndNothingToInstall(t *testing.T) {
 	if u.Latest != "v0.1.0" || u.Newer || u.Error != "" {
 		t.Errorf("up to date: %+v", u)
 	}
+	if c.UpdateVersion() != "" {
+		t.Error("the tray offers Update now while up to date")
+	}
 }
 
 func TestANewerReleaseIsDownloadedCheckedAndRun(t *testing.T) {
@@ -212,5 +215,53 @@ func TestEachSystemUpdatesFromItsOwnReleaseFile(t *testing.T) {
 		if got := releaseFile(system[0], system[1]); got != file {
 			t.Errorf("%v: %q", system, got)
 		}
+	}
+}
+
+// The tray's Update now does what Settings' Update does; where it cannot, or when it fails, it opens a
+// page that says why.
+func TestUpdateNowInstallsOrOpensThePageThatSaysWhy(t *testing.T) {
+	c, _ := fixture(t)
+	companion := "the new companion"
+	_, ran := releasing(t, c, map[string]string{linuxFile: companion, "SHA256SUMS": sum(companion) + "  " + linuxFile + "\n"})
+	var opened []string
+	c.openURL = func(url string) { opened = append(opened, url) }
+	c.pageURL = "http://127.0.0.1:1/?s=secret"
+	if c.UpdateVersion() != "" {
+		t.Error("Update now before any check")
+	}
+	c.CheckForUpdate(t.Context())
+	if c.UpdateVersion() != "v0.2.0" {
+		t.Fatalf("Update now names %q", c.UpdateVersion())
+	}
+
+	c.UpdateNow()
+	waitForOwned(t, c)
+	if len(*ran) != 1 || len(opened) != 0 {
+		t.Errorf("installable: ran %v, opened %v", *ran, opened)
+	}
+
+	c, _ = fixture(t)
+	_, ran = releasing(t, c, map[string]string{linuxFile: "tampered", "SHA256SUMS": sum(companion) + "  " + linuxFile + "\n"})
+	opened = nil
+	c.openURL = func(url string) { opened = append(opened, url) }
+	c.pageURL = "http://127.0.0.1:1/?s=secret"
+	c.CheckForUpdate(t.Context())
+	c.UpdateNow()
+	waitForOwned(t, c)
+	if len(*ran) != 0 || len(opened) != 1 || opened[0] != c.pageURL {
+		t.Errorf("failed: ran %v, opened %v", *ran, opened)
+	}
+
+	c, _ = fixture(t)
+	releasing(t, c, nil)
+	c.releaseFile = ""
+	opened = nil
+	c.openURL = func(url string) { opened = append(opened, url) }
+	c.CheckForUpdate(t.Context())
+	c.UpdateNow()
+	waitForOwned(t, c)
+	if len(opened) != 1 || opened[0] != newerTag {
+		t.Errorf("not installable here: opened %v", opened)
 	}
 }

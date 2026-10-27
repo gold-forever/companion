@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -60,3 +61,33 @@ func (c *App) OpenSettings() { c.openURL(c.pageURL) }
 
 // Quit stops the companion.
 func (c *App) Quit() { c.quit() }
+
+// UpdateVersion is the newer release the last check found, for the tray's Update now; "" while none.
+func (c *App) UpdateVersion() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.update.Newer {
+		return ""
+	}
+	return c.update.Latest
+}
+
+// UpdateNow runs Settings' Update. Where the companion cannot install the release itself it opens the
+// release's page, and when the update fails, the settings page, which says why.
+func (c *App) UpdateNow() {
+	c.mu.Lock()
+	u := c.update
+	c.mu.Unlock()
+	if !u.Newer {
+		return
+	}
+	if !u.CanInstall {
+		c.openURL(u.URL)
+		return
+	}
+	c.owned.Go(func() {
+		if err := c.Update(c.life); err != nil && !errors.Is(err, ErrUpdating) {
+			c.openURL(c.pageURL)
+		}
+	})
+}

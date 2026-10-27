@@ -17,6 +17,8 @@ type App interface {
 	Account() string // whom the uploads go to, for this player's eyes; "" until known
 	OpenSite()
 	OpenSettings()
+	UpdateVersion() string // the newer release Update now installs; "" while none is known
+	UpdateNow()
 	Quit()
 }
 
@@ -43,21 +45,26 @@ func Run(ctx context.Context, app App) {
 	following.Wait()
 }
 
-// menu is the built menu: its status and account lines and the items that send clicks.
+// menu is the built menu: its status and account lines, Update now, and the items that send clicks.
 type menu struct {
-	status, account *systray.MenuItem
-	clicks          clicks
+	status, account, update *systray.MenuItem
+	clicks                  clicks
 }
 
-// show sets the status line, and the account line, hidden while there is none.
-func (m menu) show(status, account string) {
+// show sets the status line, and the account line and Update now, each hidden while it has nothing to say.
+func (m menu) show(status, account, update string) {
 	m.status.SetTitle(status)
-	if account == "" {
-		m.account.Hide()
+	showIf(m.account, account)
+	showIf(m.update, update)
+}
+
+func showIf(item *systray.MenuItem, title string) {
+	if title == "" {
+		item.Hide()
 		return
 	}
-	m.account.SetTitle(account)
-	m.account.Show()
+	item.SetTitle(title)
+	item.Show()
 }
 
 func build(app App) menu {
@@ -74,33 +81,41 @@ func build(app App) menu {
 	if accountOf(app) == "" {
 		account.Hide()
 	}
+	update := systray.AddMenuItem(updateOf(app), "Install the newer release, as Settings does")
+	if updateOf(app) == "" {
+		update.Hide()
+	}
 	systray.AddSeparator()
 	site := systray.AddMenuItem("Open Gold Forever", "The site, in your browser")
 	settings := systray.AddMenuItem("Settings", "What the companion finds and sends")
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit", "Stop uploading until the companion starts again")
-	return menu{status: status, account: account, clicks: clicks{site: site.ClickedCh, settings: settings.ClickedCh, quit: quit.ClickedCh}}
+	return menu{status: status, account: account, update: update, clicks: clicks{
+		site: site.ClickedCh, settings: settings.ClickedCh, update: update.ClickedCh, quit: quit.ClickedCh,
+	}}
 }
 
 // clicks are the menu's items, each sending when clicked.
 type clicks struct {
-	site, settings, quit <-chan struct{}
+	site, settings, update, quit <-chan struct{}
 }
 
 // follow passes each click on to app until Quit or ctx's end, and shows app's status and account at
 // every tick.
-func follow(ctx context.Context, app App, c clicks, tick <-chan time.Time, show func(status, account string)) {
+func follow(ctx context.Context, app App, c clicks, tick <-chan time.Time, show func(status, account, update string)) {
 	for {
 		select {
 		case <-c.site:
 			app.OpenSite()
 		case <-c.settings:
 			app.OpenSettings()
+		case <-c.update:
+			app.UpdateNow()
 		case <-c.quit:
 			app.Quit()
 			return
 		case <-tick:
-			show(statusOf(app), accountOf(app))
+			show(statusOf(app), accountOf(app), updateOf(app))
 		case <-ctx.Done():
 			return
 		}
@@ -113,6 +128,14 @@ func statusOf(app App) string {
 		return s
 	}
 	return "Starting…"
+}
+
+// updateOf is Update now's title; "" while no newer release is known.
+func updateOf(app App) string {
+	if v := app.UpdateVersion(); v != "" {
+		return "Update now to " + v
+	}
+	return ""
 }
 
 // accountOf is the line naming whom the uploads go to; "" while that is not known.
