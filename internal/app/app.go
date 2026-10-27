@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -33,6 +34,8 @@ const (
 	pricesState = "prices.json"
 	keepCopies  = 10
 	keepLogFor  = 30 * 24 * time.Hour
+	// downloadFor is how long downloading an update may take.
+	downloadFor = 10 * time.Minute
 	// instanceFile, in the data folder, says which copy runs and where its page is.
 	instanceFile = "instance.json"
 	// refusedFile, in the data folder, lists the saves the server refused as too large.
@@ -88,9 +91,15 @@ type App struct {
 	openURL func(url string)
 	// pageURL is the settings page's address, with its secret.
 	pageURL string
+	// releases downloads a release's files; releaseFile is this system's file in a release, "" where
+	// the companion does not install itself (macOS); runInstaller starts a downloaded companion.
+	releases     *http.Client
+	releaseFile  string
+	runInstaller func(path string) error
 
 	mu      sync.Mutex
 	notice  *page.Notice
+	update  page.Update
 	warning string // what the page must tell the player about their settings
 	linking *page.Linking
 	account knownAccount
@@ -130,11 +139,14 @@ func newApp(o appOptions) *App {
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
 		settings: settings, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit, life: o.life,
 		backups: records.Backups, log: records.Log, refused: records.Refused,
-		status:  &lastLine{},
-		prices:  &addondata.Report{Now: time.Now},
-		warning: warning,
-		games:   map[string]gameSeen{},
-		openURL: func(string) {},
+		status:       &lastLine{},
+		prices:       &addondata.Report{Now: time.Now},
+		warning:      warning,
+		games:        map[string]gameSeen{},
+		openURL:      func(string) {},
+		releases:     &http.Client{Timeout: downloadFor},
+		releaseFile:  releaseFile(goos, runtime.GOARCH),
+		runInstaller: install.Run,
 	}
 	c.connect = func(token string) connection {
 		return &server.Client{BaseURL: c.url(), Token: token, Version: c.version, OS: goos}
@@ -175,6 +187,7 @@ func (c *App) State() page.State {
 	}
 	c.mu.Lock()
 	s.Notice = c.notice
+	s.Update = c.update
 	if c.linking != nil {
 		l := *c.linking
 		s.Linking = &l

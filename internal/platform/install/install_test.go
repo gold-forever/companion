@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 )
 
@@ -383,4 +385,25 @@ func TestInstalledSystemsLeaveAutostartToInstalling(t *testing.T) {
 	if err := l.FollowApp(l.Exe, true); err != nil || l.Autostart.Enabled() {
 		t.Errorf("Install turns autostart on where there is an install step: %v", err)
 	}
+}
+
+func TestRunStartsTheDownloadWithoutWaitingForIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a shell script stands in for the download")
+	}
+	dir := t.TempDir()
+	started := filepath.Join(dir, "started")
+	download := filepath.Join(dir, "download")
+	os.WriteFile(download, []byte("#!/bin/sh\ntouch '"+started+"'\n"), 0o755)
+
+	if err := Run(download); err != nil {
+		t.Fatal(err)
+	}
+
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			return
+		}
+	}
+	t.Error("the download never ran")
 }

@@ -39,6 +39,7 @@ type State struct {
 	Saves     []Save      `json:"saves"`
 	Folders   []string    `json:"folders"`
 	Notice    *Notice     `json:"notice,omitempty"`
+	Update    Update      `json:"update"`
 	Warning   string      `json:"warning,omitempty"` // a problem with the settings the player must know of
 	Linking   *Linking    `json:"linking,omitempty"`
 	Prices    []PriceFile `json:"prices"`
@@ -82,10 +83,21 @@ type Save struct {
 	Note  string `json:"note,omitempty"` // what the companion is doing about it, when not the usual
 }
 
-// Notice says a newer release exists; the player downloads it themselves.
+// Notice says a newer release exists, for the header.
 type Notice struct {
 	Version string `json:"version"`
 	URL     string `json:"url"`
+}
+
+// Update is the settings' update section: the newest release the last check found, and whether the
+// companion can install it here.
+type Update struct {
+	Latest     string `json:"latest,omitempty"` // none until a check has answered
+	URL        string `json:"url,omitempty"`    // the release's page
+	Newer      bool   `json:"newer"`
+	CanInstall bool   `json:"canInstall"`      // false where the player downloads it from URL themselves
+	Installing bool   `json:"installing"`      // an update is downloading, or has started the new version
+	Error      string `json:"error,omitempty"` // why the last check or update failed
 }
 
 // History is the upload log and the copies still kept.
@@ -118,6 +130,8 @@ type App interface {
 	Restore(ctx context.Context, id string) error
 	Uninstall(ctx context.Context, keepData bool) error
 	Quit()
+	CheckForUpdate(ctx context.Context) error
+	Update(ctx context.Context) error
 }
 
 // PlayerError is an error the player can fix, which the page shows as theirs (a 400) rather than the
@@ -255,6 +269,8 @@ func (h *handler) routes() {
 		}
 		return h.app.Restore(ctx, b.ID)
 	})
+	post(m, "/api/update/check", func(ctx context.Context, _ struct{}) error { return h.app.CheckForUpdate(ctx) })
+	post(m, "/api/update", func(ctx context.Context, _ struct{}) error { return h.app.Update(ctx) })
 	post(m, "/api/uninstall", func(ctx context.Context, b struct{ KeepData bool }) error { return h.app.Uninstall(ctx, b.KeepData) })
 	post(m, "/api/quit", func(context.Context, struct{}) error { h.app.Quit(); return nil })
 }

@@ -10,6 +10,7 @@ import (
 	"html"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -175,6 +176,16 @@ func (l Layout) Install(running string) error {
 		}
 	}
 	return l.Autostart.Enable(l.Target(running))
+}
+
+// Run starts the companion downloaded at path on its own, without waiting. Started as a double-click
+// starts it, it installs itself over the running copy and starts again.
+func Run(path string) error {
+	cmd := exec.Command(path)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("could not start %s: %w", path, err)
+	}
+	return cmd.Process.Release()
 }
 
 // Uninstall turns autostart off and removes the launcher, the binary and the settings, and the

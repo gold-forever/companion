@@ -32,6 +32,8 @@ type fakeApp struct {
 	prices      []PriceFile
 	account     string
 	quits       atomic.Int32
+	checks      int
+	updates     int
 }
 
 func (a *fakeApp) State() State {
@@ -50,6 +52,8 @@ func (a *fakeApp) History() History                           { return History{}
 func (a *fakeApp) Restore(_ context.Context, id string) error { a.restored = id; return nil }
 func (a *fakeApp) Uninstall(context.Context, bool) error      { a.uninstalls++; return nil }
 func (a *fakeApp) Quit()                                      { a.quits.Add(1) }
+func (a *fakeApp) CheckForUpdate(context.Context) error       { a.checks++; return nil }
+func (a *fakeApp) Update(context.Context) error               { a.updates++; return a.err }
 func (a *fakeApp) CopyBytes(id string) ([]byte, bool) {
 	if id == "known" {
 		return []byte("GoldForeverDB = {\n}\n"), true
@@ -357,6 +361,27 @@ func TestTheAppsRefusalsAreThePlayersToFixAndItsFailuresAreNot(t *testing.T) {
 		_ = json.Unmarshal(rec.Body.Bytes(), &body)
 		if rec.Code != want || body.Error != err.Error() {
 			t.Errorf("%v: %d %q, want %d with the message", err, rec.Code, body.Error, want)
+		}
+	}
+}
+
+func TestTheUpdateSectionChecksAndUpdatesThroughTheApp(t *testing.T) {
+	app := &fakeApp{}
+	check := serve(app, "POST", "/api/update/check", "{}", nil)
+	update := serve(app, "POST", "/api/update", "{}", nil)
+	if check.Code != http.StatusOK || update.Code != http.StatusOK || app.checks != 1 || app.updates != 1 {
+		t.Fatalf("check %d, update %d: %d checks, %d updates", check.Code, update.Code, app.checks, app.updates)
+	}
+	if rec := serve(app, "POST", "/api/update", "{}", func(r *http.Request) { r.Header.Del("Cookie") }); rec.Code != http.StatusForbidden || app.updates != 1 {
+		t.Errorf("an update without the secret: %d, %d updates", rec.Code, app.updates)
+	}
+}
+
+func TestThePageHasAnUpdateSection(t *testing.T) {
+	body := serve(&fakeApp{}, "GET", "/", "", nil).Body.String()
+	for _, id := range []string{`id="running"`, `id="latest"`, `id="check"`, `id="update"`, `id="update-error"`} {
+		if !strings.Contains(body, id) {
+			t.Errorf("the page has no %s", id)
 		}
 	}
 }

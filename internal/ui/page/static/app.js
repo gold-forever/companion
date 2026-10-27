@@ -40,7 +40,7 @@ function showState(s) {
     notice.replaceChildren(`Version ${s.notice.version} is out. `);
     const a = document.createElement("a");
     a.href = s.notice.url; a.textContent = "Download it"; a.target = "_blank"; a.rel = "noreferrer";
-    notice.append(a, " and run it: it replaces this one.");
+    notice.append(a, s.update && s.update.canInstall ? ", or press Update under Updates below." : " and run it: it replaces this one.");
   }
   $("warning").hidden = !s.warning;
   $("warning").textContent = s.warning || "";
@@ -73,6 +73,40 @@ function showState(s) {
   }));
   if (!(s.saves || []).length) $("saves").replaceChildren(li("None yet. Log in to World of Warcraft once with the Gold Forever addon, or add your WoW folder below."));
   showPrices(s.prices || []);
+  showUpdate(s.version, s.update || {});
+}
+
+function releaseLink(url, text) {
+  const a = document.createElement("a");
+  a.href = url; a.textContent = text; a.target = "_blank"; a.rel = "noreferrer";
+  return a;
+}
+
+// Whether this page's Update has started the new version, which then replaces this companion.
+let started = false;
+
+// The update section: the running version, the latest release the last check found, and Update where
+// the companion can install it itself.
+function showUpdate(version, u) {
+  $("running").textContent = version;
+  const latest = $("latest");
+  if (!u.latest) latest.replaceChildren("");
+  else if (!u.newer) latest.replaceChildren(`It is the latest release (${u.latest}).`);
+  else {
+    latest.replaceChildren(`Version ${u.latest} is out. `, releaseLink(u.url, "What's new"));
+    if (!u.canInstall) latest.append(": download it there and run it, it replaces this one.");
+  }
+  $("update").hidden = !u.newer || !u.canInstall;
+  $("update").disabled = u.installing;
+  $("check").disabled = u.installing;
+  $("updating").hidden = !u.installing;
+  $("updating").textContent = started
+    ? "The new version is installing itself: it opens its own page when it has started. You can close this one."
+    : "Downloading the update and checking it against the release's checksum…";
+  const error = $("update-error");
+  error.hidden = !u.error;
+  error.replaceChildren(u.error || "");
+  if (u.error && u.url) error.append(" ", releaseLink(u.url, "Download it from the release page"), " instead.");
 }
 
 function row(...texts) {
@@ -155,6 +189,12 @@ $("device").onclick = () => act(call("/api/link/device", {}));
 $("link").onsubmit = (e) => { e.preventDefault(); act(call("/api/link", { token: $("token").value.trim() })); $("token").value = ""; };
 $("unlink").onclick = () => act(call("/api/unlink", {}));
 $("folder").onsubmit = (e) => { e.preventDefault(); act(call("/api/folder", { path: $("path").value.trim() })); $("path").value = ""; };
+$("check").onclick = () => call("/api/update/check", {}).then(refresh, refresh);
+$("update").onclick = () => {
+  $("update").disabled = true;
+  $("updating").hidden = false;
+  call("/api/update", {}).then(() => { started = true; return refresh(); }, refresh);
+};
 $("uninstall").onclick = () => {
   if (!confirm("Uninstall the Gold Forever Companion from this computer?")) return;
   call("/api/uninstall", { keepData: $("keep").checked }).then(
