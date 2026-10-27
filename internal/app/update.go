@@ -92,16 +92,20 @@ func (c *App) checkForUpdate(ctx context.Context, asker releaseAsker) error {
 		Latest: latest.Version, URL: latest.URL, Newer: newer, Installing: c.update.Installing,
 		CanInstall: newer && c.releaseFile != "" && latest.URL == releaseTag+latest.Version,
 	}
+	c.notice = nil
 	if newer {
 		c.notice = &page.Notice{Version: latest.Version, URL: latest.URL}
 	}
 	return nil
 }
 
-// Update downloads the newer release the last check found, checks it against the release's published
-// checksum and runs it: like a double-click on a newer download, it stops this copy, installs itself
-// over it and starts again.
-func (c *App) Update(ctx context.Context) error {
+// Update is the page's update: the tab that asked for it carries on with the new copy.
+func (c *App) Update(ctx context.Context) error { return c.updateFrom(ctx, true) }
+
+// updateFrom downloads the newer release the last check found, checks it against the release's
+// published checksum and runs it: like a double-click on a newer download, it stops this copy, installs
+// itself over it and starts again. From the page, it leaves the page's tab for the new copy.
+func (c *App) updateFrom(ctx context.Context, fromPage bool) error {
 	c.mu.Lock()
 	u := c.update
 	switch {
@@ -118,7 +122,7 @@ func (c *App) Update(ctx context.Context) error {
 	c.update.Installing, c.update.Error = true, ""
 	c.mu.Unlock()
 
-	err := c.install(ctx, releaseDownloads+u.Latest+"/")
+	err := c.install(ctx, releaseDownloads+u.Latest+"/", fromPage)
 	if err != nil {
 		c.mu.Lock()
 		c.update.Installing, c.update.Error = false, "Updating failed: "+err.Error()+"."
@@ -127,7 +131,7 @@ func (c *App) Update(ctx context.Context) error {
 	return err
 }
 
-func (c *App) install(ctx context.Context, downloads string) error {
+func (c *App) install(ctx context.Context, downloads string, fromPage bool) error {
 	sums, err := c.download(ctx, downloads+checksums, maxChecksums)
 	if err != nil {
 		return err
@@ -147,7 +151,16 @@ func (c *App) install(ctx context.Context, downloads string) error {
 	if err := writeExecutable(path, data); err != nil {
 		return err
 	}
-	return c.runInstaller(path)
+	if fromPage {
+		if err := keepTab(c.dataDir, c.tab); err != nil {
+			return err
+		}
+	}
+	if err := c.runInstaller(path); err != nil {
+		_ = os.Remove(tabPath(c.dataDir))
+		return err
+	}
+	return nil
 }
 
 func (c *App) downloadPath() string { return filepath.Join(c.dataDir, updateDir, c.releaseFile) }

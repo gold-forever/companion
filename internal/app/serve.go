@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -35,13 +36,9 @@ type ServeOptions struct {
 func Serve(ctx context.Context, o ServeOptions) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	secret := make([]byte, 16)
-	if _, err := rand.Read(secret); err != nil {
-		return err
-	}
-	listener, port, err := page.Listen()
+	listener, info, tabbed, err := listen(o)
 	if err != nil {
-		return fmt.Errorf("could not open the settings page: %w", err)
+		return err
 	}
 	cfgPath, err := config.Path()
 	if err != nil {
@@ -57,8 +54,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	_ = c.log.Prune(time.Now())
 	_ = o.Layout.FollowApp(o.Exe, !c.settings.Get().Welcomed)
 
-	info := instance.Info{PID: os.Getpid(), Port: port, Secret: hex.EncodeToString(secret), Version: o.Version}
-	srv := &http.Server{Handler: page.New(c, info.Secret, port), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: page.New(c, info.Secret, info.Port), ReadHeaderTimeout: 10 * time.Second}
 	defer func() {
 		stop()
 		shutdown(srv)
@@ -77,9 +73,9 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	c.owned.Go(func() { c.checkVersion(ctx) })
 
 	pageURL := instance.PageURL(info)
-	c.pageURL = pageURL
+	c.pageURL, c.tab = pageURL, info
 	withTray := tray.Available()
-	if o.Mode != "--autostart" || !withTray {
+	if !tabbed && (o.Mode != "--autostart" || !withTray) {
 		_ = o.OpenBrowser(pageURL)
 	}
 	if !withTray {
@@ -88,6 +84,31 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	}
 	tray.Run(ctx, c)
 	return nil
+}
+
+// listen opens the page. Started by an update from the page, it opens where that tab waits, with its
+// secret, so the tab carries on with this copy: tabbed. Elsewhere, or where the tab's port is taken, it
+// opens on a free port with a new secret.
+func listen(o ServeOptions) (net.Listener, instance.Info, bool, error) {
+	info := instance.Info{PID: os.Getpid(), Version: o.Version}
+	if o.Mode == "--installed" {
+		if tab, ok := takeTab(o.DataDir, time.Now()); ok {
+			if l, port, err := page.ListenAt(tab.Port); err == nil {
+				info.Port, info.Secret = port, tab.Secret
+				return l, info, true, nil
+			}
+		}
+	}
+	secret := make([]byte, 16)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, info, false, err
+	}
+	l, port, err := page.Listen()
+	if err != nil {
+		return nil, info, false, fmt.Errorf("could not open the settings page: %w", err)
+	}
+	info.Port, info.Secret = port, hex.EncodeToString(secret)
+	return l, info, false, nil
 }
 
 // answerFor is how long the page's requests in flight, a quit's among them, have to get their answer

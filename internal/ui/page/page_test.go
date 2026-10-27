@@ -35,10 +35,11 @@ type fakeApp struct {
 	checks      int
 	page        int // the page of the log last asked for
 	updates     int
+	notice      *Notice
 }
 
 func (a *fakeApp) State() State {
-	return State{Version: "v0.1.0", Linked: a.linked != "", Prices: a.prices, Account: a.account}
+	return State{Version: "v0.1.0", Linked: a.linked != "", Prices: a.prices, Account: a.account, Notice: a.notice}
 }
 func (a *fakeApp) Link(_ context.Context, token string) error { a.linked = token; return nil }
 func (a *fakeApp) Unlink(context.Context) error               { a.linked = ""; return nil }
@@ -392,6 +393,47 @@ func TestTheLogIsAskedForByPage(t *testing.T) {
 		app := &fakeApp{}
 		if rec := serve(app, "GET", "/api/history"+query, "", nil); rec.Code != http.StatusOK || app.page != want {
 			t.Errorf("%q: %d, page %d", query, rec.Code, app.page)
+		}
+	}
+}
+
+// The banner sits on top of the page, above the header and every section, so each layout shows it:
+// the first run's, the unlinked one's and the linked one's.
+func TestTheUpdateBannerIsOnTopOfEveryLayout(t *testing.T) {
+	body := serve(&fakeApp{}, "GET", "/", "", nil).Body.String()
+	banner := strings.Index(body, `id="banner"`)
+	if banner < 0 || !strings.Contains(body, `id="update-now"`) {
+		t.Fatal("the page has no banner with Update now")
+	}
+	tag := body[strings.LastIndex(body[:banner], "<"):]
+	if !strings.Contains(tag[:strings.Index(tag, ">")], " hidden") {
+		t.Error("the banner shows before the page knows of an update")
+	}
+	for layout, section := range map[string]string{"first run": `id="welcome"`, "unlinked": `id="unlinked"`, "linked": `id="linked"`, "header": "<header>"} {
+		if at := strings.Index(body, section); at < banner {
+			t.Errorf("%s: the banner is not above it", layout)
+		}
+	}
+	if strings.Count(body[:banner], "<section") != 0 || strings.Count(body[:banner], "<main") != 0 {
+		t.Error("the banner is inside a section a layout can hide")
+	}
+}
+
+// The banner's style lays it out without undoing its hidden, so it stays away while up to date.
+func TestTheBannersStyleKeepsItHiddenWhileUpToDate(t *testing.T) {
+	css := serve(&fakeApp{}, "GET", "/style.css", "", nil).Body.String()
+	if !strings.Contains(css, ".banner[hidden] { display: none; }") {
+		t.Error("the banner's display overrides its hidden")
+	}
+}
+
+// The page's state carries the banner's update only while a newer release is known.
+func TestTheStateCarriesTheBannerOnlyWhileAnUpdateIsKnown(t *testing.T) {
+	for name, notice := range map[string]*Notice{"up to date": nil, "newer": {Version: "v0.2.0", URL: "https://example/v0.2.0"}} {
+		var s map[string]any
+		json.NewDecoder(serve(&fakeApp{notice: notice}, "GET", "/api/state", "", nil).Body).Decode(&s)
+		if _, shown := s["notice"]; shown != (notice != nil) {
+			t.Errorf("%s: the state's notice is %v", name, s["notice"])
 		}
 	}
 }

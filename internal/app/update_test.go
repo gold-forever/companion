@@ -9,7 +9,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gold-forever/companion/internal/platform/instance"
 	"github.com/gold-forever/companion/internal/server"
 )
 
@@ -263,5 +265,96 @@ func TestUpdateNowInstallsOrOpensThePageThatSaysWhy(t *testing.T) {
 	waitForOwned(t, c)
 	if len(opened) != 1 || opened[0] != newerTag {
 		t.Errorf("not installable here: opened %v", opened)
+	}
+}
+
+// The banner on top of the page shows while a newer release is known, and not while up to date.
+func TestTheBannerShowsWhileANewerReleaseIsKnownAndNotWhileUpToDate(t *testing.T) {
+	c, _ := fixture(t)
+	latest := "v0.2.0"
+	(&fakeServer{latest: func() (server.Release, error) {
+		return server.Release{Version: latest, URL: releaseTag + latest}, nil
+	}}).connects(c)
+	if n := c.State().Notice; n != nil {
+		t.Errorf("a banner before any check: %+v", n)
+	}
+
+	c.CheckForUpdate(t.Context())
+	if n := c.State().Notice; n == nil || n.Version != "v0.2.0" || n.URL != newerTag {
+		t.Errorf("a newer release: %+v", n)
+	}
+
+	latest = "v0.1.0" // the newer release was withdrawn
+	c.CheckForUpdate(t.Context())
+	if n := c.State().Notice; n != nil {
+		t.Errorf("a banner while up to date: %+v", n)
+	}
+}
+
+// An update asked for from the page leaves the page's port and secret for the new copy, which carries
+// on in the same tab; the tray's leaves none, and neither does an update that fails.
+func TestAnUpdateFromThePageHandsItsTabToTheNewCopy(t *testing.T) {
+	companion := "the new companion"
+	files := map[string]string{linuxFile: companion, "SHA256SUMS": sum(companion) + "  " + linuxFile + "\n"}
+	tab := instance.Info{Port: 50123, Secret: "0123456789abcdef"}
+
+	c, _ := fixture(t)
+	_, ran := releasing(t, c, files)
+	c.tab = tab
+	var handed instance.Info
+	c.runInstaller = func(path string) error {
+		*ran = append(*ran, path)
+		handed, _ = takeTab(c.dataDir, time.Now())
+		return nil
+	}
+	c.CheckForUpdate(t.Context())
+	if err := c.Update(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if handed.Port != tab.Port || handed.Secret != tab.Secret {
+		t.Errorf("from the page, the new copy finds %+v", handed)
+	}
+
+	c, _ = fixture(t)
+	releasing(t, c, files)
+	c.tab = tab
+	c.CheckForUpdate(t.Context())
+	c.UpdateNow()
+	waitForOwned(t, c)
+	if got, ok := takeTab(c.dataDir, time.Now()); ok {
+		t.Errorf("from the tray, the new copy finds %+v", got)
+	}
+
+	c, _ = fixture(t)
+	releasing(t, c, map[string]string{linuxFile: "tampered", "SHA256SUMS": sum(companion) + "  " + linuxFile + "\n"})
+	c.tab = tab
+	c.CheckForUpdate(t.Context())
+	c.Update(t.Context())
+	if got, ok := takeTab(c.dataDir, time.Now()); ok {
+		t.Errorf("after a failed download, a new copy finds %+v", got)
+	}
+
+	c, _ = fixture(t)
+	releasing(t, c, files)
+	c.tab = tab
+	c.runInstaller = func(string) error { return errors.New("not started") }
+	c.CheckForUpdate(t.Context())
+	c.Update(t.Context())
+	if got, ok := takeTab(c.dataDir, time.Now()); ok {
+		t.Errorf("after the new copy failed to start, a later one finds %+v", got)
+	}
+}
+
+// A tab left more than a few minutes ago is no longer waiting: a later start opens its own.
+func TestATabLeftLongAgoIsNotTakenOver(t *testing.T) {
+	dir := t.TempDir()
+	if err := keepTab(dir, instance.Info{Port: 50123, Secret: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := takeTab(dir, time.Now().Add(tabWaits+time.Second)); ok {
+		t.Error("a stale tab was taken over")
+	}
+	if _, ok := takeTab(dir, time.Now()); ok {
+		t.Error("a tab was taken over twice")
 	}
 }

@@ -83,7 +83,7 @@ type Save struct {
 	Note  string `json:"note,omitempty"` // what the companion is doing about it, when not the usual
 }
 
-// Notice says a newer release exists, for the header.
+// Notice says a newer release exists, for the banner on top of the page.
 type Notice struct {
 	Version string `json:"version"`
 	URL     string `json:"url"`
@@ -144,8 +144,11 @@ type PlayerError interface {
 }
 
 // Listen opens the page on a free port of 127.0.0.1.
-func Listen() (net.Listener, int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+func Listen() (net.Listener, int, error) { return ListenAt(0) }
+
+// ListenAt opens the page on port of 127.0.0.1, where a tab may already wait for it; 0 is a free port.
+func ListenAt(port int) (net.Listener, int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 	if err != nil {
 		return nil, 0, err
 	}

@@ -96,8 +96,9 @@ type App struct {
 	linker func(ctx context.Context, show func(server.DeviceCode), save func(token string) error) error
 	// openURL opens a page in the player's browser.
 	openURL func(url string)
-	// pageURL is the settings page's address, with its secret.
+	// pageURL is the settings page's address, with its secret; tab is its port and secret.
 	pageURL string
+	tab     instance.Info
 	// releases downloads a release's files; releaseFile is this system's file in a release, "" where
 	// the companion does not install itself (macOS); runInstaller starts a downloaded companion.
 	releases     *http.Client

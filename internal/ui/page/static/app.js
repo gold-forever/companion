@@ -34,14 +34,7 @@ function button(text, onclick) {
 
 function showState(s) {
   $("status").textContent = s.status || (s.linked ? "Watching for new saves." : "Not linked yet.");
-  const notice = $("notice");
-  notice.hidden = !s.notice;
-  if (s.notice) {
-    notice.replaceChildren(`Version ${s.notice.version} is out. `);
-    const a = document.createElement("a");
-    a.href = s.notice.url; a.textContent = "Download it"; a.target = "_blank"; a.rel = "noreferrer";
-    notice.append(a, s.update && s.update.canInstall ? ", or press Update under Updates below." : " and run it: it replaces this one.");
-  }
+  showBanner(s.notice, s.update || {});
   $("warning").hidden = !s.warning;
   $("warning").textContent = s.warning || "";
   $("sharing").textContent = s.sharing;
@@ -82,8 +75,35 @@ function releaseLink(url, text) {
   return a;
 }
 
-// Whether this page's Update has started the new version, which then replaces this companion.
-let started = false;
+// The version this page's Update started from, once the new version has started: it replaces this
+// companion and answers this tab at the same address, which then reloads onto it.
+let updatedFrom = "";
+
+// The banner on top of the page while a newer release is known: Update now where the companion can
+// install it itself, else the release's page.
+function showBanner(n, u) {
+  $("banner").hidden = !n;
+  if (!n) return;
+  const text = $("banner-text");
+  if (u.installing) text.replaceChildren(`Updating to version ${n.version}…`);
+  else if (u.canInstall) text.replaceChildren(`Version ${n.version} is out. `, releaseLink(n.url, "What's new"));
+  else text.replaceChildren(`Version ${n.version} is out: `, releaseLink(n.url, "download it"), " and run it, it replaces this one.");
+  $("update-now").hidden = !u.canInstall;
+  $("update-now").disabled = u.installing;
+}
+
+function update() {
+  $("update").disabled = true;
+  $("update-now").disabled = true;
+  $("updating").hidden = false;
+  const from = $("running").textContent;
+  call("/api/update", {}).then(() => { updatedFrom = from; return refresh().finally(awaitNewVersion); }, refresh);
+}
+
+// Asks every second until the new version answers at this address, and refresh reloads onto it.
+function awaitNewVersion() {
+  setTimeout(() => refresh().then(awaitNewVersion, awaitNewVersion), 1000);
+}
 
 // The update section: the running version, the latest release the last check found, and Update where
 // the companion can install it itself.
@@ -100,8 +120,8 @@ function showUpdate(version, u) {
   $("update").disabled = u.installing;
   $("check").disabled = u.installing;
   $("updating").hidden = !u.installing;
-  $("updating").textContent = started
-    ? "The new version is installing itself: it opens its own page when it has started. You can close this one."
+  $("updating").textContent = updatedFrom
+    ? "The new version is installing itself: this page reloads onto it when it has started."
     : "Downloading the update and checking it against the release's checksum…";
   const error = $("update-error");
   error.hidden = !u.error;
@@ -187,7 +207,12 @@ function showHistory(h) {
 }
 
 async function refresh() {
-  showState(await call("/api/state"));
+  const s = await call("/api/state");
+  if (updatedFrom && s.version !== updatedFrom) {
+    location.reload();
+    return;
+  }
+  showState(s);
   showHistory(await call("/api/history?page=" + logPage));
 }
 
@@ -200,11 +225,8 @@ $("folder").onsubmit = (e) => { e.preventDefault(); act(call("/api/folder", { pa
 $("newer").onclick = () => { logPage--; refresh(); };
 $("older").onclick = () => { logPage++; refresh(); };
 $("check").onclick = () => call("/api/update/check", {}).then(refresh, refresh);
-$("update").onclick = () => {
-  $("update").disabled = true;
-  $("updating").hidden = false;
-  call("/api/update", {}).then(() => { started = true; return refresh(); }, refresh);
-};
+$("update").onclick = update;
+$("update-now").onclick = update;
 $("uninstall").onclick = () => {
   if (!confirm("Uninstall the Gold Forever Companion from this computer?")) return;
   call("/api/uninstall", { keepData: $("keep").checked }).then(

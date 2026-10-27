@@ -92,7 +92,7 @@ func (c *App) UpdateNow() {
 		return
 	}
 	c.owned.Go(func() {
-		if err := c.Update(c.life); err != nil && !errors.Is(err, ErrUpdating) {
+		if err := c.updateFrom(c.life, false); err != nil && !errors.Is(err, ErrUpdating) {
 			c.openURL(c.pageURL)
 		}
 	})
