@@ -4,12 +4,14 @@ package tray
 
 import (
 	"context"
-	"runtime"
 	"sync"
 	"time"
 
 	"fyne.io/systray"
 )
+
+// name is the item's title and tooltip.
+const name = "Gold Forever Companion"
 
 // App is what the tray shows and does.
 type App interface {
@@ -40,6 +42,7 @@ func Run(ctx context.Context, app App) {
 		case <-ctx.Done():
 		}
 	})
+	lookBeforeStart()
 	systray.Run(func() { built <- build(app) }, cancel)
 	cancel()
 	following.Wait()
@@ -68,12 +71,7 @@ func showIf(item *systray.MenuItem, title string) {
 }
 
 func build(app App) menu {
-	if runtime.GOOS == "windows" {
-		systray.SetIcon(icoIcon())
-	} else {
-		systray.SetIcon(pngIcon())
-	}
-	systray.SetTooltip("Gold Forever Companion")
+	lookOnceUp()
 	status := systray.AddMenuItem(statusOf(app), "")
 	status.Disable()
 	account := systray.AddMenuItem(accountOf(app), "")
