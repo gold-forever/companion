@@ -436,8 +436,8 @@ func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
 		got[0].Size != int64(len(lua)) || got[0].Fetched == nil || got[0].Outcome != "ok" {
 		t.Fatalf("after a fetch: %+v", got)
 	}
-	if got[0].Dings != "" || got[0].Shared != "" {
-		t.Errorf("a file without dings or shared state shows %q, %q", got[0].Dings, got[0].Shared)
+	if got[0].Shared != "" {
+		t.Errorf("a file without shared state shows %q", got[0].Shared)
 	}
 }
 

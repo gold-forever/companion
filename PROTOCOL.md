@@ -188,32 +188,6 @@ the interface number its save names, and `Data.lua`, one table of integers under
 each through a temporary file renamed into place. The server never sends Lua, so a compromised server
 could send wrong prices but could never run code in your game.
 
-## The dings switch
-
-With every price refresh, one request for the site's side of the addon's *Announce dings on Discord*
-switch, the same for every game of the account:
-
-```http
-GET /api/v1/dings/state
-Authorization: Bearer gf_...
-If-None-Match: "<the ETag of the dings state held>"
-```
-
-- 200 `{"v":1,"at":<epoch s>,"webhook":true,"characters":{"Player-4620-006C0FC1":true}}`: when the
-  state last changed, whether a level-up webhook is connected, and each character's choice. The app
-  checks it (version 1, `at` a plain integer, booleans only, no key twice); any fault, a state without
-  `at` too, keeps the last good state (or writes none), as does a failed request. A character whose key
-  is not of the form `Player-<digits>-<hex>` is only left out: the others are written, and the log
-  says so once for that state. It is kept with its ETag in `prices.json`.
-- 304: the state held is still current.
-- 404: historical, from servers before the dings state; still accepted as no state: `Data.lua` goes
-  without one, and the addon leaves its switch changeable.
-
-`Data.lua` carries it beside `at` as `dings = { at = <n>, webhook = true, characters = { ["Player-…"] =
-true } }`; the addon compares its own choices against `dings.at`.
-A changed state rewrites `Data.lua` even when the prices answer 304; after a restart, when the prices
-written are no longer in memory, that one refresh asks for the prices without `If-None-Match`.
-
 ## Shopping lists and sale profiles
 
 With every price refresh, one request for the account's shopping lists and sale profiles, the same for
@@ -235,7 +209,8 @@ If-None-Match: "<the ETag of the shared state held>"
 - 404: historical, from servers before shared lists and profiles; still accepted as no state:
   `Data.lua` goes without one, and the addon keeps its own.
 
-`Data.lua` carries it beside `dings` as `shared = { at = <n>, lists = { { id = "…", edited = <n>,
+`Data.lua` carries it beside `at` as `shared = { at = <n>, lists = { { id = "…", edited = <n>,
 string = "GFL1:…" } }, profiles = { { id = "…", edited = <n>, string = "GFP1:…" } } }`, counted in the
 game's file limit; the addon merges it by id, the newer `edited` winning. A changed state rewrites
-`Data.lua` even when the prices answer 304, as the dings state does.
+`Data.lua` even when the prices answer 304; after a restart, when the prices written are no longer in
+memory, that one refresh asks for the prices without `If-None-Match`.
