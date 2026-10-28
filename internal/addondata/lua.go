@@ -23,7 +23,6 @@ func Lua(a Answer) []byte {
 	fmt.Fprintf(&b, "%s = {\n  %s = %d,\n", dataGlobal, fieldVersion, formatVersion)
 	fmt.Fprintf(&b, "  %s = %d,\n", fieldAt, a.At)
 	b.WriteString(sharedPart(a.Shared))
-	b.WriteString(dingsPart(a.Dings))
 	fmt.Fprintf(&b, "  %s = {\n", fieldMarkets)
 	for _, p := range a.Markets {
 		b.Write(marketPart(p))

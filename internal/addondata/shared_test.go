@@ -139,12 +139,12 @@ func TestParseSharedTakesFiftyOfEach(t *testing.T) {
 
 func withSharedAnswer(t *testing.T) Answer {
 	t.Helper()
-	a := withDingsAnswer(t)
+	a := mustParse(t, canned(t))
 	a.Shared = &wantGood
 	return a
 }
 
-func TestLuaWritesTheSharedListsAndProfilesBesideTheDings(t *testing.T) {
+func TestLuaWritesTheSharedListsAndProfilesBesideThePrices(t *testing.T) {
 	got := Lua(withSharedAnswer(t))
 	golden := filepath.Join("testdata", "shared.lua")
 	if *update {
@@ -265,11 +265,10 @@ func withShared(t *testing.T, body []byte, s *Shared) []byte {
 	return Lua(a)
 }
 
-func TestRefreshWritesTheSharedStateBesideThePricesAndDings(t *testing.T) {
+func TestRefreshWritesTheSharedStateBesideThePrices(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001, "_retail_": 110207})
 	g := servers{"forever": {body: cannedMarkets(t)}, "retail": {body: []byte(retailAnswer)}}
 	r := refresher(g, saves, "", filepath.Join(t.TempDir(), "prices.json"))
-	r.Dings = &dingsServer{body: dings, etag: `"d1"`}
 	s := &sharedServer{body: goodShared, etag: `"s1"`}
 	r.Shared = s
 
@@ -282,9 +281,6 @@ func TestRefreshWritesTheSharedStateBesideThePricesAndDings(t *testing.T) {
 		if back := readShared(t, lua); back == nil || !reflect.DeepEqual(*back, wantGood) {
 			t.Errorf("%s holds shared %+v", flavour, back)
 		}
-		if back := readDings(t, lua); back == nil || !reflect.DeepEqual(*back, wantDings) {
-			t.Errorf("%s holds dings %+v", flavour, back)
-		}
 	}
 	if len(s.sent) != 1 || s.sent[0] != "" {
 		t.Errorf("shared asked with %q, want once for the account without an ETag", s.sent)
@@ -295,23 +291,20 @@ const changedShared = `{"v":1,"at":1761210000,"lists":[],"profiles":[{"id":"p9",
 
 var wantChanged = Shared{At: 1761210000, Profiles: []SharedItem{{ID: "p9", Edited: 1761209999, String: "GFP1:bmV3"}}}
 
-func TestAChangedSharedStateRewritesDataLuaWhileThePricesAndDingsAre304(t *testing.T) {
+func TestAChangedSharedStateRewritesDataLuaWhileThePricesAre304(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001})
 	f := &fetcher{body: canned(t), etag: `"e1"`}
-	d := &dingsServer{body: dings, etag: `"d1"`}
 	r := refresher(f, saves, market, filepath.Join(t.TempDir(), "prices.json"))
-	r.Dings, r.Shared = d, &sharedServer{body: goodShared, etag: `"s1"`}
+	r.Shared = &sharedServer{body: goodShared, etag: `"s1"`}
 	_ = r.Refresh(context.Background())
 	r.Shared = &sharedServer{body: changedShared, etag: `"s2"`}
 
 	_ = r.Refresh(context.Background())
 
-	if len(f.sent) != 2 || f.sent[1] != `"e1"` || d.sent[1] != `"d1"` {
-		t.Fatalf("prices asked with %q, dings with %q; want the second of each under its ETag", f.sent, d.sent)
+	if len(f.sent) != 2 || f.sent[1] != `"e1"` {
+		t.Fatalf("prices asked with %q; want the second under its ETag", f.sent)
 	}
-	a := mustParse(t, canned(t))
-	a.Dings, a.Shared = &wantDings, &wantChanged
-	if got := dataLua(t, install); !bytes.Equal(got, Lua(a)) {
+	if got := dataLua(t, install); !bytes.Equal(got, withShared(t, canned(t), &wantChanged)) {
 		t.Fatalf("Data.lua after 304s and a changed shared state =\n%s", got)
 	}
 }
@@ -363,10 +356,9 @@ func TestAll304LeaveDataLuaAsItIs(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001})
 	state := filepath.Join(t.TempDir(), "prices.json")
 	f := &fetcher{body: canned(t), etag: `"e1"`}
-	d := &dingsServer{body: dings, etag: `"d1"`}
 	s := &sharedServer{body: goodShared, etag: `"s1"`}
 	r := refresher(f, saves, market, state)
-	r.Dings, r.Shared = d, s
+	r.Shared = s
 	_ = r.Refresh(context.Background())
 	lua := filepath.Join(dataDir(install, "_forever_"), "Data.lua")
 	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
@@ -374,15 +366,15 @@ func TestAll304LeaveDataLuaAsItIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = refresher(f, saves, market, state)
-	r.Dings, r.Shared = d, s
+	r.Shared = s
 
 	err := r.Refresh(context.Background())
 
-	if err != nil || f.sent[1] != `"e1"` || d.sent[1] != `"d1"` || s.sent[1] != `"s1"` {
-		t.Fatalf("sent prices %q, dings %q, shared %q, err %v", f.sent, d.sent, s.sent, err)
+	if err != nil || f.sent[1] != `"e1"` || s.sent[1] != `"s1"` {
+		t.Fatalf("sent prices %q, shared %q, err %v", f.sent, s.sent, err)
 	}
 	if info, err := os.Stat(lua); err != nil || !info.ModTime().Equal(old) {
-		t.Fatalf("Data.lua was written on three 304s: %v, %v", info.ModTime(), err)
+		t.Fatalf("Data.lua was written on two 304s: %v, %v", info.ModTime(), err)
 	}
 }
 
@@ -494,7 +486,6 @@ func TestTheReportCountsTheListsAndProfilesEachFileHolds(t *testing.T) {
 	if got := report.Files(saves)[0]; got.Shared != nil {
 		t.Fatalf("a file without shared state: %+v", got.Shared)
 	}
-	r.Dings = &dingsServer{body: dings, etag: `"d1"`}
 	r.Shared = &sharedServer{body: goodShared, etag: `"s1"`}
 
 	_ = r.Refresh(context.Background())
@@ -502,8 +493,5 @@ func TestTheReportCountsTheListsAndProfilesEachFileHolds(t *testing.T) {
 	got := report.Files(saves)[0]
 	if got.Shared == nil || *got.Shared != (SharedCount{Lists: 2, Profiles: 1}) || got.Items != 3 || len(got.Markets) != 1 {
 		t.Fatalf("Files = %+v, shared %+v", got, got.Shared)
-	}
-	if got.Dings == nil || !reflect.DeepEqual(*got.Dings, wantDings) {
-		t.Fatalf("the dings beside it read as %+v", got.Dings)
 	}
 }

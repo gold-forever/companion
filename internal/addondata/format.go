@@ -12,11 +12,6 @@ package addondata
 //	    lists = { { id = <string>, edited = <int>, string = <string> }, ... },
 //	    profiles = { { id = <string>, edited = <int>, string = <string> }, ... },
 //	  },
-//	  dings = {                   -- optional: the site's side of the dings switch
-//	    at = <int>,               -- epoch seconds: when it last changed
-//	    webhook = <bool>,         -- whether a level-up webhook is connected
-//	    characters = { [<guid>] = <bool>, ... },
-//	  },
 //	  markets = {
 //	    [<market key>] = {
 //	      [<item id>] = { value, minBuyout, players, scannedAt [, week] [, units = <int>] },
@@ -31,7 +26,8 @@ package addondata
 
 // formatVersion is Data.lua's v. It changes when an addon reading the file as it is would misread it:
 // a field removed, renamed or given another type, or the item figures reordered. A new optional field
-// does not: shared, dings, week and units were each added at v = 1.
+// does not, nor does dropping one an addon reads as absent: shared, week and units were each added at
+// v = 1, and dings was dropped at it.
 const formatVersion = 1
 
 // The addon's folder and its files.
@@ -46,17 +42,14 @@ const dataGlobal = "GoldForever_Prices"
 
 // The fields of Data.lua's tables, as the addon reads them.
 const (
-	fieldVersion    = "v"
-	fieldAt         = "at"
-	fieldShared     = "shared"
-	fieldLists      = "lists"
-	fieldProfiles   = "profiles"
-	fieldID         = "id"
-	fieldEdited     = "edited"
-	fieldString     = "string"
-	fieldDings      = "dings"
-	fieldWebhook    = "webhook"
-	fieldCharacters = "characters"
-	fieldMarkets    = "markets"
-	fieldUnits      = "units"
+	fieldVersion  = "v"
+	fieldAt       = "at"
+	fieldShared   = "shared"
+	fieldLists    = "lists"
+	fieldProfiles = "profiles"
+	fieldID       = "id"
+	fieldEdited   = "edited"
+	fieldString   = "string"
+	fieldMarkets  = "markets"
+	fieldUnits    = "units"
 )

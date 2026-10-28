@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -28,7 +27,6 @@ type File struct {
 	Markets []Market
 	Items   int
 	Size    int64        // bytes of Data.lua; 0 when there is none
-	Dings   *Dings       // the dings state Data.lua holds; nil when it holds none
 	Shared  *SharedCount // the lists and profiles Data.lua holds; nil when it holds none
 	Fetched time.Time    // zero before the first fetch
 	Outcome string       // OutcomeOK, OutcomeNotModified, OutcomeError, or empty before the first fetch
@@ -103,7 +101,7 @@ func (r *Report) Files(saves []find.Save) []File {
 			f := File{Flavour: dir, Game: game}
 			if lua, err := os.ReadFile(filepath.Join(addonDir(dir), "Data.lua")); err == nil {
 				f.Size = int64(len(lua))
-				f.Markets, f.Items, f.Dings, f.Shared = contents(lua)
+				f.Markets, f.Items, f.Shared = contents(lua)
 			}
 			if last, ok := r.fetches[game]; ok {
 				f.Fetched, f.Outcome, f.Error = last.at, last.outcome, last.err
@@ -119,12 +117,10 @@ func (r *Report) Files(saves []find.Save) []File {
 }
 
 // contents reads a Data.lua as Lua writes it: in the markets table a market opens with
-// `    ["key"] = {` and an item is `      [id] = { … },`; in the dings table its time is `    at = n,`,
-// the webhook `    webhook = true,` and a character `      ["guid"] = true,`; in the shared table a
-// kind opens with `    lists = {` or `    profiles = {` and an item is `      { id = … },`.
-func contents(lua []byte) ([]Market, int, *Dings, *SharedCount) {
+// `    ["key"] = {` and an item is `      [id] = { … },`; in the shared table a kind opens with
+// `    lists = {` or `    profiles = {` and an item is `      { id = … },`.
+func contents(lua []byte) ([]Market, int, *SharedCount) {
 	var markets []Market
-	var dings *Dings
 	var shared *SharedCount
 	var kind *int
 	total, section := 0, ""
@@ -132,9 +128,6 @@ func contents(lua []byte) ([]Market, int, *Dings, *SharedCount) {
 		switch {
 		case bytes.HasPrefix(line, []byte("  ")) && !bytes.HasPrefix(line, []byte("   ")):
 			section = string(bytes.TrimSpace(line))
-			if section == "dings = {" {
-				dings = &Dings{Characters: map[string]bool{}}
-			}
 			if section == "shared = {" {
 				shared = &SharedCount{}
 			}
@@ -144,13 +137,6 @@ func contents(lua []byte) ([]Market, int, *Dings, *SharedCount) {
 		case section == "markets = {" && bytes.HasPrefix(line, []byte("      [")) && len(markets) > 0:
 			markets[len(markets)-1].Items++
 			total++
-		case section == "dings = {" && bytes.HasPrefix(line, []byte("    at = ")):
-			dings.At, _ = strconv.ParseInt(string(bytes.TrimSuffix(bytes.TrimSpace(line[len("    at = "):]), []byte(","))), 10, 64)
-		case section == "dings = {" && bytes.HasPrefix(line, []byte("    webhook = ")):
-			dings.Webhook = bytes.HasPrefix(line, []byte("    webhook = true,"))
-		case section == "dings = {" && bytes.HasPrefix(line, []byte(`      ["`)):
-			guid, choice, _ := bytes.Cut(line[len(`      ["`):], []byte(`"] = `))
-			dings.Characters[string(guid)] = bytes.HasPrefix(choice, []byte("true"))
 		case section == "shared = {" && bytes.Equal(line, []byte("    lists = {\n")):
 			kind = &shared.Lists
 		case section == "shared = {" && bytes.Equal(line, []byte("    profiles = {\n")):
@@ -159,5 +145,5 @@ func contents(lua []byte) ([]Market, int, *Dings, *SharedCount) {
 			*kind++
 		}
 	}
-	return markets, total, dings, shared
+	return markets, total, shared
 }

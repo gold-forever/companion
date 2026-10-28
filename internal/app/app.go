@@ -244,37 +244,15 @@ func priceFile(f addondata.File) page.PriceFile {
 	if !f.Fetched.IsZero() {
 		p.Fetched = &f.Fetched
 	}
-	if f.Dings != nil {
-		p.Dings = dingsLine(*f.Dings)
-	}
 	if f.Shared != nil {
 		p.Shared = fmt.Sprintf("Lists: %d · Profiles: %d", f.Shared.Lists, f.Shared.Profiles)
 	}
 	return p
 }
 
-// dingsLine is the in-game dings switch as a price file carries it: "Dings: webhook on · 2 characters on".
-func dingsLine(d addondata.Dings) string {
-	webhook, on := "off", 0
-	if d.Webhook {
-		webhook = "on"
-	}
-	for _, choice := range d.Characters {
-		if choice {
-			on++
-		}
-	}
-	characters := "characters"
-	if on == 1 {
-		characters = "character"
-	}
-	return fmt.Sprintf("Dings: webhook %s · %d %s on", webhook, on, characters)
-}
-
-// refresher keeps the account's prices, dings state and shared lists and profiles in the game, fetched
-// with f, d and s.
-func (c *App) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addondata.SharedFetcher) *addondata.Refresher {
-	return c.parts(nil).refresher(f, d, s)
+// refresher keeps the account's prices and shared lists and profiles in the game, fetched with f and s.
+func (c *App) refresher(f addondata.Fetcher, s addondata.SharedFetcher) *addondata.Refresher {
+	return c.parts(nil).refresher(f, s)
 }
 
 // parts is what an upload round with server is built from, with the current settings.

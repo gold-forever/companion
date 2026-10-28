@@ -89,18 +89,6 @@ type DeviceTokenRequest struct {
 	DeviceCode string `json:"device_code"`
 }
 
-// DingsState defines model for DingsState.
-type DingsState struct {
-	At EpochSeconds `json:"at"`
-
-	// Characters Each character's choice, by its GUID.
-	Characters map[string]bool `json:"characters"`
-	V          interface{}     `json:"v"`
-
-	// Webhook Whether a Discord webhook that posts level-ups is connected.
-	Webhook bool `json:"webhook"`
-}
-
 // EpochSeconds defines model for EpochSeconds.
 type EpochSeconds = int
 
@@ -184,15 +172,6 @@ type StartDeviceLinkParams struct {
 
 // PollDeviceTokenParams defines parameters for PollDeviceToken.
 type PollDeviceTokenParams struct {
-	// UserAgent The companion names itself `gold-forever-companion/<version> (<os>)`, so the server can tell its requests apart and show the version on the token.
-	UserAgent UserAgent `json:"User-Agent,omitempty"`
-}
-
-// GetDingsStateParams defines parameters for GetDingsState.
-type GetDingsStateParams struct {
-	// IfNoneMatch The `ETag` of the answer the client already holds.
-	IfNoneMatch IfNoneMatch `json:"If-None-Match,omitempty"`
-
 	// UserAgent The companion names itself `gold-forever-companion/<version> (<os>)`, so the server can tell its requests apart and show the version on the token.
 	UserAgent UserAgent `json:"User-Agent,omitempty"`
 }

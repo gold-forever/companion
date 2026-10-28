@@ -10,8 +10,8 @@ import (
 var errNotServed = errors.New("the fake server does not serve this")
 
 // fakeServer answers as the Gold Forever server would, without the network: each route with what its
-// func returns. Left nil, an upload waits for an answer that never comes, the account, dings and shared
-// routes are missing, and the others fail.
+// func returns. Left nil, an upload waits for an answer that never comes, the account and shared routes
+// are missing, and the others fail.
 type fakeServer struct {
 	upload  func(ctx context.Context, save []byte) (server.Answer, error)
 	prices  func(ctx context.Context) ([]byte, string, error)
@@ -42,10 +42,6 @@ func (f fakeConnection) Prices(ctx context.Context, game, market, etag string) (
 		return nil, "", errNotServed
 	}
 	return f.prices(ctx)
-}
-
-func (f fakeConnection) DingsState(context.Context, string) ([]byte, string, error) {
-	return nil, "", server.ErrNoDings
 }
 
 func (f fakeConnection) SharedState(context.Context, string) ([]byte, string, error) {

@@ -12,14 +12,6 @@ GoldForever_Prices = {
       { id = "p9", edited = 1761190002, string = "GFP1:c2VsbCAyNTky" },
     },
   },
-  dings = {
-    at = 1761150000,
-    webhook = true,
-    characters = {
-      ["Player-4620-006C0FC1"] = true,
-      ["Player-4620-006C0FC2"] = false,
-    },
-  },
   markets = {
     ["forever-BETA-normal-horde"] = {
       [2589] = { 1234, 1100, 1, 1761140000 },

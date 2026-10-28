@@ -422,7 +422,7 @@ func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
 	if got := c.State().Prices; len(got) != 1 || got[0].Fetched != nil || got[0].Outcome != "" || got[0].Size != 0 {
 		t.Fatalf("before a fetch: %+v", got)
 	}
-	r := c.refresher(pricesServer{twoItems}, nil, nil)
+	r := c.refresher(pricesServer{twoItems}, nil)
 
 	if err := r.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
@@ -441,29 +441,6 @@ func TestThePageShowsEachFlavoursPriceFileAndHowItsLastFetchWent(t *testing.T) {
 	}
 }
 
-// dingsServer answers the account's dings state with body.
-type dingsServer struct{ body string }
-
-func (d dingsServer) DingsState(context.Context, string) ([]byte, string, error) {
-	return []byte(d.body), `"d1"`, nil
-}
-
-func TestThePageShowsTheDingsSwitchStateEachPriceFileHolds(t *testing.T) {
-	for body, want := range map[string]string{
-		`{"v":1,"at":7,"webhook":true,"characters":{"Player-1-0A":true,"Player-1-0B":false,"Player-1-0C":true}}`: "Dings: webhook on · 2 characters on",
-		`{"v":1,"at":7,"webhook":false,"characters":{"Player-1-0A":true}}`:                                       "Dings: webhook off · 1 character on",
-		`{"v":1,"at":7,"webhook":true,"characters":{}}`:                                                          "Dings: webhook on · 0 characters on",
-	} {
-		c, _ := fixture(t)
-		if err := c.refresher(pricesServer{twoItems}, dingsServer{body}, nil).Refresh(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		if got := c.State().Prices; len(got) != 1 || got[0].Dings != want {
-			t.Errorf("%s: shows %+v, want %q", body, got, want)
-		}
-	}
-}
-
 // sharedServer answers the account's shared lists and profiles with body.
 type sharedServer struct{ body string }
 
@@ -477,7 +454,7 @@ func TestThePageCountsTheListsAndProfilesEachPriceFileHolds(t *testing.T) {
 		`{"v":1,"at":7,"lists":[],"profiles":[]}`: "Lists: 0 · Profiles: 0",
 	} {
 		c, _ := fixture(t)
-		if err := c.refresher(pricesServer{twoItems}, nil, sharedServer{body}).Refresh(context.Background()); err != nil {
+		if err := c.refresher(pricesServer{twoItems}, sharedServer{body}).Refresh(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if got := c.State().Prices; len(got) != 1 || got[0].Shared != want {

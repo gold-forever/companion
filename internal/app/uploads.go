@@ -13,12 +13,11 @@ import (
 	"github.com/gold-forever/companion/internal/upload/core"
 )
 
-// Server is what the uploads ask of the Gold Forever server: to take a save, and the prices, dings state
-// and shared lists they keep in the game.
+// Server is what the uploads ask of the Gold Forever server: to take a save, and the prices and shared
+// lists they keep in the game.
 type Server interface {
 	core.Uploader
 	addondata.Fetcher
-	addondata.DingsFetcher
 	addondata.SharedFetcher
 }
 
@@ -35,7 +34,7 @@ type Parts struct {
 	Report  *addondata.Report // may be nil
 }
 
-// Uploads is the upload core and, beside it, the refresher that keeps prices, dings and shared lists
+// Uploads is the upload core and, beside it, the refresher that keeps prices and shared lists
 // in the game, fetching again whenever an upload was imported.
 type Uploads struct {
 	core      *core.Core
@@ -52,16 +51,15 @@ func NewUploads(p Parts) *Uploads {
 			Backups:  p.Backups, Log: p.Log, Refused: p.Refused, Watcher: watch.New(pollEvery),
 			Saves: p.Saves, IsOff: p.IsOff, Out: p.Out, Imported: announce,
 		},
-		refresher: p.refresher(p.Server, p.Server, p.Server),
+		refresher: p.refresher(p.Server, p.Server),
 		imported:  imported,
 	}
 }
 
-// refresher keeps the account's prices, dings state and shared lists and profiles in the game, fetched
-// with f, d and s.
-func (p Parts) refresher(f addondata.Fetcher, d addondata.DingsFetcher, s addondata.SharedFetcher) *addondata.Refresher {
+// refresher keeps the account's prices and shared lists and profiles in the game, fetched with f and s.
+func (p Parts) refresher(f addondata.Fetcher, s addondata.SharedFetcher) *addondata.Refresher {
 	return &addondata.Refresher{
-		Fetcher: f, Dings: d, Shared: s, Saves: p.Saves, Market: p.Market,
+		Fetcher: f, Shared: s, Saves: p.Saves, Market: p.Market,
 		State: filepath.Join(p.DataDir, pricesState), Out: p.Out, Report: p.Report,
 	}
 }

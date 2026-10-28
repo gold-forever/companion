@@ -226,8 +226,7 @@ func TestLuaIsTheContractTable(t *testing.T) {
 }
 
 // LuaJIT is not in the build container; the host runs testdata/check.lua on testdata/Data.lua and
-// testdata/check_markets.lua on testdata/markets.lua, testdata/check_dings.lua on
-// testdata/dings.lua, testdata/check_shared.lua on testdata/shared.lua, testdata/check_week.lua on
+// testdata/check_markets.lua on testdata/markets.lua, testdata/check_shared.lua on testdata/shared.lua, testdata/check_week.lua on
 // testdata/week.lua and testdata/check_units.lua on testdata/units.lua, which the golden tests keep equal to the writer's output.
 func TestDataLoadsInLuaJIT(t *testing.T) {
 	luajit, err := exec.LookPath("luajit")
@@ -237,7 +236,6 @@ func TestDataLoadsInLuaJIT(t *testing.T) {
 	for check, a := range map[string]Answer{
 		"check.lua":         mustParse(t, canned(t)),
 		"check_markets.lua": mustParseAccount(t, cannedMarkets(t)),
-		"check_dings.lua":   withDingsAnswer(t),
 		"check_shared.lua":  withSharedAnswer(t),
 		"check_week.lua":    weekAnswer(t),
 		"check_units.lua":   unitsAnswer(t),
@@ -426,6 +424,15 @@ func tree(t *testing.T, flavours map[string]int) (string, []find.Save) {
 		}
 	}
 	return install, find.Saves([]string{install})
+}
+
+func dataLua(t *testing.T, install string) []byte {
+	t.Helper()
+	lua, err := os.ReadFile(filepath.Join(dataDir(install, "_forever_"), "Data.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lua
 }
 
 func dataDir(install, flavour string) string {
