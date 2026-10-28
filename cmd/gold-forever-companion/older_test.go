@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,8 +68,8 @@ func runAsOlderCopy(dataDir string) {
 }
 
 // startOlderCopy runs the stand-in for rc.12 from a binary named as the companion, and returns what its
-// instance file records and a channel closed once it has exited.
-func startOlderCopy(t *testing.T, dataDir string) (instance.Info, <-chan struct{}) {
+// instance file records.
+func startOlderCopy(t *testing.T, dataDir string) instance.Info {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
@@ -91,11 +93,19 @@ func startOlderCopy(t *testing.T, dataDir string) (instance.Info, <-chan struct{
 	t.Cleanup(func() { cmd.Process.Kill(); <-exited })
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if info, err := instance.Read(filepath.Join(dataDir, "instance.json")); err == nil {
-			return info, exited
+			return info
 		}
 	}
 	t.Fatal("the older copy wrote no instance file")
-	return instance.Info{}, nil
+	return instance.Info{}
+}
+
+// installedScript stands in for the download: started, it writes its arguments and whether the copy
+// with pid still ran into started. A copy that has exited but not yet been waited for has no exe link.
+func installedScript(started string, pid int) string {
+	return "#!/bin/sh\n" +
+		"if [ -e /proc/" + strconv.Itoa(pid) + "/exe ]; then copy=running; else copy=exited; fi\n" +
+		"printf '%s\\n%s\\n' \"$*\" \"$copy\" > '" + started + ".tmp' && mv '" + started + ".tmp' '" + started + "'\n"
 }
 
 // v0.1.0-rc.12 was running when v0.2.0-rc.1 was installed over it, and both kept running
@@ -110,12 +120,11 @@ func TestADownloadStopsARunningOlderCopyAndInstallsOnceItHasExited(t *testing.T)
 	t.Cleanup(func() { version = was })
 	home := t.TempDir()
 	dataDir := filepath.Join(home, "data")
-	other, exited := startOlderCopy(t, dataDir)
+	other := startOlderCopy(t, dataDir)
 	l := install.For(install.Env{GOOS: "linux", Home: home, Getenv: func(string) string { return "" }})
 	started := filepath.Join(home, "started")
 	download := filepath.Join(t.TempDir(), "gold-forever-companion-linux-amd64")
-	script := "#!/bin/sh\necho \"$*\" > '" + started + ".tmp' && mv '" + started + ".tmp' '" + started + "'\n"
-	if err := os.WriteFile(download, []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(download, []byte(installedScript(started, other.PID)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -127,22 +136,21 @@ func TestADownloadStopsARunningOlderCopyAndInstallsOnceItHasExited(t *testing.T)
 		t.Fatal(err)
 	}
 
-	select {
-	case <-exited:
-	default:
+	var report []byte
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if data, err := os.ReadFile(started); err == nil {
+			report = data
+			break
+		}
+	}
+	args, copyState, _ := strings.Cut(string(report), "\n")
+	if args != "--installed" {
+		t.Fatalf("the installed copy was started with %q, want --installed", args)
+	}
+	if copyState != "exited\n" {
 		t.Fatal("the download was installed while the older copy still ran")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "uploaded")); err != nil {
 		t.Error("the older copy did not finish its upload before it exited")
-	}
-	var args []byte
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if data, err := os.ReadFile(started); err == nil {
-			args = data
-			break
-		}
-	}
-	if string(args) != "--installed\n" {
-		t.Fatalf("the installed copy was started with %q, want --installed", args)
 	}
 }
