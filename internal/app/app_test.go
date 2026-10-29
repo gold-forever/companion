@@ -463,6 +463,26 @@ func TestThePageCountsTheListsAndProfilesEachPriceFileHolds(t *testing.T) {
 	}
 }
 
+func TestTheUploadsWriteTheAccountsCharactersBesideThePrices(t *testing.T) {
+	c, save := fixture(t)
+	srv := &fakeServer{
+		prices: func(context.Context) ([]byte, string, error) { return []byte(twoItems), `"e1"`, nil },
+		characters: func() ([]byte, string, error) {
+			return []byte(`{"characters":[{"game":"forever","realm":"Soulseeker","name":"Altonother"}]}`), `"c1"`, nil
+		},
+	}
+
+	if err := NewUploads(c.parts(fakeConnection{srv, validToken})).refresher.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	flavour := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(save)))))
+	lua, _ := os.ReadFile(filepath.Join(flavour, "Interface", "AddOns", "GoldForever_Data", "Data.lua"))
+	if !strings.Contains(string(lua), `{ realm = "Soulseeker", name = "Altonother" }`) {
+		t.Fatalf("Data.lua =\n%s", lua)
+	}
+}
+
 func TestTheUploadLoopEndsOnlyOnceItsPriceLoopHasEnded(t *testing.T) {
 	c, _ := fixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

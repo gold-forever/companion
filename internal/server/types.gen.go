@@ -37,6 +37,23 @@ type Account struct {
 	PublicName string `json:"publicName"`
 }
 
+// CompanionCharacter defines model for CompanionCharacter.
+type CompanionCharacter struct {
+	// Game The game the character is in, `forever` or `retail`; a client skips a game it does not know, as a later server may add one.
+	Game string `json:"game"`
+
+	// Name The character's name as the game shows it.
+	Name string `json:"name"`
+
+	// Realm The realm's name as the game shows it.
+	Realm string `json:"realm"`
+}
+
+// CompanionCharacters defines model for CompanionCharacters.
+type CompanionCharacters struct {
+	Characters []CompanionCharacter `json:"characters"`
+}
+
 // DeviceCode defines model for DeviceCode.
 type DeviceCode struct {
 	// DeviceCode The app's secret for polling; never shown.
@@ -154,6 +171,15 @@ type UserAgent = string
 
 // GetCompanionAccountParams defines parameters for GetCompanionAccount.
 type GetCompanionAccountParams struct {
+	// UserAgent The companion names itself `gold-forever-companion/<version> (<os>)`, so the server can tell its requests apart and show the version on the token.
+	UserAgent UserAgent `json:"User-Agent,omitempty"`
+}
+
+// GetCompanionCharactersParams defines parameters for GetCompanionCharacters.
+type GetCompanionCharactersParams struct {
+	// IfNoneMatch The `ETag` of the answer the client already holds.
+	IfNoneMatch IfNoneMatch `json:"If-None-Match,omitempty"`
+
 	// UserAgent The companion names itself `gold-forever-companion/<version> (<os>)`, so the server can tell its requests apart and show the version on the token.
 	UserAgent UserAgent `json:"User-Agent,omitempty"`
 }

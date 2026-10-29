@@ -252,7 +252,7 @@ func priceFile(f addondata.File) page.PriceFile {
 
 // refresher keeps the account's prices and shared lists and profiles in the game, fetched with f and s.
 func (c *App) refresher(f addondata.Fetcher, s addondata.SharedFetcher) *addondata.Refresher {
-	return c.parts(nil).refresher(f, s)
+	return c.parts(nil).refresher(f, s, nil)
 }
 
 // parts is what an upload round with server is built from, with the current settings.

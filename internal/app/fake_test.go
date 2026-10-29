@@ -10,13 +10,14 @@ import (
 var errNotServed = errors.New("the fake server does not serve this")
 
 // fakeServer answers as the Gold Forever server would, without the network: each route with what its
-// func returns. Left nil, an upload waits for an answer that never comes, the account and shared routes
-// are missing, and the others fail.
+// func returns. Left nil, an upload waits for an answer that never comes, the account, shared and
+// characters routes are missing, and the others fail.
 type fakeServer struct {
-	upload  func(ctx context.Context, save []byte) (server.Answer, error)
-	prices  func(ctx context.Context) ([]byte, string, error)
-	account func(token string) (server.Account, error)
-	latest  func() (server.Release, error)
+	upload     func(ctx context.Context, save []byte) (server.Answer, error)
+	prices     func(ctx context.Context) ([]byte, string, error)
+	characters func() ([]byte, string, error)
+	account    func(token string) (server.Account, error)
+	latest     func() (server.Release, error)
 }
 
 // connects makes c ask f, with whatever token c asks with.
@@ -46,6 +47,13 @@ func (f fakeConnection) Prices(ctx context.Context, game, market, etag string) (
 
 func (f fakeConnection) SharedState(context.Context, string) ([]byte, string, error) {
 	return nil, "", server.ErrNoShared
+}
+
+func (f fakeConnection) Characters(context.Context, string) ([]byte, string, error) {
+	if f.characters == nil {
+		return nil, "", server.ErrNoCharacters
+	}
+	return f.characters()
 }
 
 func (f fakeConnection) Account(context.Context) (server.Account, error) {

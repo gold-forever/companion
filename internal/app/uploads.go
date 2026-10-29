@@ -13,12 +13,13 @@ import (
 	"github.com/gold-forever/companion/internal/upload/core"
 )
 
-// Server is what the uploads ask of the Gold Forever server: to take a save, and the prices and shared
-// lists they keep in the game.
+// Server is what the uploads ask of the Gold Forever server: to take a save, and the prices, shared
+// lists and the account's characters they keep in the game.
 type Server interface {
 	core.Uploader
 	addondata.Fetcher
 	addondata.SharedFetcher
+	addondata.CharactersFetcher
 }
 
 // Parts is what the uploads are built from: the server, what the data folder keeps, and the saves.
@@ -34,8 +35,8 @@ type Parts struct {
 	Report  *addondata.Report // may be nil
 }
 
-// Uploads is the upload core and, beside it, the refresher that keeps prices and shared lists
-// in the game, fetching again whenever an upload was imported.
+// Uploads is the upload core and, beside it, the refresher that keeps prices, shared lists and the
+// account's characters in the game, fetching again whenever an upload was imported.
 type Uploads struct {
 	core      *core.Core
 	refresher *addondata.Refresher
@@ -51,15 +52,16 @@ func NewUploads(p Parts) *Uploads {
 			Backups:  p.Backups, Log: p.Log, Refused: p.Refused, Watcher: watch.New(pollEvery),
 			Saves: p.Saves, IsOff: p.IsOff, Out: p.Out, Imported: announce,
 		},
-		refresher: p.refresher(p.Server, p.Server),
+		refresher: p.refresher(p.Server, p.Server, p.Server),
 		imported:  imported,
 	}
 }
 
-// refresher keeps the account's prices and shared lists and profiles in the game, fetched with f and s.
-func (p Parts) refresher(f addondata.Fetcher, s addondata.SharedFetcher) *addondata.Refresher {
+// refresher keeps the account's prices, shared lists and profiles and characters in the game, fetched
+// with f, s and ch.
+func (p Parts) refresher(f addondata.Fetcher, s addondata.SharedFetcher, ch addondata.CharactersFetcher) *addondata.Refresher {
 	return &addondata.Refresher{
-		Fetcher: f, Shared: s, Saves: p.Saves, Market: p.Market,
+		Fetcher: f, Shared: s, Characters: ch, Saves: p.Saves, Market: p.Market,
 		State: filepath.Join(p.DataDir, pricesState), Out: p.Out, Report: p.Report,
 	}
 }

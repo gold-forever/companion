@@ -1,6 +1,6 @@
-// Package addondata turns the server's pooled prices and shared lists into the GoldForever_Data
-// addon the game loads. The server sends JSON, never Lua: every number is checked and the Lua is
-// written here, so a server can send wrong prices but cannot run code in the game.
+// Package addondata turns the server's pooled prices, shared lists and the account's characters into
+// the GoldForever_Data addon the game loads. The server sends JSON, never Lua: every number is checked
+// and the Lua is written here, so a server can send wrong prices but cannot run code in the game.
 package addondata
 
 import (
@@ -39,11 +39,13 @@ type Prices struct {
 	Items  []Item
 }
 
-// Answer is what the server sent: when it built it, and its markets sorted by key.
+// Answer is what the server sent: when it built it, and its markets sorted by key. Shared and
+// Characters, when not nil, are the account's written beside them, Characters those of the answer's game.
 type Answer struct {
-	At      int64
-	Markets []Prices
-	Shared  *Shared
+	At         int64
+	Markets    []Prices
+	Shared     *Shared
+	Characters *Characters
 }
 
 type rawMarket struct {

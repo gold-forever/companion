@@ -12,6 +12,9 @@ package addondata
 //	    lists = { { id = <string>, edited = <int>, string = <string> }, ... },
 //	    profiles = { { id = <string>, edited = <int>, string = <string> }, ... },
 //	  },
+//	  characters = {              -- optional: the account's characters in this file's game
+//	    { realm = <string>, name = <string> }, ...
+//	  },
 //	  markets = {
 //	    [<market key>] = {
 //	      [<item id>] = { value, minBuyout, players, scannedAt [, week] [, units = <int>] },
@@ -22,12 +25,13 @@ package addondata
 // An item's numbers are integers: week is optional, and units, keyed so that it never takes week's
 // place, is there only for a thin price.
 //
-// Keys and strings are quoted printable ASCII; every number is an integer Lua holds exactly.
+// A realm or name outside ASCII is written byte by byte as \ddd escapes, which Lua reads back as the
+// same UTF-8. Keys and strings are quoted printable ASCII; every number is an integer Lua holds exactly.
 
 // formatVersion is Data.lua's v. It changes when an addon reading the file as it is would misread it:
 // a field removed, renamed or given another type, or the item figures reordered. A new optional field
-// does not, nor does dropping one an addon reads as absent: shared, week and units were each added at
-// v = 1, and dings was dropped at it.
+// does not, nor does dropping one an addon reads as absent: shared, characters, week and units were each
+// added at v = 1, and dings was dropped at it.
 const formatVersion = 1
 
 // The addon's folder and its files.
@@ -42,14 +46,17 @@ const dataGlobal = "GoldForever_Prices"
 
 // The fields of Data.lua's tables, as the addon reads them.
 const (
-	fieldVersion  = "v"
-	fieldAt       = "at"
-	fieldShared   = "shared"
-	fieldLists    = "lists"
-	fieldProfiles = "profiles"
-	fieldID       = "id"
-	fieldEdited   = "edited"
-	fieldString   = "string"
-	fieldMarkets  = "markets"
-	fieldUnits    = "units"
+	fieldVersion    = "v"
+	fieldAt         = "at"
+	fieldShared     = "shared"
+	fieldLists      = "lists"
+	fieldProfiles   = "profiles"
+	fieldID         = "id"
+	fieldEdited     = "edited"
+	fieldString     = "string"
+	fieldCharacters = "characters"
+	fieldRealm      = "realm"
+	fieldName       = "name"
+	fieldMarkets    = "markets"
+	fieldUnits      = "units"
 )

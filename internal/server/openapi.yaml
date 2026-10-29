@@ -8,7 +8,7 @@ info:
   summary: Every request the Gold Forever companion makes to the site, and how the site answers.
   description: |
     The companion uploads the saves the game writes, links itself to a player's account, and writes the
-    account's prices and shared lists into the game. These are all the routes it calls.
+    account's prices, shared lists and characters into the game. These are all the routes it calls.
 
     ## Compatibility
 
@@ -372,6 +372,44 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/companion/characters:
+    get:
+      operationId: getCompanionCharacters
+      summary: The account's own characters on every WoW account linked to it, for the addon to know as its own
+      description: |
+        Each character's game, realm and name, nothing more, and never another account's. The addon's
+        saves are per WoW account, so this is how it learns of the player's characters on their other
+        WoW accounts. Sending the `ETag` back in `If-None-Match` answers 304 while the list is unchanged.
+      security:
+        - bearer: []
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/UserAgent"
+      responses:
+        "200":
+          description: The account's characters.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlPrivate"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanionCharacters"
+              example: {"characters": [{"game": "forever", "realm": "Soulseeker", "name": "Goldsmith"}]}
+        "304":
+          description: The list is unchanged since the `If-None-Match` sent. No body.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlPrivate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
 components:
   securitySchemes:
     bearer:
@@ -606,6 +644,31 @@ components:
               - properties:
                   string:
                     pattern: "^GFP1:[ -~]*$"
+
+    CompanionCharacter:
+      type: object
+      additionalProperties: false
+      required: [game, realm, name]
+      properties:
+        game:
+          description: The game the character is in, `forever` or `retail`; a client skips a game it does not know, as a later server may add one.
+          type: string
+        realm:
+          description: The realm's name as the game shows it.
+          type: string
+        name:
+          description: The character's name as the game shows it.
+          type: string
+
+    CompanionCharacters:
+      type: object
+      additionalProperties: false
+      required: [characters]
+      properties:
+        characters:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompanionCharacter"
 
     DeviceCodeRequest:
       type: object
