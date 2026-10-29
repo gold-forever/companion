@@ -214,3 +214,31 @@ string = "GFL1:…" } }, profiles = { { id = "…", edited = <n>, string = "GFP1
 game's file limit; the addon merges it by id, the newer `edited` winning. A changed state rewrites
 `Data.lua` even when the prices answer 304; after a restart, when the prices written are no longer in
 memory, that one refresh asks for the prices without `If-None-Match`.
+
+## Your characters
+
+With every price refresh, one request for the characters of your account on every WoW account linked
+to it, so the addon knows mail to any of them as mail to your own character. Your WoW accounts each have
+their own saves, so without this the addon only knows the characters of the one it is running on.
+
+```http
+GET /api/v1/companion/characters
+Authorization: Bearer gf_...
+If-None-Match: "<the ETag of the list held>"
+```
+
+- 200 `{"characters":[{"game":"forever","realm":"Soulseeker","name":"Goldsmith"}, …]}`: each
+  character's game, realm and name, nothing more. The app checks it (an array of at most 2000, each with
+  a string `game`, `realm` and `name`); any fault keeps the last good list (or writes none), as does a
+  failed request. A character of a game the app does not know, or with an empty realm or name, one over
+  64 bytes or one with a control character, is left out and the rest kept; one listed twice is written
+  once. Up to 256 KB; it is kept with its ETag in `prices.json`. 401 and 403 are as for prices.
+- 304: the list held is still current.
+- 404: a server from before the list; no list: `Data.lua` goes without one, and the addon knows only the
+  characters of its own saves.
+
+`Data.lua` carries each game's own characters beside `at` as `characters = { { realm = "…", name =
+"…" } }`, counted in the game's file limit; a realm or name outside ASCII is written as `\ddd` escapes
+of its UTF-8 bytes. It is a new optional field, so `v` stays 1 and an addon that does not read it loads
+the file as before. A changed list rewrites the `Data.lua` of a game whose characters changed, even when
+the prices answer 304.
