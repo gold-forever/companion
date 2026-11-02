@@ -46,31 +46,39 @@ const wowFolder = "World of Warcraft"
 func Candidates(goos, home string, getenv func(string) string, registry func() string) []string {
 	switch goos {
 	case "windows":
-		var out []string
-		if recorded := strings.TrimRight(registry(), `\`); recorded != "" {
-			// Battle.net records a flavour folder (…\World of Warcraft\_retail_); the install is its parent.
-			if i := strings.LastIndex(recorded, `\`); i > 0 && isFlavour(recorded[i+1:]) {
-				recorded = recorded[:i]
-			}
-			out = append(out, recorded)
-		}
-		if programs := getenv("ProgramFiles(x86)"); programs != "" {
-			out = append(out, programs+`\`+wowFolder)
-		}
-		return out
+		return windowsCandidates(getenv, registry)
 	case "darwin":
 		return []string{"/Applications/" + wowFolder}
 	default:
-		var out []string
-		for _, prefix := range linuxPrefixes {
-			for _, drive := range globUnder(home, prefix) {
-				for _, programs := range programFolders {
-					out = append(out, filepath.Join(drive, programs, wowFolder))
-				}
+		return linuxCandidates(home)
+	}
+}
+
+func windowsCandidates(getenv func(string) string, registry func() string) []string {
+	var out []string
+	if recorded := strings.TrimRight(registry(), `\`); recorded != "" {
+		// Battle.net records a flavour folder (…\World of Warcraft\_retail_); the install is its parent.
+		if i := strings.LastIndex(recorded, `\`); i > 0 && isFlavour(recorded[i+1:]) {
+			recorded = recorded[:i]
+		}
+		out = append(out, recorded)
+	}
+	if programs := getenv("ProgramFiles(x86)"); programs != "" {
+		out = append(out, programs+`\`+wowFolder)
+	}
+	return out
+}
+
+func linuxCandidates(home string) []string {
+	var out []string
+	for _, prefix := range linuxPrefixes {
+		for _, drive := range globUnder(home, prefix) {
+			for _, programs := range programFolders {
+				out = append(out, filepath.Join(drive, programs, wowFolder))
 			}
 		}
-		return out
 	}
+	return out
 }
 
 // Installs keeps the folders that exist, each once, in the order given.
