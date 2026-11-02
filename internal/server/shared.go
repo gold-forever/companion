@@ -17,8 +17,7 @@ const sharedLimit = 1 << 20
 // is ErrNotModified.
 func (c *Client) SharedState(ctx context.Context, etag string) ([]byte, string, error) {
 	body, etag, err := c.conditionalGet(ctx, "/api/v1/shared/state", etag, sharedLimit)
-	var refused *RefusedError
-	if errors.As(err, &refused) && refused.Status == 404 {
+	if notFound(err) {
 		return nil, "", ErrNoShared
 	}
 	return body, etag, err

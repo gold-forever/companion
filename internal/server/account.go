@@ -15,8 +15,7 @@ var ErrNoAccount = errors.New("the server does not say which account this is")
 func (c *Client) Account(ctx context.Context) (Account, error) {
 	var a Account
 	body, _, err := c.conditionalGet(ctx, "/api/v1/companion/account", "", maxAnswerBytes)
-	var refused *RefusedError
-	if errors.As(err, &refused) && refused.Status == 404 {
+	if notFound(err) {
 		return a, ErrNoAccount
 	}
 	if err != nil {

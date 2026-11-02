@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"time"
 )
@@ -107,4 +108,10 @@ func retryAfter(header string) (time.Duration, bool) {
 		return time.Duration(seconds) * time.Second, true
 	}
 	return 0, false
+}
+
+// notFound says whether err is the server's 404 to a GET: a server from before the route.
+func notFound(err error) bool {
+	var refused *RefusedError
+	return errors.As(err, &refused) && refused.Status == http.StatusNotFound
 }

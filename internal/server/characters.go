@@ -17,8 +17,7 @@ const charactersLimit = 256 << 10
 // unchanged one is ErrNotModified.
 func (c *Client) Characters(ctx context.Context, etag string) ([]byte, string, error) {
 	body, etag, err := c.conditionalGet(ctx, "/api/v1/companion/characters", etag, charactersLimit)
-	var refused *RefusedError
-	if errors.As(err, &refused) && refused.Status == 404 {
+	if notFound(err) {
 		return nil, "", ErrNoCharacters
 	}
 	return body, etag, err
