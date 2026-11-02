@@ -12,6 +12,7 @@ import (
 
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/account/link"
+	"github.com/gold-forever/companion/internal/addondata"
 	"github.com/gold-forever/companion/internal/platform/install"
 	"github.com/gold-forever/companion/internal/saves/refused"
 	"github.com/gold-forever/companion/internal/server"
@@ -530,4 +531,9 @@ func TestCheckingForAnUpdateShowsANewerReleaseOnly(t *testing.T) {
 			t.Errorf("latest %s: notice %+v, err %v", latest, c.State().Notice, err)
 		}
 	}
+}
+
+// refresher keeps the account's prices and shared lists and profiles in the game, fetched with f and s.
+func (c *App) refresher(f addondata.Fetcher, s addondata.SharedFetcher) *addondata.Refresher {
+	return c.parts(nil).refresher(f, s, nil)
 }
