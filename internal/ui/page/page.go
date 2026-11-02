@@ -8,7 +8,6 @@ package page
 import (
 	"context"
 	"crypto/subtle"
-	"embed"
 	"encoding/json"
 	"errors"
 	"net"
@@ -19,9 +18,6 @@ import (
 )
 
 const maxBody = 4 << 10
-
-//go:embed static
-var static embed.FS
 
 // App is what the page shows and changes. An error the player can fix is a PlayerError; anything else
 // is the companion's failure.
