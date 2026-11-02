@@ -60,7 +60,6 @@ func (l *List) Refuse(source, sha string, now time.Time) error {
 	return l.write()
 }
 
-// Drop forgets the save at source.
 func (l *List) Drop(source string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()

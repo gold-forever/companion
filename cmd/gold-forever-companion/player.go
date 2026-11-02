@@ -171,7 +171,6 @@ func start(exe string, args ...string) error {
 	return cmd.Process.Release()
 }
 
-// openBrowser opens url in the player's default browser.
 func openBrowser(url string) error {
 	switch goos {
 	case "windows":

@@ -28,7 +28,6 @@ type Log struct {
 	Keep time.Duration
 }
 
-// Append adds one entry.
 func (l *Log) Append(e Entry) error {
 	line, err := json.Marshal(e)
 	if err != nil {

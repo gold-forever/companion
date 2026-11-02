@@ -19,7 +19,6 @@ type gameSeen struct {
 	game     string
 }
 
-// State is what the settings page shows.
 func (c *App) State() page.State {
 	cfg := c.settings.Get()
 	s := page.State{

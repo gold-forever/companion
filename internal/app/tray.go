@@ -59,13 +59,10 @@ func thousands(n int) string {
 	return s
 }
 
-// OpenSite opens the site in the player's browser.
 func (c *App) OpenSite() { c.openURL(c.url()) }
 
-// OpenSettings opens the settings page in the player's browser.
 func (c *App) OpenSettings() { c.openURL(c.pageURL) }
 
-// Quit stops the companion.
 func (c *App) Quit() { c.quit() }
 
 // UpdateVersion is the newer release the last check found, for the tray's Update now; "" while none.

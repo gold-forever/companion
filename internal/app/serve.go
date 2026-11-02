@@ -26,8 +26,7 @@ type ServeOptions struct {
 	Exe, Home, DataDir string
 	// Mode is "" for a double-click, --installed when a download starts the installed copy, and
 	// --autostart at login, which stays quiet in the tray.
-	Mode string
-	// OpenBrowser opens a page in the player's browser.
+	Mode        string
 	OpenBrowser func(url string) error
 }
 

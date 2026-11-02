@@ -28,10 +28,8 @@ func New(path string, c Config) *Settings {
 	return &Settings{path: path, cfg: c, changed: make(chan struct{})}
 }
 
-// Path is the settings file.
 func (s *Settings) Path() string { return s.path }
 
-// Get is the settings now.
 func (s *Settings) Get() Config {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -20,7 +20,6 @@ type Records struct {
 	Refused *refused.List
 }
 
-// OpenRecords opens the records kept in dataDir.
 func OpenRecords(dataDir string) Records {
 	return Records{
 		Backups: &backup.Store{Dir: filepath.Join(dataDir, "backups"), Keep: keepCopies, Now: time.Now},

@@ -35,7 +35,6 @@ const (
 	keepLogFor  = 30 * 24 * time.Hour
 	// sentPerPage is how many uploads a page of "What was sent" shows.
 	sentPerPage = 10
-	// downloadFor is how long downloading an update may take.
 	downloadFor = 10 * time.Minute
 	// instanceFile, in the data folder, says which copy runs and where its page is.
 	instanceFile = "instance.json"
@@ -69,8 +68,7 @@ type App struct {
 	// connect is the server at the settings' site, asked with token ("" for what needs none).
 	connect func(token string) connection
 	// linker links by code: it shows the code, waits for the approval and saves the token with save.
-	linker func(ctx context.Context, show func(server.DeviceCode), save func(token string) error) error
-	// openURL opens a page in the player's browser.
+	linker  func(ctx context.Context, show func(server.DeviceCode), save func(token string) error) error
 	openURL func(url string)
 	// pageURL is the settings page's address, with its secret; tab is its port and secret.
 	pageURL string
