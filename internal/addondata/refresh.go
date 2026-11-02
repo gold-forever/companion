@@ -175,10 +175,7 @@ func accountState[T any](ctx context.Context, r *Refresher, state map[string]hel
 // again. A failed fetch or an answer out of shape writes nothing, so the last good files stay; the error
 // is the fetch's.
 func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]int, state map[string]held, x extras) error {
-	ask, label := "", "the account's "+game+" markets"
-	if strings.HasPrefix(r.Market, game+"-") {
-		ask, label = r.Market, r.Market
-	}
+	ask, label := r.askFor(game)
 	chars := x.characters.in(game)
 	h, shared, characters := state[game], sharedPart(x.shared), charactersPart(chars)
 	current := h.Dings == "" && h.Shared == shared && h.Characters == characters
@@ -203,16 +200,14 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 		return err
 	default:
 		if a, err = Parse(body, game, ask); err != nil {
-			fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
-			r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
+			r.refuse(game, label, err)
 			return nil
 		}
 	}
 	a.Shared, a.Characters = x.shared, chars
 	lua, err := r.render(game, a)
 	if err != nil {
-		fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
-		r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
+		r.refuse(game, label, err)
 		return err
 	}
 	if body != nil {
@@ -220,17 +215,37 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 	}
 	state[game] = held{Ask: ask, ETag: etag, Shared: shared, Characters: characters}
 	r.remember(game, written{ask: ask, etag: etag, answer: a})
+	r.writeInto(flavours, game, label, a, lua, state)
+	return nil
+}
+
+// askFor is the answer to ask for game, "" for the account's markets, and how the log names it.
+func (r *Refresher) askFor(game string) (ask, label string) {
+	if strings.HasPrefix(r.Market, game+"-") {
+		return r.Market, r.Market
+	}
+	return "", "the account's " + game + " markets"
+}
+
+// refuse logs and reports an answer for game that is out of shape or over its limit.
+func (r *Refresher) refuse(game, label string, err error) {
+	fmt.Fprintf(r.Out, "prices for %s refused: %v\n", label, err)
+	r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
+}
+
+// writeInto writes lua, rendered from a, into each flavour. A flavour it cannot write into drops game
+// from state, so the next refresh fetches in full.
+func (r *Refresher) writeInto(flavours map[string]int, game, label string, a Answer, lua []byte, state map[string]held) {
 	for dir, iface := range flavours {
 		err := Write(dir, iface, lua)
 		r.Report.wrote(dir, err)
 		if err != nil {
 			fmt.Fprintf(r.Out, "prices not written into %s: %v\n", dir, err)
-			delete(state, game) // a flavour without this answer must be fetched in full next time
+			delete(state, game)
 			continue
 		}
 		fmt.Fprintf(r.Out, "prices for %s written into %s (%d markets, %d items)\n", label, dir, len(a.Markets), items(a))
 	}
-	return nil
 }
 
 func (r *Refresher) remember(game string, w written) {

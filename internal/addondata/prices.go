@@ -49,16 +49,18 @@ type Answer struct {
 }
 
 type rawMarket struct {
-	Market string `json:"market"`
-	Items  []struct {
-		ID        json.RawMessage `json:"id"`
-		Value     json.RawMessage `json:"value"`
-		MinBuyout json.RawMessage `json:"minBuyout"`
-		Players   json.RawMessage `json:"players"`
-		ScannedAt json.RawMessage `json:"scannedAt"`
-		Week      json.RawMessage `json:"week"`
-		Units     json.RawMessage `json:"units"`
-	} `json:"items"`
+	Market string     `json:"market"`
+	Items  []rawPrice `json:"items"`
+}
+
+type rawPrice struct {
+	ID        json.RawMessage `json:"id"`
+	Value     json.RawMessage `json:"value"`
+	MinBuyout json.RawMessage `json:"minBuyout"`
+	Players   json.RawMessage `json:"players"`
+	ScannedAt json.RawMessage `json:"scannedAt"`
+	Week      json.RawMessage `json:"week"`
+	Units     json.RawMessage `json:"units"`
 }
 
 // answer holds both shapes: one market's (market and items at the top) and the account's (markets).
@@ -127,27 +129,9 @@ func parseMarket(m rawMarket) (Prices, error) {
 	p := Prices{Market: m.Market}
 	seen := map[int64]bool{}
 	for i, raw := range m.Items {
-		var it Item
-		for _, f := range []struct {
-			name string
-			num  json.RawMessage
-			min  int64
-			to   *int64
-		}{
-			{"id", raw.ID, 1, &it.ID},
-			{"value", raw.Value, 0, &it.Value},
-			{"minBuyout", raw.MinBuyout, 0, &it.MinBuyout},
-			{"players", raw.Players, 0, &it.Players},
-			{"scannedAt", raw.ScannedAt, 0, &it.ScannedAt},
-		} {
-			var err error
-			if *f.to, err = integer(f.num, f.min, maxExact); err != nil {
-				return Prices{}, fmt.Errorf("market %s item %d %s: %w", m.Market, i, f.name, err)
-			}
-		}
-		it.Week = optional(raw.Week, 1, maxExact)
-		if units, err := integer(raw.Units, 0, maxExact); err == nil {
-			it.Units, it.Thin = units, true
+		it, err := parseItem(raw)
+		if err != nil {
+			return Prices{}, fmt.Errorf("market %s item %d %w", m.Market, i, err)
 		}
 		if seen[it.ID] {
 			return Prices{}, fmt.Errorf("market %s: item %d named twice", m.Market, it.ID)
@@ -157,6 +141,33 @@ func parseMarket(m rawMarket) (Prices, error) {
 	}
 	slices.SortFunc(p.Items, func(a, b Item) int { return cmp.Compare(a.ID, b.ID) })
 	return p, nil
+}
+
+// parseItem reads one item's figures; an error names the field out of shape.
+func parseItem(raw rawPrice) (Item, error) {
+	var it Item
+	for _, f := range []struct {
+		name string
+		num  json.RawMessage
+		min  int64
+		to   *int64
+	}{
+		{"id", raw.ID, 1, &it.ID},
+		{"value", raw.Value, 0, &it.Value},
+		{"minBuyout", raw.MinBuyout, 0, &it.MinBuyout},
+		{"players", raw.Players, 0, &it.Players},
+		{"scannedAt", raw.ScannedAt, 0, &it.ScannedAt},
+	} {
+		var err error
+		if *f.to, err = integer(f.num, f.min, maxExact); err != nil {
+			return Item{}, fmt.Errorf("%s: %w", f.name, err)
+		}
+	}
+	it.Week = optional(raw.Week, 1, maxExact)
+	if units, err := integer(raw.Units, 0, maxExact); err == nil {
+		it.Units, it.Thin = units, true
+	}
+	return it, nil
 }
 
 // optional reads a field a server may leave out: one absent or out of shape is 0, none, so a single
