@@ -27,7 +27,7 @@ import (
 // The timings and the files the app keeps in the data folder.
 const (
 	pollEvery = 2 * time.Second
-	// The prices' freshness without an upload of one's own: most refreshes cost a 304 (D-013.4).
+	// The prices' freshness without an upload of one's own: most refreshes cost a 304.
 	refreshPricesEvery = time.Hour
 	// Where the ETag of the prices in the game is kept, in the data folder.
 	pricesState = "prices.json"

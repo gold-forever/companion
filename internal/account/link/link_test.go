@@ -78,7 +78,7 @@ func TestLinkLeavesTheSettingsAloneWhenDenied(t *testing.T) {
 	}
 }
 
-// The site says it in frontend/src/app/sharing.ts; a change there is a change here, word for word.
+// The site says it where a player links; a change there is a change here, word for word.
 func TestTheSharingLineIsTheSitesOwn(t *testing.T) {
 	const site = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
 		"never your name. Your characters, gold and ledger stay private."

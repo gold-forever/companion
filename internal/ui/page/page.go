@@ -1,8 +1,7 @@
 // Package page is the companion's settings page: a web page served on 127.0.0.1 only, opened from the
 // tray with a secret in its link. Every request must come for that exact address, from no other site,
 // with the secret (but the ping, which proves the secret without it); posts must be small JSON, which no
-// other page can send without the browser asking first, and this server never says yes (design 006,
-// "The settings page and tray").
+// other page can send without the browser asking first, and this server never says yes.
 package page
 
 import (

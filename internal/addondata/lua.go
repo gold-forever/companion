@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// limit is a game's Data.lua limits (D-013.9): over data bytes the file is refused and the last good
+// limit is a game's Data.lua limits: over data bytes the file is refused and the last good
 // one stays; a market over market bytes is written with a warning.
 type limit struct{ data, market int }
 

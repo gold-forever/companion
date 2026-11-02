@@ -10,8 +10,8 @@ import (
 	"github.com/gold-forever/companion/internal/server"
 )
 
-// SharingLine is the site's own line on what an upload shares (frontend/src/app/sharing.ts, word for
-// word), said wherever the player links.
+// SharingLine is the site's own line on what an upload shares, word for word; the companion says it
+// wherever the player links.
 const SharingLine = "Every upload adds its auction scans, item details and loot counts to the shared prices, " +
 	"never your name. Your characters, gold and ledger stay private."
 

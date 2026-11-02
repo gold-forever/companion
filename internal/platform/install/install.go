@@ -1,6 +1,6 @@
 // Package install puts the companion where it belongs on the player's computer, starts it when they
 // log in, and takes all of it away again on Uninstall. It installs for the one user only and never
-// needs admin rights (design 006, "What a release contains").
+// needs admin rights.
 package install
 
 import (
