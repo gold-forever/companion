@@ -4,10 +4,8 @@
 package install
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"html"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -261,86 +259,9 @@ func removeIfThere(path string) error {
 	return nil
 }
 
-// fileAutostart is a file the desktop reads at login: a LaunchAgent, or an XDG autostart entry.
-type fileAutostart struct {
-	path    string
-	content func(exe string) []byte
-}
-
-func (a *fileAutostart) Enable(exe string) error { return writeFile(a.path, a.content(exe), 0o644) }
-func (a *fileAutostart) Disable() error          { return removeIfThere(a.path) }
-func (a *fileAutostart) Enabled() bool {
-	_, err := os.Stat(a.path)
-	return err == nil
-}
-func (a *fileAutostart) StartsAt(exe string) bool {
-	data, err := os.ReadFile(a.path)
-	return err == nil && bytes.Equal(data, a.content(exe))
-}
-
-func desktopEntry(exe string) []byte {
-	return []byte("[Desktop Entry]\nType=Application\nName=" + appName +
-		"\nComment=Uploads your Gold Forever saves\nExec=" + quoteExec(exe) + "\nTerminal=false\nCategories=Game;\n")
-}
-
-func autostartEntry(exe string) []byte {
-	return []byte("[Desktop Entry]\nType=Application\nName=" + appName +
-		"\nExec=" + quoteExec(exe) + " --autostart\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
-}
-
-// quoteExec quotes a path for a desktop entry's Exec key. The specification unescapes the value as a
-// string first, so each backslash its quoting rule adds is itself written twice; % starts a field code.
-func quoteExec(path string) string {
-	return `"` + execEscapes.Replace(path) + `"`
-}
-
-var execEscapes = strings.NewReplacer(`\`, `\\\\`, `"`, `\\"`, "`", "\\\\`", `$`, `\\$`, `%`, `%%`)
-
-func launchAgent(exe string) []byte {
-	return []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>` + agentID + `</string>
-<key>ProgramArguments</key><array><string>` + html.EscapeString(exe) + `</string><string>--autostart</string></array>
-<key>RunAtLoad</key><true/>
-</dict></plist>
-`)
-}
-
 func xdg(e Env, variable, fallback string) string {
 	if dir := e.Getenv(variable); dir != "" {
 		return dir
 	}
 	return filepath.Join(e.Home, fallback)
-}
-
-// winJoin joins a Windows path the same way on every system, so the layout can be tested anywhere.
-func winJoin(parts ...string) string {
-	return strings.Join(parts, `\`)
-}
-
-// winClean reads / as \ and drops repeated and trailing separators, so two spellings of one Windows
-// path compare equal on any system. 8.3 short names and links still differ: only --installed and
-// --autostart keep a copy from handing off to itself.
-func winClean(path string) string {
-	path = strings.ReplaceAll(path, "/", `\`)
-	unc := strings.HasPrefix(path, `\\`)
-	for strings.Contains(path, `\\`) {
-		path = strings.ReplaceAll(path, `\\`, `\`)
-	}
-	if unc {
-		path = `\` + path
-	}
-	return strings.TrimRight(path, `\`)
-}
-
-// moveToTemp moves a running binary into the temporary folder, which Windows allows where deleting it
-// does not; the system clears that folder in time. Across drives the rename fails, and the file is
-// left beside the install with a name that says what it is.
-func moveToTemp(path string) error {
-	aside := filepath.Join(os.TempDir(), fmt.Sprintf("%s-removed-%d.exe", fileName, os.Getpid()))
-	if err := os.Rename(path, aside); err == nil {
-		return nil
-	}
-	return os.Rename(path, path+".removed")
 }
