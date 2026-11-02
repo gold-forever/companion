@@ -74,14 +74,8 @@ func installFromDownload(ctx context.Context, l install.Layout, exe string, othe
 		return start(l.Exe, "--installed")
 	}
 	if alive {
-		if err := instance.Quit(ctx, other); err != nil {
-			return fmt.Errorf("could not stop the running companion to update it: %w", err)
-		}
-		// Until its process has exited: a copy closes its page before its uploads have finished.
-		for deadline := time.Now().Add(10 * time.Second); (instance.Alive(ctx, other) || instance.Running(other)) && time.Now().Before(deadline); {
-			if err := pause(ctx, retryEvery); err != nil {
-				return err
-			}
+		if err := stopRunning(ctx, other); err != nil {
+			return err
 		}
 	}
 	autostartWasOn := l.Autostart.Enabled()
@@ -93,6 +87,20 @@ func installFromDownload(ctx context.Context, l install.Layout, exe string, othe
 		_ = l.Autostart.Disable()
 	}
 	return start(l.Exe, "--installed")
+}
+
+// stopRunning asks the running copy to quit and waits until its process has exited: a copy closes its
+// page before its uploads have finished.
+func stopRunning(ctx context.Context, other instance.Info) error {
+	if err := instance.Quit(ctx, other); err != nil {
+		return fmt.Errorf("could not stop the running companion to update it: %w", err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); (instance.Alive(ctx, other) || instance.Running(other)) && time.Now().Before(deadline); {
+		if err := pause(ctx, retryEvery); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // versionOf asks an installed companion its version: "" when it does not answer.

@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -100,59 +101,61 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		return 1
 	}
 	cfg := settings.Get()
-	token := cfg.Token
-	if token == "" {
-		token = getenv("GF_TOKEN")
-	}
+	token := cmp.Or(cfg.Token, getenv("GF_TOKEN"))
 	if token == "" {
 		fmt.Fprintf(stderr, "no token: set GF_TOKEN, or put one in %s (make one at /me/tokens)\n", cfgPath)
 		return 2
 	}
-	url := cfg.URL
-	if url == "" {
-		url = defaultURL
-	}
 	home, _ := os.UserHomeDir()
 	data := config.DataDir(runtime.GOOS, home, getenv)
-	// One copy per user, as the tray app: two would share one backups folder and log.
-	release, err := instance.Claim(data)
-	if errors.Is(err, instance.ErrRunning) {
-		fmt.Fprintln(stderr, "another copy of the companion is already running (the app, or another run): quit it first")
-		return 1
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "could not make sure only one companion runs: %v\n", err)
+	release, ok := claimTheOneCopy(data, stderr)
+	if !ok {
 		return 1
 	}
 	defer release()
 	records := app.OpenRecords(data)
 	_ = records.Log.Prune(time.Now())
 	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)
-	if *market == "" {
-		*market = cfg.Market
-	}
 	uploads := app.Parts{
-		Server:  client(url, token),
+		Server:  client(cmp.Or(cfg.URL, defaultURL), token),
 		Records: records,
 		Saves:   func() []find.Save { return find.Saves(installs) },
 		IsOff:   cfg.IsOff,
-		Market:  *market,
+		Market:  cmp.Or(*market, cfg.Market),
 		DataDir: data,
 		Out:     stdout,
 	}
-	saves := uploads.Saves()
-	if len(saves) == 0 {
-		fmt.Fprintln(stdout, "no GoldForever.lua found yet; add your WoW folder to", cfgPath)
-	}
-	for _, s := range saves {
-		fmt.Fprintln(stdout, "watching", s.Label())
-	}
+	announceSaves(stdout, uploads.Saves(), cfgPath)
 	err = app.NewUploads(uploads).Run(ctx) // nothing writes into the data folder once it has returned
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return 0
+}
+
+// claimTheOneCopy claims the one copy per user, as the tray app does: two would share one backups
+// folder and log. It says why on stderr when it cannot.
+func claimTheOneCopy(data string, stderr io.Writer) (release func(), ok bool) {
+	release, err := instance.Claim(data)
+	if errors.Is(err, instance.ErrRunning) {
+		fmt.Fprintln(stderr, "another copy of the companion is already running (the app, or another run): quit it first")
+		return nil, false
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "could not make sure only one companion runs: %v\n", err)
+		return nil, false
+	}
+	return release, true
+}
+
+func announceSaves(stdout io.Writer, saves []find.Save, cfgPath string) {
+	if len(saves) == 0 {
+		fmt.Fprintln(stdout, "no GoldForever.lua found yet; add your WoW folder to", cfgPath)
+	}
+	for _, s := range saves {
+		fmt.Fprintln(stdout, "watching", s.Label())
+	}
 }
 
 // linkAccount is `link`: a code to approve on the site, then the token saved in the config file. The
@@ -181,19 +184,25 @@ func linkAccount(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		fmt.Fprintln(stderr, "not linked:", err)
 		return 1
 	}
-	if *url != defaultURL {
-		// Remember a site other than the public one, so `run` uploads where the account was linked.
-		settings, err := config.Open(cfgPath)
-		if err == nil {
-			err = settings.Update(func(cfg *config.Config) error { cfg.URL = *url; return nil })
-		}
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+	if err := rememberSite(cfgPath, *url); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 	fmt.Fprintln(stdout, "Linked. The token is saved in", cfgPath)
 	return 0
+}
+
+// rememberSite keeps a site other than the public one in the settings, so `run` uploads where the
+// account was linked.
+func rememberSite(cfgPath, url string) error {
+	if url == defaultURL {
+		return nil
+	}
+	settings, err := config.Open(cfgPath)
+	if err != nil {
+		return err
+	}
+	return settings.Update(func(cfg *config.Config) error { cfg.URL = url; return nil })
 }
 
 func client(url, token string) *server.Client {
