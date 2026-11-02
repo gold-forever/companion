@@ -10,7 +10,7 @@ import (
 // allHaveData says whether every flavour already has a Data.lua, which a 304 would leave as it is.
 func allHaveData(flavours map[string]int) bool {
 	for dir := range flavours {
-		if _, err := os.Stat(filepath.Join(addonDir(dir), dataFile)); err != nil {
+		if _, err := os.Stat(dataPath(dir)); err != nil {
 			return false
 		}
 	}
@@ -52,6 +52,8 @@ func Write(flavourDir string, iface int, lua []byte) error {
 func addonDir(flavourDir string) string {
 	return filepath.Join(flavourDir, "Interface", "AddOns", addonName)
 }
+
+func dataPath(flavourDir string) string { return filepath.Join(addonDir(flavourDir), dataFile) }
 
 func replace(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")

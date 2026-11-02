@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"os"
-	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -99,7 +98,7 @@ func (r *Report) Files(saves []find.Save) []File {
 		}
 		for dir := range flavours {
 			f := File{Flavour: dir, Game: game}
-			if lua, err := os.ReadFile(filepath.Join(addonDir(dir), "Data.lua")); err == nil {
+			if lua, err := os.ReadFile(dataPath(dir)); err == nil {
 				f.Size = int64(len(lua))
 				f.Markets, f.Items, f.Shared = contents(lua)
 			}
