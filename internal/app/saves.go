@@ -35,3 +35,9 @@ func (c *App) AddFolder(ctx context.Context, path string) error {
 		return nil
 	})
 }
+
+func (c *App) saves() []find.Save {
+	return find.Saves(append(slices.Clone(c.settings.Get().Folders), c.candidates...))
+}
+
+func (c *App) isOff(path string) bool { return c.settings.Get().IsOff(path) }
