@@ -34,10 +34,10 @@ package addondata
 // added at v = 1, and dings was dropped at it.
 const formatVersion = 1
 
-// The addon's folder and its files.
+// The addon's folder, which only the companion writes, and its files.
 const (
-	addonName = "GoldForever_Data"
-	tocFile   = addonName + ".toc"
+	AddonName = "GoldForever_Data"
+	tocFile   = AddonName + ".toc"
 	dataFile  = "Data.lua"
 )
 

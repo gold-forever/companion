@@ -28,6 +28,9 @@ type App interface {
 	SetSaveOn(ctx context.Context, path string, on bool) error
 	AddFolder(ctx context.Context, path string) error
 	SetAutostart(ctx context.Context, on bool) error
+	// SetAddonUpdates turns keeping the addon up to date on (only once the player confirmed the
+	// warning) or off.
+	SetAddonUpdates(ctx context.Context, on, confirmed bool) error
 	Welcomed(ctx context.Context) error
 	History(page int) History
 	CopyBytes(id string) ([]byte, bool)
@@ -172,6 +175,9 @@ func (h *handler) routes() {
 	})
 	post(m, "/api/folder", func(ctx context.Context, b struct{ Path string }) error { return h.app.AddFolder(ctx, b.Path) })
 	post(m, "/api/autostart", func(ctx context.Context, b struct{ On bool }) error { return h.app.SetAutostart(ctx, b.On) })
+	post(m, "/api/addon", func(ctx context.Context, b struct{ On, Confirmed bool }) error {
+		return h.app.SetAddonUpdates(ctx, b.On, b.Confirmed)
+	})
 	post(m, "/api/welcomed", func(ctx context.Context, _ struct{}) error { return h.app.Welcomed(ctx) })
 	post(m, "/api/restore", func(ctx context.Context, b struct {
 		ID        string

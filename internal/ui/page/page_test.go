@@ -36,6 +36,7 @@ type fakeApp struct {
 	page        int // the page of the log last asked for
 	updates     int
 	notice      *Notice
+	addon       []bool // each call to SetAddonUpdates: on, confirmed
 }
 
 func (a *fakeApp) State() State {
@@ -47,9 +48,13 @@ func (a *fakeApp) StartDeviceLink(context.Context) error      { a.deviceLinks++;
 func (a *fakeApp) SetSaveOn(context.Context, string, bool) error {
 	return nil
 }
-func (a *fakeApp) AddFolder(context.Context, string) error    { return a.err }
-func (a *fakeApp) SetAutostart(context.Context, bool) error   { return nil }
-func (a *fakeApp) Welcomed(context.Context) error             { return nil }
+func (a *fakeApp) AddFolder(context.Context, string) error  { return a.err }
+func (a *fakeApp) SetAutostart(context.Context, bool) error { return nil }
+func (a *fakeApp) Welcomed(context.Context) error           { return nil }
+func (a *fakeApp) SetAddonUpdates(_ context.Context, on, confirmed bool) error {
+	a.addon = append(a.addon, on, confirmed)
+	return nil
+}
 func (a *fakeApp) History(page int) History                   { a.page = page; return History{Page: page} }
 func (a *fakeApp) Restore(_ context.Context, id string) error { a.restored = id; return nil }
 func (a *fakeApp) Uninstall(context.Context, bool) error      { a.uninstalls++; return nil }
@@ -376,6 +381,20 @@ func TestTheUpdateSectionChecksAndUpdatesThroughTheApp(t *testing.T) {
 	}
 	if rec := serve(app, "POST", "/api/update", "{}", func(r *http.Request) { r.Header.Del("Cookie") }); rec.Code != http.StatusForbidden || app.updates != 1 {
 		t.Errorf("an update without the secret: %d, %d updates", rec.Code, app.updates)
+	}
+}
+
+func TestTheAddonSettingReachesTheAppWithThePlayersConfirmation(t *testing.T) {
+	app := &fakeApp{}
+
+	rec := serve(app, "POST", "/api/addon", `{"on":true,"confirmed":true}`, nil)
+
+	if rec.Code != http.StatusOK || fmt.Sprint(app.addon) != "[true true]" {
+		t.Errorf("turning it on: %d, %v", rec.Code, app.addon)
+	}
+	body := serve(app, "GET", "/", "", nil).Body.String()
+	if !strings.Contains(body, `id="addon-updates"`) || !strings.Contains(body, `id="addon-status"`) {
+		t.Error("the page has no addon setting")
 	}
 }
 

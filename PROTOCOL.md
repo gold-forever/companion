@@ -1,6 +1,7 @@
 # Protocol
 
-Every request the companion makes, all to one site (by default `https://gold-forever.app`).
+Every request the companion makes, all to one site (by default `https://gold-forever.app`), but the
+addon's releases on GitHub, which it asks only when you turn on keeping the addon up to date.
 
 The site moved there from `gold-forever.evensberget.com` on 2026-10-22; the old name answers 308 to the
 same path on the new one. A redirect normally loses the `Authorization` header when it changes domain,
@@ -75,6 +76,26 @@ under `https://github.com/gold-forever/companion/releases/` or on the site is re
 
 ```sh
 curl https://gold-forever.app/api/v1/companion/latest
+```
+
+## The addon's releases (only when you turn it on)
+
+```http
+GET https://api.github.com/repos/gold-forever/addon/releases?per_page=20
+GET https://github.com/gold-forever/addon/releases/download/addon-v<version>/GoldForever-<version>.zip
+```
+
+Off by default. The settings page's "Keep the addon up to date" asks you to confirm before it turns
+on; from then the companion asks GitHub at start and every 6 hours, with no token and nothing about
+you. It takes the newest release that is not a draft (and not a pre-release, unless
+`"addonPrereleases": true` is in the settings file). Where the `.toc` of an installed `GoldForever`
+addon names an older release, it downloads `GoldForever-<version>.zip` from that release's page, and
+installs it only when it matches the SHA-256 GitHub publishes for the file (the asset's `digest`). The
+zip may hold only `GoldForever` and `GoldForever_…` folders; `GoldForever_Data` is never replaced, and
+SavedVariables are never touched. Turning it off stops any download under way.
+
+```sh
+curl -s 'https://api.github.com/repos/gold-forever/addon/releases?per_page=20' | jq '.[0].assets[] | {name, digest}'
 ```
 
 ## Which account the token uploads to

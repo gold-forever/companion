@@ -33,6 +33,7 @@ func (c *App) State() page.State {
 		Installed: c.installed(),
 		Autostart: c.layout.Autostart.Enabled(),
 		Folders:   cfg.Folders,
+		Addon:     c.addonState(),
 	}
 	for _, save := range c.saves() {
 		p := page.Save{Path: save.Path, Label: save.Label(), Game: c.gameOf(save.Path), On: !cfg.IsOff(save.Path)}

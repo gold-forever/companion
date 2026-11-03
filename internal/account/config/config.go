@@ -23,6 +23,11 @@ type Config struct {
 	// Welcomed is set once the player has seen the first-run panel; until then autostart may be turned
 	// on for them, after it only by their own choice.
 	Welcomed bool `json:"welcomed,omitempty"`
+	// AddonUpdates keeps the Gold Forever addon at its newest GitHub release; off until the player
+	// turns it on and confirms the warning.
+	AddonUpdates bool `json:"addonUpdates,omitempty"`
+	// AddonPrereleases lets AddonUpdates install the addon's pre-releases too.
+	AddonPrereleases bool `json:"addonPrereleases,omitempty"`
 }
 
 // IsOff says whether the player switched the save at path off.

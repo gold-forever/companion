@@ -65,3 +65,9 @@ func number(s string) (int, bool) {
 	n, err := strconv.Atoi(s)
 	return n, err == nil && n >= 0
 }
+
+// IsRelease says whether v is a release or a candidate, not a development build.
+func IsRelease(v string) bool {
+	_, ok := parse(v)
+	return ok
+}

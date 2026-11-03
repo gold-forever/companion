@@ -70,6 +70,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	}
 	c.owned.Go(func() { c.loop(ctx) })
 	c.owned.Go(func() { c.checkVersion(ctx) })
+	c.owned.Go(func() { c.keepAddonUpdated(ctx) })
 
 	pageURL := instance.PageURL(info)
 	c.pageURL, c.tab = pageURL, info

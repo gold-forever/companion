@@ -119,3 +119,19 @@ func TestAnUnreadableFileIsSetAsideNotLost(t *testing.T) {
 		t.Error("the unreadable file is still where the next save goes")
 	}
 }
+
+func TestKeepingTheAddonUpToDateIsOffUnlessTheFileTurnsItOn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"token":"gf_x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Load(path); err != nil || c.AddonUpdates || c.AddonPrereleases {
+		t.Errorf("a file that says nothing: %+v, %v", c, err)
+	}
+	if err := os.WriteFile(path, []byte(`{"addonUpdates":true,"addonPrereleases":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Load(path); err != nil || !c.AddonUpdates || !c.AddonPrereleases {
+		t.Errorf("a file that turns it on: %+v, %v", c, err)
+	}
+}

@@ -49,9 +49,10 @@ func Write(flavourDir string, iface int, lua []byte) error {
 	return replace(filepath.Join(dir, dataFile), lua)
 }
 
-func addonDir(flavourDir string) string {
-	return filepath.Join(flavourDir, "Interface", "AddOns", addonName)
-}
+// AddOns is a flavour folder's addons folder.
+func AddOns(flavourDir string) string { return filepath.Join(flavourDir, "Interface", "AddOns") }
+
+func addonDir(flavourDir string) string { return filepath.Join(AddOns(flavourDir), AddonName) }
 
 func dataPath(flavourDir string) string { return filepath.Join(addonDir(flavourDir), dataFile) }
 

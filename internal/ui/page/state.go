@@ -24,6 +24,15 @@ type State struct {
 	Warning   string      `json:"warning,omitempty"` // a problem with the settings the player must know of
 	Linking   *Linking    `json:"linking,omitempty"`
 	Prices    []PriceFile `json:"prices"`
+	Addon     Addon       `json:"addon"`
+}
+
+// Addon is the setting that keeps the Gold Forever addon up to date, and how its last check went.
+type Addon struct {
+	On      bool   `json:"on"`
+	Warning string `json:"warning"`          // what the player confirms before turning it on
+	Status  string `json:"status,omitempty"` // what the last check or install did
+	Error   string `json:"error,omitempty"`  // why the last check or install failed
 }
 
 // PriceFile is one flavour's GoldForever_Data/Data.lua and how the latest fetch of its game went.

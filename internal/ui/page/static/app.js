@@ -67,6 +67,19 @@ function showState(s) {
   if (!(s.saves || []).length) $("saves").replaceChildren(li("None yet. Log in to World of Warcraft once with the Gold Forever addon, or add your WoW folder below."));
   showPrices(s.prices || []);
   showUpdate(s.version, s.update || {});
+  showAddon(s.addon || {});
+}
+
+// The addon's warning, which turning keeping it up to date on must confirm.
+let addonWarning = "";
+
+function showAddon(a) {
+  addonWarning = a.warning || "";
+  $("addon-updates").checked = !!a.on;
+  $("addon-status").hidden = !a.status;
+  $("addon-status").textContent = a.status || "";
+  $("addon-error").hidden = !a.error;
+  $("addon-error").textContent = a.error || "";
 }
 
 function releaseLink(url, text) {
@@ -216,6 +229,14 @@ async function refresh() {
 }
 
 $("autostart").onchange = () => act(call("/api/autostart", { on: $("autostart").checked }));
+$("addon-updates").onchange = () => {
+  const on = $("addon-updates").checked;
+  if (on && !confirm(addonWarning)) {
+    $("addon-updates").checked = false;
+    return;
+  }
+  act(call("/api/addon", { on, confirmed: on }));
+};
 $("welcomed").onclick = () => act(call("/api/welcomed", {}));
 $("device").onclick = () => act(call("/api/link/device", {}));
 $("link").onsubmit = (e) => { e.preventDefault(); act(call("/api/link", { token: $("token").value.trim() })); $("token").value = ""; };

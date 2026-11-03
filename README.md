@@ -38,6 +38,10 @@ counts to the shared prices, never your name. Your characters, gold and ledger s
   `User-Agent` says the companion's version and your operating system.
 - **Asked once a day, without your token:** whether a newer companion exists, so the settings page
   can say so. It never downloads one itself.
+- **Only if you turn it on:** "Keep the addon up to date" (off by default, with a warning to confirm)
+  asks GitHub for the addon's newest release at start and every 6 hours, checks the download against
+  the checksum GitHub publishes, and swaps the addon's folders in your game folder, keeping the old ones
+  until the companion next starts. Type `/reload` in game to load it.
 - **Never sent:** the file's path, your WoW account folder's name, your computer's name, or anything
   else on your disk.
 

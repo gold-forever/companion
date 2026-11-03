@@ -14,6 +14,7 @@ import (
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/account/link"
 	"github.com/gold-forever/companion/internal/addondata"
+	"github.com/gold-forever/companion/internal/addonupdate"
 	"github.com/gold-forever/companion/internal/platform/alert"
 	"github.com/gold-forever/companion/internal/platform/install"
 	"github.com/gold-forever/companion/internal/platform/instance"
@@ -86,6 +87,8 @@ type App struct {
 	olderRuns  func(instance.Info) bool
 	closeOlder func(instance.Info) error
 	olderGrace time.Duration
+	// addons is the addon's releases on GitHub.
+	addons addonupdate.Source
 
 	mu      sync.Mutex
 	notice  *page.Notice
@@ -94,6 +97,7 @@ type App struct {
 	linking *page.Linking
 	older   *instance.Info // an older copy still running beside this one, which could not be asked to quit
 	account knownAccount
+	addon   page.Addon // how the last addon check went
 	games   map[string]gameSeen
 }
 
@@ -120,6 +124,7 @@ func newApp(o appOptions) *App {
 		settings = config.New(o.cfgPath, config.Config{})
 	}
 	records := OpenRecords(o.dataDir)
+	releases := &http.Client{Timeout: downloadFor}
 	c := &App{
 		version: o.version, site: o.site, running: o.running, layout: o.layout,
 		settings: settings, dataDir: o.dataDir, candidates: o.candidates, quit: o.quit, life: o.life,
@@ -129,7 +134,8 @@ func newApp(o appOptions) *App {
 		warning:      warning,
 		games:        map[string]gameSeen{},
 		openURL:      func(string) {},
-		releases:     &http.Client{Timeout: downloadFor},
+		releases:     releases,
+		addons:       addonupdate.Source{Client: releases},
 		releaseFile:  releaseFile(goos, runtime.GOARCH),
 		runInstaller: install.Run,
 		ask: func(ctx context.Context, message, yes, no string) bool {
