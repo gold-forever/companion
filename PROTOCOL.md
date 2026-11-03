@@ -71,8 +71,17 @@ GET /api/v1/companion/latest
 
 Asked at start and then once a day, with no token, so it says nothing about who asks beyond the
 `User-Agent`. A 404 means the server names no release. When the answer is newer, the settings page
-shows a notice with the link: the app never downloads or installs anything itself. A `url` that is not
-under `https://github.com/gold-forever/companion/releases/` or on the site is refused, with no notice.
+shows a notice with the link. A `url` that is not under `https://github.com/gold-forever/companion/releases/`
+or on the site is refused, with no notice.
+
+The companion downloads only two things, both from GitHub, and never with your token:
+
+- **Its own update, only when you press Update** (on the page, the banner or the tray; on Windows and
+  Linux, where it installs itself): `SHA256SUMS` and this system's file from
+  `https://github.com/gold-forever/companion/releases/download/<tag>/`. It runs the file only when it
+  matches its line in `SHA256SUMS`.
+- **The addon, only when you turned on "Keep the addon up to date"**: see
+  [The addon's releases](#the-addons-releases-only-when-you-turn-it-on).
 
 ```sh
 curl https://gold-forever.app/api/v1/companion/latest

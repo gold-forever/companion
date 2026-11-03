@@ -223,3 +223,30 @@ func waitFor(t *testing.T, done <-chan struct{}, what string) {
 		t.Fatalf("waited 5 s for %s", what)
 	}
 }
+
+func TestAnInstallThatAddsAnAddonFolderSaysToRestartTheGame(t *testing.T) {
+	c, save := fixture(t)
+	addOns := addonInstalled(t, save)
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	for _, name := range []string{"GoldForever/GoldForever.toc", "GoldForever_Auctions/GoldForever_Auctions.toc"} {
+		f, _ := w.Create(name)
+		f.Write([]byte(addonToc("0.16.1")))
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	z := buf.String()
+	g := &github{files: map[string]string{addonReleases: addonRelease(sum(z)), addonZip: z}}
+	c.addons = addonupdate.Source{Client: &http.Client{Transport: g}}
+	addonOn(t, c)
+
+	c.checkAddon(t.Context())
+
+	if addonupdate.Installed(filepath.Join(addOns)) != "0.16.1" {
+		t.Fatalf("installed: %q", addonupdate.Installed(addOns))
+	}
+	if s := c.State().Addon; s.Status != "Addon updated to v0.16.1 — restart the game: /reload does not load a new addon folder" {
+		t.Errorf("the page says %+v", s)
+	}
+}

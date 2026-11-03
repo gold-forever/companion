@@ -96,7 +96,7 @@ func (c *App) checkAddon(ctx context.Context) {
 		return
 	}
 	var archive []byte
-	updated := false
+	var updated, added bool
 	for _, dir := range c.addOnsFolders() {
 		if !addonupdate.Newer(latest.Version, addonupdate.Installed(dir)) {
 			continue
@@ -106,14 +106,17 @@ func (c *App) checkAddon(ctx context.Context) {
 				break
 			}
 		}
-		if err = addonupdate.Install(dir, archive); err != nil {
+		var folders []string
+		if folders, err = addonupdate.Install(dir, archive); err != nil {
 			break
 		}
-		updated = true
+		updated, added = true, added || len(folders) > 0
 	}
 	switch {
 	case err != nil:
 		c.addonDone(ctx, "", err)
+	case added:
+		c.addonDone(ctx, fmt.Sprintf("Addon updated to v%s — restart the game: /reload does not load a new addon folder", latest.Version), nil)
 	case updated:
 		c.addonDone(ctx, fmt.Sprintf("Addon updated to v%s — /reload in game", latest.Version), nil)
 	default:

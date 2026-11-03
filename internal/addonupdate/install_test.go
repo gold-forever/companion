@@ -94,10 +94,14 @@ func TestInstalledReadsTheVersionFromTheAddonsToc(t *testing.T) {
 func TestInstallReplacesEveryAddonFolderButThePrices(t *testing.T) {
 	dir := installed016(t)
 
-	if err := Install(dir, release0161(t)); err != nil {
+	added, err := Install(dir, release0161(t))
+	if err != nil {
 		t.Fatal(err)
 	}
 
+	if len(added) != 0 {
+		t.Errorf("folders the game already had are reported as added: %v", added)
+	}
 	if Installed(dir) != "0.16.1" || read(t, dir, "GoldForever/New.lua") != "new" || present(dir, "GoldForever/Old.lua") {
 		t.Error("GoldForever was not replaced whole")
 	}
@@ -128,7 +132,7 @@ func TestInstallRefusesAZipWithFoldersThatAreNotTheAddons(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := installed016(t)
 
-			if err := Install(dir, zipOfFiles(t, files)); err == nil {
+			if _, err := Install(dir, zipOfFiles(t, files)); err == nil {
 				t.Error("installed")
 			}
 			if Installed(dir) != "0.16.0" || present(dir, stagingDir) || present(dir, "Details/Details.toc") && read(t, dir, "Details/Details.toc") != "another addon" {
@@ -152,7 +156,7 @@ func TestAFailedSwapPutsEveryOldFolderBack(t *testing.T) {
 	}
 	t.Cleanup(func() { rename = os.Rename })
 
-	if err := Install(dir, release0161(t)); err == nil {
+	if _, err := Install(dir, release0161(t)); err == nil {
 		t.Fatal("a failed swap was reported as installed")
 	}
 
@@ -178,7 +182,7 @@ func TestAFailedSwapRemovesAFolderTheReleaseAdded(t *testing.T) {
 	t.Cleanup(func() { rename = os.Rename })
 
 	// GoldForever and the new GoldForever_Auctions are swapped in (sorted first); GoldForever_Mail fails.
-	err := Install(dir, zipOfFiles(t, map[string]string{
+	_, err := Install(dir, zipOfFiles(t, map[string]string{
 		"GoldForever/GoldForever.toc":                   toc("0.16.1"),
 		"GoldForever_Auctions/GoldForever_Auctions.toc": toc("0.16.1"),
 		"GoldForever_Mail/GoldForever_Mail.toc":         toc("0.16.1"),
@@ -218,7 +222,7 @@ func TestStartingAfterAnInterruptedInstallPutsTheOldAddonBack(t *testing.T) {
 
 func TestStartingAfterAnInstallRemovesItsBackup(t *testing.T) {
 	dir := installed016(t)
-	if err := Install(dir, release0161(t)); err != nil {
+	if _, err := Install(dir, release0161(t)); err != nil {
 		t.Fatal(err)
 	}
 

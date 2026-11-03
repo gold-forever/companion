@@ -49,10 +49,11 @@ func Installed(addOns string) string {
 
 // Install puts a release's addon folders into addOns: unpacked beside them first, then each folder
 // swapped in, the old one moved to the backup. A failure puts every old folder back. The companion's
-// price folder is never replaced, and nothing else in addOns is touched.
-func Install(addOns string, archive []byte) error {
+// price folder is never replaced, and nothing else in addOns is touched. added lists the folders the
+// game did not have before, which it loads only when it starts.
+func Install(addOns string, archive []byte) (added []string, err error) {
 	if _, err := Recover(addOns); err != nil {
-		return err
+		return nil, err
 	}
 	staging := filepath.Join(addOns, stagingDir)
 	folders, err := unpack(archive, staging)
@@ -60,34 +61,37 @@ func Install(addOns string, archive []byte) error {
 		err = os.WriteFile(filepath.Join(staging, manifest), []byte(strings.Join(folders, "\n")+"\n"), 0o644)
 	}
 	if err != nil {
-		return errors.Join(err, os.RemoveAll(staging))
+		return nil, errors.Join(err, os.RemoveAll(staging))
 	}
-	if err := swap(addOns, folders); err != nil {
-		return errors.Join(err, rollback(addOns))
+	added, err = swap(addOns, folders)
+	if err != nil {
+		return nil, errors.Join(err, rollback(addOns))
 	}
 	_ = os.RemoveAll(staging)
-	return nil
+	return added, nil
 }
 
 // swap moves each old folder into the backup and the new one into its place; removing the manifest
-// then finishes the install.
-func swap(addOns string, folders []string) error {
+// then finishes the install. It lists the folders that were not there before.
+func swap(addOns string, folders []string) (added []string, err error) {
 	staging, backup := filepath.Join(addOns, stagingDir), filepath.Join(addOns, backupDir)
 	if err := os.MkdirAll(backup, 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	for _, f := range folders {
 		installed := filepath.Join(addOns, f)
 		if exists(installed) {
 			if err := rename(installed, filepath.Join(backup, f)); err != nil {
-				return err
+				return nil, err
 			}
+		} else {
+			added = append(added, f)
 		}
 		if err := rename(filepath.Join(staging, f), installed); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return os.Remove(filepath.Join(staging, manifest))
+	return added, os.Remove(filepath.Join(staging, manifest))
 }
 
 // Recover finishes what an install left at start: one that did not finish has its old folders put back
