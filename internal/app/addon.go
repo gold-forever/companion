@@ -35,18 +35,49 @@ func (c *App) SetAddonUpdates(ctx context.Context, on, confirmed bool) error {
 	})
 }
 
+// ErrUnknownAddonChannel is a channel other than release, beta or snapshot.
+var ErrUnknownAddonChannel error = refusal("the addon's channel is release, beta or snapshot")
+
+// SetAddonChannel picks which builds of the addon are installed: release, beta or snapshot.
+func (c *App) SetAddonChannel(ctx context.Context, channel string) error {
+	ch := addonupdate.Channel(channel)
+	if !slices.Contains([]addonupdate.Channel{addonupdate.ChannelRelease, addonupdate.ChannelBeta, addonupdate.ChannelSnapshot}, ch) {
+		return ErrUnknownAddonChannel
+	}
+	return c.settings.Update(func(cfg *config.Config) error {
+		cfg.AddonChannel, cfg.AddonPrereleases = channel, false
+		return nil
+	})
+}
+
+// channelOf is the addon channel the settings pick: the one the player picked, else beta where the
+// setting it replaced asked for pre-releases, else release.
+func channelOf(cfg config.Config) addonupdate.Channel {
+	switch {
+	case cfg.AddonChannel != "":
+		return addonupdate.Channel(cfg.AddonChannel)
+	case cfg.AddonPrereleases:
+		return addonupdate.ChannelBeta
+	}
+	return addonupdate.ChannelRelease
+}
+
 func (c *App) addonState() page.Addon {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	a := c.addon
-	a.On, a.Warning = c.settings.Get().AddonUpdates, addonWarning
+	cfg := c.settings.Get()
+	a.On, a.Warning, a.Channel = cfg.AddonUpdates, addonWarning, string(channelOf(cfg))
 	return a
 }
 
 // addonWish is what the settings ask of the addon's updates; the check restarts when it changes.
-type addonWish struct{ on, prereleases bool }
+type addonWish struct {
+	on      bool
+	channel addonupdate.Channel
+}
 
-func wishOf(cfg config.Config) addonWish { return addonWish{cfg.AddonUpdates, cfg.AddonPrereleases} }
+func wishOf(cfg config.Config) addonWish { return addonWish{cfg.AddonUpdates, channelOf(cfg)} }
 
 // keepAddonUpdated puts back what an interrupted install left, then, while the setting is on, checks
 // for a newer addon now and every few hours. Turning it off ends the check and any download under way.
@@ -83,14 +114,15 @@ func (c *App) untilAddonWishChanges(ctx context.Context, wish addonWish) {
 	}
 }
 
-// checkAddon installs the newest addon release into every game folder whose installed addon is older,
-// when the setting is on.
+// checkAddon installs the channel's latest addon build into every game folder whose installed addon it
+// replaces, when the setting is on.
 func (c *App) checkAddon(ctx context.Context) {
 	cfg := c.settings.Get()
 	if !cfg.AddonUpdates {
 		return
 	}
-	latest, err := c.addons.Latest(ctx, cfg.AddonPrereleases)
+	channel := channelOf(cfg)
+	latest, err := c.addons.Latest(ctx, channel)
 	if err != nil {
 		c.addonDone(ctx, "", err)
 		return
@@ -98,7 +130,7 @@ func (c *App) checkAddon(ctx context.Context) {
 	var archive []byte
 	var updated, added bool
 	for _, dir := range c.addOnsFolders() {
-		if !addonupdate.Newer(latest.Version, addonupdate.Installed(dir)) {
+		if !addonupdate.Wanted(channel, latest.Version, addonupdate.Installed(dir)) {
 			continue
 		}
 		if archive == nil {

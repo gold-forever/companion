@@ -78,6 +78,14 @@
     <p id="update-error" class="notice" hidden></p>
     <h3>The Gold Forever addon</h3>
     <label><input type="checkbox" id="addon-updates"> Keep the addon up to date</label>
+    <p><label>Channel
+      <select id="addon-channel">
+        <option value="release">Release</option>
+        <option value="beta">Beta: releases and pre-releases</option>
+        <option value="snapshot">Snapshot: the latest build of the addon's main branch</option>
+      </select>
+    </label></p>
+    <p id="addon-untested" class="notice" hidden>Beta and Snapshot builds are untested and may break the addon. Pick Release to go back to the newest release.</p>
     <p class="hint">Off unless you turn it on. Each new release on GitHub is checked against its published checksum and installed into every game folder above; your saves and prices stay as they are. Type /reload in game to load it.</p>
     <p id="addon-status" class="status" hidden></p>
     <p id="addon-error" class="notice" hidden></p>

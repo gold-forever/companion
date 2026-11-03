@@ -92,15 +92,28 @@ curl https://gold-forever.app/api/v1/companion/latest
 ```http
 GET https://api.github.com/repos/gold-forever/addon/releases?per_page=20
 GET https://github.com/gold-forever/addon/releases/download/addon-v<version>/GoldForever-<version>.zip
+GET https://api.github.com/repos/gold-forever/addon/releases/tags/addon-snapshot
+GET https://github.com/gold-forever/addon/releases/download/addon-snapshot/GoldForever-<version>.zip
 ```
 
 Off by default. The settings page's "Keep the addon up to date" asks you to confirm before it turns
 on; from then the companion asks GitHub at start and every 6 hours, with no token and nothing about
-you. It takes the newest release that is not a draft (and not a pre-release, unless
-`"addonPrereleases": true` is in the settings file). Where the `.toc` of an installed `GoldForever`
-addon names an older release, it downloads `GoldForever-<version>.zip` from that release's page, and
-installs it only when it matches the SHA-256 GitHub publishes for the file (the asset's `digest`). The
-zip may hold only `GoldForever` and `GoldForever_…` folders; `GoldForever_Data` is never replaced, and
+you. What it takes depends on the page's channel (`"addonChannel"` in the settings file):
+
+- **Release** (the default): the newest `addon-v<version>` release that is neither a draft nor a
+  pre-release. It replaces an older release, and also a beta or a snapshot, so picking Release again
+  returns you to a released build.
+- **Beta**: the newest `addon-v<version>` release by version, pre-releases (`-alpha.N`, `-beta.N`,
+  `-rc.N`) included. It replaces an older build, and a snapshot. A settings file from before the
+  channels with `"addonPrereleases": true` reads as Beta.
+- **Snapshot**: the rolling `addon-snapshot` pre-release built from the addon's main branch, whose zip
+  is named for its version (`0.16.1-snapshot.202611031530.2ceabf9`). It replaces whatever installed
+  build has another version, newer or not.
+
+Beta and Snapshot builds are untested; the page says so. Where the `.toc` of an installed
+`GoldForever` addon names a build the channel replaces, it downloads `GoldForever-<version>.zip` from
+that release's page, and installs it only when it matches the SHA-256 GitHub publishes for the file
+(the asset's `digest`). The zip may hold only `GoldForever` and `GoldForever_…` folders; `GoldForever_Data` is never replaced, and
 SavedVariables are never touched. Turning it off stops any download under way.
 
 ```sh

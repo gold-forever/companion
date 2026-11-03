@@ -1,5 +1,5 @@
-// Package addonupdate keeps the Gold Forever addon in a game's AddOns folder at its newest release on
-// GitHub: it finds the release, downloads its zip, checks it against the SHA-256 GitHub publishes for
+// Package addonupdate keeps the Gold Forever addon in a game's AddOns folder at the newest build of its
+// channel on GitHub: it finds the release, downloads its zip, checks it against the SHA-256 GitHub publishes for
 // it, and swaps the addon's folders in, keeping the old ones until the companion next starts.
 package addonupdate
 
@@ -22,11 +22,14 @@ const (
 	// pre-releases and drafts.
 	releasesURL = "https://api.github.com/repos/gold-forever/addon/releases?per_page=20"
 	// Where the addon's release workflow publishes its zip, followed by the tag.
-	downloads  = "https://github.com/gold-forever/addon/releases/download/"
-	tagPrefix  = "addon-v"
-	maxAnswer  = 1 << 20
-	maxZip     = 32 << 20
-	sha256Kind = "sha256:"
+	downloads = "https://github.com/gold-forever/addon/releases/download/"
+	// The rolling pre-release built from the addon's main branch.
+	snapshotTag = "addon-snapshot"
+	snapshotURL = "https://api.github.com/repos/gold-forever/addon/releases/tags/" + snapshotTag
+	tagPrefix   = "addon-v"
+	maxAnswer   = 1 << 20
+	maxZip      = 32 << 20
+	sha256Kind  = "sha256:"
 )
 
 // ErrChecksum is a zip the release's published SHA-256 does not vouch for, or a release that
@@ -51,7 +54,23 @@ type githubRelease struct {
 }
 
 // Latest is the newest release, a pre-release only when prereleases says so; none found is an error.
-func (s Source) Latest(ctx context.Context, prereleases bool) (Release, error) {
+// Channel is which builds of the addon the player follows: its releases, its releases and
+// pre-releases, or the rolling snapshot of its main branch.
+type Channel string
+
+const (
+	ChannelRelease  Channel = "release"
+	ChannelBeta     Channel = "beta"
+	ChannelSnapshot Channel = "snapshot"
+)
+
+// Latest is the channel's newest build: the newest release by semantic version on the release and beta
+// channels (pre-releases on beta only), the snapshot release on the snapshot channel; none found is an
+// error.
+func (s Source) Latest(ctx context.Context, channel Channel) (Release, error) {
+	if channel == ChannelSnapshot {
+		return s.snapshot(ctx)
+	}
 	body, err := s.get(ctx, releasesURL, maxAnswer)
 	if err != nil {
 		return Release{}, err
@@ -62,7 +81,7 @@ func (s Source) Latest(ctx context.Context, prereleases bool) (Release, error) {
 	}
 	var newest githubRelease
 	for _, r := range list {
-		if r.Draft || r.Prerelease && !prereleases || !strings.HasPrefix(r.Tag, tagPrefix) {
+		if r.Draft || r.Prerelease && channel != ChannelBeta || !strings.HasPrefix(r.Tag, tagPrefix) {
 			continue
 		}
 		if version.Newer(versionOf(r.Tag), versionOf(newest.Tag)) {
@@ -73,6 +92,34 @@ func (s Source) Latest(ctx context.Context, prereleases bool) (Release, error) {
 		return Release{}, errors.New("the addon has no release yet")
 	}
 	return zipOf(newest)
+}
+
+// snapshot is the zip of the addon's snapshot release, whose tag moves with every build, so the zip's
+// name carries the version.
+func (s Source) snapshot(ctx context.Context) (Release, error) {
+	body, err := s.get(ctx, snapshotURL, maxAnswer)
+	if err != nil {
+		return Release{}, err
+	}
+	var r githubRelease
+	if err := json.Unmarshal(body, &r); err != nil {
+		return Release{}, fmt.Errorf("the addon's snapshot could not be read: %w", err)
+	}
+	for _, a := range r.Assets {
+		v, ok := strings.CutPrefix(a.Name, "GoldForever-")
+		v, zip := strings.CutSuffix(v, ".zip")
+		if !ok || !zip {
+			continue
+		}
+		if !isSnapshot(v) {
+			return Release{}, fmt.Errorf("the addon's snapshot names a zip that is not a snapshot: %q", a.Name)
+		}
+		if a.URL != downloads+snapshotTag+"/"+a.Name {
+			return Release{}, fmt.Errorf("the addon's snapshot names a zip that is not on its release page: %q", a.URL)
+		}
+		return Release{Version: v, URL: a.URL, SHA256: strings.TrimPrefix(a.Digest, sha256Kind)}, nil
+	}
+	return Release{}, errors.New("the addon's snapshot has no zip")
 }
 
 func versionOf(tag string) string { return strings.TrimPrefix(tag, tagPrefix) }
@@ -128,8 +175,26 @@ func (s Source) get(ctx context.Context, url string, limit int64) ([]byte, error
 	return data, err
 }
 
-// Newer says whether latest is newer than the installed version. An installed version that is not a
-// release is a developer's own copy, which is never replaced.
-func Newer(latest, installed string) bool {
-	return version.IsRelease(installed) && version.Newer(latest, installed)
+// Wanted says whether the channel's latest build replaces the installed one. A snapshot replaces any
+// other build; on the release channel the newest release replaces a pre-release or a snapshot, newer or
+// not, and on the beta channel a snapshot. Otherwise only a newer build replaces the installed one.
+// None installed, or a version that is no build of the addon (a developer's own copy), is never replaced.
+func Wanted(channel Channel, latest, installed string) bool {
+	switch {
+	case !isSnapshot(installed) && !version.IsRelease(installed):
+		return false
+	case channel == ChannelSnapshot:
+		return latest != installed
+	case channel == ChannelRelease && strings.Contains(installed, "-"):
+		return true
+	}
+	// A snapshot is no release, so any release is newer.
+	return version.Newer(latest, installed)
+}
+
+// isSnapshot says whether v is a snapshot's version: a release's, then -snapshot. and the build's time
+// and commit (0.16.1-snapshot.202611031530.2ceabf9).
+func isSnapshot(v string) bool {
+	core, build, ok := strings.Cut(v, "-snapshot.")
+	return ok && build != "" && !strings.Contains(core, "-") && version.IsRelease(core)
 }

@@ -41,7 +41,8 @@ counts to the shared prices, never your name. Your characters, gold and ledger s
 - **Only if you turn it on:** "Keep the addon up to date" (off by default, with a warning to confirm)
   asks GitHub for the addon's newest release at start and every 6 hours, checks the download against
   the checksum GitHub publishes, and swaps the addon's folders in your game folder, keeping the old ones
-  until the companion next starts. Type `/reload` in game to load it.
+  until the companion next starts. Type `/reload` in game to load it. Its channel picks Release (the
+  default), Beta (pre-releases too) or Snapshot (an untested build of the addon's main branch).
 - **Never sent:** the file's path, your WoW account folder's name, your computer's name, or anything
   else on your disk.
 

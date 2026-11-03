@@ -76,6 +76,8 @@ let addonWarning = "";
 function showAddon(a) {
   addonWarning = a.warning || "";
   $("addon-updates").checked = !!a.on;
+  $("addon-channel").value = a.channel || "release";
+  $("addon-untested").hidden = $("addon-channel").value === "release";
   $("addon-status").hidden = !a.status;
   $("addon-status").textContent = a.status || "";
   $("addon-error").hidden = !a.error;
@@ -237,6 +239,7 @@ $("addon-updates").onchange = () => {
   }
   act(call("/api/addon", { on, confirmed: on }));
 };
+$("addon-channel").onchange = () => act(call("/api/addon/channel", { channel: $("addon-channel").value }));
 $("welcomed").onclick = () => act(call("/api/welcomed", {}));
 $("device").onclick = () => act(call("/api/link/device", {}));
 $("link").onsubmit = (e) => { e.preventDefault(); act(call("/api/link", { token: $("token").value.trim() })); $("token").value = ""; };

@@ -37,6 +37,7 @@ type fakeApp struct {
 	updates     int
 	notice      *Notice
 	addon       []bool // each call to SetAddonUpdates: on, confirmed
+	channel     string // the last channel SetAddonChannel picked
 }
 
 func (a *fakeApp) State() State {
@@ -53,6 +54,10 @@ func (a *fakeApp) SetAutostart(context.Context, bool) error { return nil }
 func (a *fakeApp) Welcomed(context.Context) error           { return nil }
 func (a *fakeApp) SetAddonUpdates(_ context.Context, on, confirmed bool) error {
 	a.addon = append(a.addon, on, confirmed)
+	return nil
+}
+func (a *fakeApp) SetAddonChannel(_ context.Context, channel string) error {
+	a.channel = channel
 	return nil
 }
 func (a *fakeApp) History(page int) History                   { a.page = page; return History{Page: page} }
@@ -453,6 +458,22 @@ func TestTheStateCarriesTheBannerOnlyWhileAnUpdateIsKnown(t *testing.T) {
 		json.NewDecoder(serve(&fakeApp{notice: notice}, "GET", "/api/state", "", nil).Body).Decode(&s)
 		if _, shown := s["notice"]; shown != (notice != nil) {
 			t.Errorf("%s: the state's notice is %v", name, s["notice"])
+		}
+	}
+}
+
+func TestTheAddonChannelPickerReachesTheAppAndWarnsOfUntestedBuilds(t *testing.T) {
+	app := &fakeApp{}
+
+	rec := serve(app, "POST", "/api/addon/channel", `{"channel":"snapshot"}`, nil)
+
+	if rec.Code != http.StatusOK || app.channel != "snapshot" {
+		t.Errorf("picking snapshot: %d, %q", rec.Code, app.channel)
+	}
+	body := serve(app, "GET", "/", "", nil).Body.String()
+	for _, want := range []string{`id="addon-channel"`, `value="release"`, `value="beta"`, `value="snapshot"`, `id="addon-untested"`, "untested"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page has no %s", want)
 		}
 	}
 }

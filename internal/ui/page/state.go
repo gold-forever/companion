@@ -31,6 +31,7 @@ type State struct {
 type Addon struct {
 	On      bool   `json:"on"`
 	Warning string `json:"warning"`          // what the player confirms before turning it on
+	Channel string `json:"channel"`          // release, beta or snapshot
 	Status  string `json:"status,omitempty"` // what the last check or install did
 	Error   string `json:"error,omitempty"`  // why the last check or install failed
 }

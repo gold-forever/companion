@@ -31,6 +31,8 @@ type App interface {
 	// SetAddonUpdates turns keeping the addon up to date on (only once the player confirmed the
 	// warning) or off.
 	SetAddonUpdates(ctx context.Context, on, confirmed bool) error
+	// SetAddonChannel picks which builds of the addon are installed: release, beta or snapshot.
+	SetAddonChannel(ctx context.Context, channel string) error
 	Welcomed(ctx context.Context) error
 	History(page int) History
 	CopyBytes(id string) ([]byte, bool)
@@ -177,6 +179,9 @@ func (h *handler) routes() {
 	post(m, "/api/autostart", func(ctx context.Context, b struct{ On bool }) error { return h.app.SetAutostart(ctx, b.On) })
 	post(m, "/api/addon", func(ctx context.Context, b struct{ On, Confirmed bool }) error {
 		return h.app.SetAddonUpdates(ctx, b.On, b.Confirmed)
+	})
+	post(m, "/api/addon/channel", func(ctx context.Context, b struct{ Channel string }) error {
+		return h.app.SetAddonChannel(ctx, b.Channel)
 	})
 	post(m, "/api/welcomed", func(ctx context.Context, _ struct{}) error { return h.app.Welcomed(ctx) })
 	post(m, "/api/restore", func(ctx context.Context, b struct {

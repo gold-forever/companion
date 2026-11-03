@@ -26,7 +26,9 @@ type Config struct {
 	// AddonUpdates keeps the Gold Forever addon at its newest GitHub release; off until the player
 	// turns it on and confirms the warning.
 	AddonUpdates bool `json:"addonUpdates,omitempty"`
-	// AddonPrereleases lets AddonUpdates install the addon's pre-releases too.
+	// AddonChannel is which builds AddonUpdates installs: release (empty), beta or snapshot.
+	AddonChannel string `json:"addonChannel,omitempty"`
+	// AddonPrereleases is the setting AddonChannel replaced: set and no channel picked reads as beta.
 	AddonPrereleases bool `json:"addonPrereleases,omitempty"`
 }
 

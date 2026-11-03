@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/addonupdate"
 )
 
@@ -249,4 +250,143 @@ func TestAnInstallThatAddsAnAddonFolderSaysToRestartTheGame(t *testing.T) {
 	if s := c.State().Addon; s.Status != "Addon updated to v0.16.1 — restart the game: /reload does not load a new addon folder" {
 		t.Errorf("the page says %+v", s)
 	}
+}
+
+const (
+	addonSnapshotRelease = "https://api.github.com/repos/gold-forever/addon/releases/tags/addon-snapshot"
+	addonSnapshotVersion = "0.16.1-snapshot.202611031530.2ceabf9"
+	addonSnapshotZip     = "https://github.com/gold-forever/addon/releases/download/addon-snapshot/GoldForever-" + addonSnapshotVersion + ".zip"
+)
+
+// addonZipAt is a zip of the addon whose .toc names version.
+func addonZipAt(t *testing.T, version string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	f, _ := w.Create("GoldForever/GoldForever.toc")
+	f.Write([]byte(addonToc(version)))
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
+}
+
+func addonSnapshot(zipSum string) string {
+	return `{"tag_name":"addon-snapshot","prerelease":true,"draft":false,"assets":[{"name":"GoldForever-` + addonSnapshotVersion +
+		`.zip","browser_download_url":"` + addonSnapshotZip + `","digest":"sha256:` + zipSum + `"}]}`
+}
+
+func setChannel(t *testing.T, c *App, channel string) {
+	t.Helper()
+	if err := c.SetAddonChannel(t.Context(), channel); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheAddonChannelIsReleaseByDefaultAndTheOldPreReleaseSettingReadsAsBeta(t *testing.T) {
+	c, _ := fixture(t)
+	if got := c.State().Addon.Channel; got != "release" {
+		t.Errorf("by default the channel is %q", got)
+	}
+
+	if err := c.settings.Update(func(cfg *config.Config) error { cfg.AddonPrereleases = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.State().Addon.Channel; got != "beta" {
+		t.Errorf("with addonPrereleases the channel is %q", got)
+	}
+
+	setChannel(t, c, "release")
+	if cfg := c.settings.Get(); c.State().Addon.Channel != "release" || cfg.AddonPrereleases {
+		t.Errorf("picking release: %q, %+v", c.State().Addon.Channel, cfg)
+	}
+}
+
+func TestPickingAChannelTheCompanionDoesNotKnowIsRefused(t *testing.T) {
+	c, _ := fixture(t)
+
+	err := c.SetAddonChannel(t.Context(), "nightly")
+
+	var p interface{ PlayerError() }
+	if !errors.As(err, &p) || c.State().Addon.Channel != "release" {
+		t.Errorf("an unknown channel: %v, now %q", err, c.State().Addon.Channel)
+	}
+}
+
+func TestTheBetaChannelInstallsTheNewestPreRelease(t *testing.T) {
+	c, save := fixture(t)
+	addOns := addonInstalled(t, save)
+	const betaZip = "https://github.com/gold-forever/addon/releases/download/addon-v0.17.0-beta.1/GoldForever-0.17.0-beta.1.zip"
+	z := addonZipAt(t, "0.17.0-beta.1")
+	list := `[{"tag_name":"addon-v0.17.0-beta.1","prerelease":true,"draft":false,"assets":[{"name":"GoldForever-0.17.0-beta.1.zip","browser_download_url":"` +
+		betaZip + `","digest":"sha256:` + sum(z) + `"}]},` + strings.TrimPrefix(addonRelease(sum("release")), "[")
+	g := &github{files: map[string]string{addonReleases: list, betaZip: z}}
+	c.addons = addonupdate.Source{Client: &http.Client{Transport: g}}
+	addonOn(t, c)
+	setChannel(t, c, "beta")
+
+	c.checkAddon(t.Context())
+
+	if got := addonupdate.Installed(addOns); got != "0.17.0-beta.1" {
+		t.Errorf("on beta, installed %q, asked %v", got, g.asked)
+	}
+}
+
+func TestTheSnapshotChannelInstallsTheSnapshotAndThenOnlyWhenItChanges(t *testing.T) {
+	c, save := fixture(t)
+	addOns := addonInstalled(t, save)
+	z := addonZipAt(t, addonSnapshotVersion)
+	g := &github{files: map[string]string{addonSnapshotRelease: addonSnapshot(sum(z)), addonSnapshotZip: z}}
+	c.addons = addonupdate.Source{Client: &http.Client{Transport: g}}
+	addonOn(t, c)
+	setChannel(t, c, "snapshot")
+
+	c.checkAddon(t.Context())
+
+	if got := addonupdate.Installed(addOns); got != addonSnapshotVersion {
+		t.Fatalf("on snapshot, installed %q, asked %v", got, g.asked)
+	}
+	if s := c.State().Addon; s.Status != "Addon updated to v"+addonSnapshotVersion+" — /reload in game" {
+		t.Errorf("the page says %+v", s)
+	}
+	g.asked = nil
+	c.checkAddon(t.Context())
+	if len(g.asked) != 1 || g.asked[0] != addonSnapshotRelease {
+		t.Errorf("the same snapshot again, the companion asked %v", g.asked)
+	}
+}
+
+func TestSwitchingBackToReleaseReturnsASnapshotToTheNewestRelease(t *testing.T) {
+	c, save := fixture(t)
+	addOns := addonInstalled(t, save)
+	snap, rel := addonZipAt(t, addonSnapshotVersion), addonZipOf(t)
+	g := &github{files: map[string]string{
+		addonSnapshotRelease: addonSnapshot(sum(snap)), addonSnapshotZip: snap,
+		addonReleases: addonRelease(sum(rel)), addonZip: rel,
+	}}
+	c.addons = addonupdate.Source{Client: &http.Client{Transport: g}}
+	addonOn(t, c)
+	setChannel(t, c, "snapshot")
+	c.checkAddon(t.Context())
+	if got := addonupdate.Installed(addOns); got != addonSnapshotVersion {
+		t.Fatalf("on snapshot, installed %q", got)
+	}
+
+	setChannel(t, c, "release")
+	c.checkAddon(t.Context())
+
+	if got := addonupdate.Installed(addOns); got != "0.16.1" {
+		t.Errorf("back on release, installed %q", got)
+	}
+}
+
+func TestChangingTheChannelRestartsTheCheck(t *testing.T) {
+	c, _ := fixture(t)
+	addonOn(t, c)
+	wish, changed := wishOf(c.settings.Get()), make(chan struct{})
+	go func() { c.untilAddonWishChanges(t.Context(), wish); close(changed) }()
+
+	setChannel(t, c, "snapshot")
+
+	waitFor(t, changed, "the new channel to restart the check")
 }
