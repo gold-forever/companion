@@ -81,16 +81,18 @@ func (c *App) CheckForUpdate(ctx context.Context) error {
 
 func (c *App) checkForUpdate(ctx context.Context, asker releaseAsker) error {
 	latest, err := asker.Latest(ctx)
+	checked := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err != nil {
-		c.update.Error = "Checking for updates failed: " + err.Error()
+		c.update.Error, c.update.Checked = "Checking for updates failed: "+err.Error(), &checked
 		return err
 	}
 	newer := release.Newer(latest.Version, c.version)
 	c.update = page.Update{
 		Latest: latest.Version, URL: latest.URL, Newer: newer, Installing: c.update.Installing,
 		CanInstall: newer && c.releaseFile != "" && latest.URL == releaseTag+latest.Version,
+		Checked:    &checked,
 	}
 	c.notice = nil
 	if newer {

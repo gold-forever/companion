@@ -390,3 +390,26 @@ func TestChangingTheChannelRestartsTheCheck(t *testing.T) {
 
 	waitFor(t, changed, "the new channel to restart the check")
 }
+
+func TestTheAddonsStatusSaysWhenItChecked(t *testing.T) {
+	c, save := fixture(t)
+	addonInstalled(t, save)
+	z := addonZipOf(t)
+	g := &github{files: map[string]string{addonReleases: addonRelease(sum(z)), addonZip: z}}
+	c.addons = addonupdate.Source{Client: &http.Client{Transport: g}}
+	addonOn(t, c)
+	at := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return at }
+
+	c.checkAddon(t.Context())
+	if s := c.State().Addon; s.Checked == nil || !s.Checked.Equal(at) {
+		t.Errorf("checked at %v, want %v", s.Checked, at)
+	}
+
+	at = at.Add(time.Hour)
+	g.files[addonReleases] = "not json"
+	c.checkAddon(t.Context())
+	if s := c.State().Addon; s.Checked == nil || !s.Checked.Equal(at) || s.Error == "" {
+		t.Errorf("a failed check: %+v, want checked at %v", s, at)
+	}
+}

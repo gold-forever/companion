@@ -29,11 +29,12 @@ type State struct {
 
 // Addon is the setting that keeps the Gold Forever addon up to date, and how its last check went.
 type Addon struct {
-	On      bool   `json:"on"`
-	Warning string `json:"warning"`          // what the player confirms before turning it on
-	Channel string `json:"channel"`          // release, beta or snapshot
-	Status  string `json:"status,omitempty"` // what the last check or install did
-	Error   string `json:"error,omitempty"`  // why the last check or install failed
+	On      bool       `json:"on"`
+	Warning string     `json:"warning"`           // what the player confirms before turning it on
+	Channel string     `json:"channel"`           // release, beta or snapshot
+	Status  string     `json:"status,omitempty"`  // what the last check or install did
+	Error   string     `json:"error,omitempty"`   // why the last check or install failed
+	Checked *time.Time `json:"checked,omitempty"` // when the last check ended; none before the first
 }
 
 // PriceFile is one flavour's GoldForever_Data/Data.lua and how the latest fetch of its game went.
@@ -82,12 +83,13 @@ type Notice struct {
 // Update is the settings' update section: the newest release the last check found, and whether the
 // companion can install it here.
 type Update struct {
-	Latest     string `json:"latest,omitempty"` // none until a check has answered
-	URL        string `json:"url,omitempty"`    // the release's page
-	Newer      bool   `json:"newer"`
-	CanInstall bool   `json:"canInstall"`      // false where the player downloads it from URL themselves
-	Installing bool   `json:"installing"`      // an update is downloading, or has started the new version
-	Error      string `json:"error,omitempty"` // why the last check or update failed
+	Latest     string     `json:"latest,omitempty"` // none until a check has answered
+	URL        string     `json:"url,omitempty"`    // the release's page
+	Newer      bool       `json:"newer"`
+	CanInstall bool       `json:"canInstall"`        // false where the player downloads it from URL themselves
+	Installing bool       `json:"installing"`        // an update is downloading, or has started the new version
+	Error      string     `json:"error,omitempty"`   // why the last check or update failed
+	Checked    *time.Time `json:"checked,omitempty"` // when the last check answered or failed; none before the first
 }
 
 // History is one page of the upload log, newest first, and the copies still kept.

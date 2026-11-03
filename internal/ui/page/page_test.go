@@ -38,10 +38,12 @@ type fakeApp struct {
 	notice      *Notice
 	addon       []bool // each call to SetAddonUpdates: on, confirmed
 	channel     string // the last channel SetAddonChannel picked
+	checked     *time.Time
 }
 
 func (a *fakeApp) State() State {
-	return State{Version: "v0.1.0", Linked: a.linked != "", Prices: a.prices, Account: a.account, Notice: a.notice}
+	return State{Version: "v0.1.0", Linked: a.linked != "", Prices: a.prices, Account: a.account, Notice: a.notice,
+		Update: Update{Checked: a.checked}, Addon: Addon{Checked: a.checked}}
 }
 func (a *fakeApp) Link(_ context.Context, token string) error { a.linked = token; return nil }
 func (a *fakeApp) Unlink(context.Context) error               { a.linked = ""; return nil }
@@ -475,5 +477,37 @@ func TestTheAddonChannelPickerReachesTheAppAndWarnsOfUntestedBuilds(t *testing.T
 		if !strings.Contains(body, want) {
 			t.Errorf("the page has no %s", want)
 		}
+	}
+}
+
+// Check for updates shows that it checked even when the answer has not changed: the button reads
+// Checking… while it asks, and the result line and the addon's status say when they checked.
+func TestThePageShowsThatItCheckedForUpdates(t *testing.T) {
+	script := serve(&fakeApp{}, "GET", "/app.js", "", nil).Body.String()
+	for _, want := range []string{
+		`$("check").textContent = checking ? "Checking…" : "Check for updates"`,
+		`$("check").disabled = u.installing || checking`,
+		`checkedLine(u.checked,`,
+		`checkedLine(a.checked, a.status)`,
+		`"Checked just now"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the page script has no %s", want)
+		}
+	}
+}
+
+func TestTheStateCarriesWhenTheUpdatesWereChecked(t *testing.T) {
+	at := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	app := &fakeApp{checked: &at}
+	var got struct {
+		Update struct{ Checked time.Time }
+		Addon  struct{ Checked time.Time }
+	}
+	if err := json.Unmarshal(serve(app, "GET", "/api/state", "", nil).Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Update.Checked.Equal(at) || !got.Addon.Checked.Equal(at) {
+		t.Errorf("checked: update %v, addon %v", got.Update.Checked, got.Addon.Checked)
 	}
 }

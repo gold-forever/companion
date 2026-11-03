@@ -162,8 +162,9 @@ func (c *App) addonDone(ctx context.Context, status string, err error) {
 	if ctx.Err() != nil {
 		return
 	}
+	checked := c.now()
 	c.mu.Lock()
-	c.addon.Status, c.addon.Error = status, ""
+	c.addon.Status, c.addon.Error, c.addon.Checked = status, "", &checked
 	if err != nil {
 		c.addon.Error = "Updating the addon failed: " + err.Error() + ". The installed addon is as it was."
 	}

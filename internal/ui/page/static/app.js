@@ -78,8 +78,9 @@ function showAddon(a) {
   $("addon-updates").checked = !!a.on;
   $("addon-channel").value = a.channel || "release";
   $("addon-untested").hidden = $("addon-channel").value === "release";
-  $("addon-status").hidden = !a.status;
-  $("addon-status").textContent = a.status || "";
+  const status = checkedLine(a.checked, a.status);
+  $("addon-status").hidden = !status;
+  $("addon-status").textContent = status;
   $("addon-error").hidden = !a.error;
   $("addon-error").textContent = a.error || "";
 }
@@ -120,20 +121,46 @@ function awaitNewVersion() {
   setTimeout(() => refresh().then(awaitNewVersion, awaitNewVersion), 1000);
 }
 
+// When a check ended, as the player reads it: an answer the same as the last one still shows it came.
+function checkedAgo(at) {
+  const minutes = Math.floor((Date.now() - new Date(at)) / 60000);
+  if (minutes < 1) return "Checked just now";
+  if (minutes < 60) return `Checked ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  return `Checked ${new Date(at).toLocaleString()}`;
+}
+
+// A check's result line: when it checked, then what it found; "" before the first check.
+function checkedLine(at, answer) {
+  if (!at) return answer || "";
+  return answer ? `${checkedAgo(at)}: ${answer}` : `${checkedAgo(at)}.`;
+}
+
+// A Check for updates under way, which keeps its button reading Checking… across the page's refreshes.
+let checking = false;
+
+function check() {
+  checking = true;
+  $("check").disabled = true;
+  $("check").textContent = "Checking…";
+  call("/api/update/check", {}).catch(() => { /* the state carries the error */ })
+    .finally(() => { checking = false; return refresh(); });
+}
+
 // The update section: the running version, the latest release the last check found, and Update where
 // the companion can install it itself.
 function showUpdate(version, u) {
   $("running").textContent = version;
   const latest = $("latest");
-  if (!u.latest) latest.replaceChildren("");
-  else if (!u.newer) latest.replaceChildren(`It is the latest release (${u.latest}).`);
+  if (!u.latest) latest.replaceChildren(checkedLine(u.checked, ""));
+  else if (!u.newer) latest.replaceChildren(checkedLine(u.checked, `it is the latest release (${u.latest}).`));
   else {
-    latest.replaceChildren(`Version ${u.latest} is out. `, releaseLink(u.url, "What's new"));
+    latest.replaceChildren(checkedLine(u.checked, `version ${u.latest} is out. `), releaseLink(u.url, "What's new"));
     if (!u.canInstall) latest.append(": download it there and run it, it replaces this one.");
   }
   $("update").hidden = !u.newer || !u.canInstall;
   $("update").disabled = u.installing;
-  $("check").disabled = u.installing;
+  $("check").disabled = u.installing || checking;
+  $("check").textContent = checking ? "Checking…" : "Check for updates";
   $("updating").hidden = !u.installing;
   $("updating").textContent = updatedFrom
     ? "The new version is installing itself: this page reloads onto it when it has started."
@@ -247,7 +274,7 @@ $("unlink").onclick = () => act(call("/api/unlink", {}));
 $("folder").onsubmit = (e) => { e.preventDefault(); act(call("/api/folder", { path: $("path").value.trim() })); $("path").value = ""; };
 $("newer").onclick = () => { logPage--; refresh(); };
 $("older").onclick = () => { logPage++; refresh(); };
-$("check").onclick = () => call("/api/update/check", {}).then(refresh, refresh);
+$("check").onclick = check;
 $("update").onclick = update;
 $("update-now").onclick = update;
 $("uninstall").onclick = () => {

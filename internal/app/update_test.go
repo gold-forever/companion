@@ -358,3 +358,26 @@ func TestATabLeftLongAgoIsNotTakenOver(t *testing.T) {
 		t.Error("a tab was taken over twice")
 	}
 }
+
+// An answer the same as the last one still says when it came, so the page shows that it checked.
+func TestEveryCheckSaysWhenItChecked(t *testing.T) {
+	c, _ := fixture(t)
+	answer := func() (server.Release, error) { return server.Release{Version: "v0.1.0", URL: newerTag}, nil }
+	(&fakeServer{latest: func() (server.Release, error) { return answer() }}).connects(c)
+	first := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return first }
+	if err := c.CheckForUpdate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if u := c.State().Update; u.Checked == nil || !u.Checked.Equal(first) {
+		t.Errorf("checked at %v, want %v", u.Checked, first)
+	}
+
+	second := first.Add(time.Minute)
+	c.now = func() time.Time { return second }
+	answer = func() (server.Release, error) { return server.Release{}, errors.New("no network") }
+	_ = c.CheckForUpdate(t.Context())
+	if u := c.State().Update; u.Checked == nil || !u.Checked.Equal(second) {
+		t.Errorf("a failed check: checked at %v, want %v", u.Checked, second)
+	}
+}
