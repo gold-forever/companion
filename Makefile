@@ -22,6 +22,9 @@ TARGETS := linux/amd64 linux/arm64 windows/amd64 windows/arm64
 LDFLAGS := -s -w -buildid= -X main.version=$(VERSION)
 # Windows builds as a windowed program, so a double-click opens no console window.
 WINDOWS_LDFLAGS := $(LDFLAGS) -H=windowsgui
+# The Windows build's version, manifest and icon, written for each build from VERSION and removed after
+# it (internal/build/winres): the linker takes any .syso beside the main package.
+WINRES := cmd/$(NAME)/rsrc_windows
 
 .PHONY: build macos test vet reproduce clean
 
@@ -32,8 +35,10 @@ build:
 		if [ $$os = windows ]; then \
 			ldflags='$(WINDOWS_LDFLAGS)'; \
 			if [ $$arch = amd64 ]; then out=$(DIST)/$(WINDOWS_amd64); else out=$(DIST)/$(WINDOWS_arm64); fi; \
+			go run ./internal/build/winres -version $(VERSION) -arch $$arch -file $${out##*/} -o $(WINRES)_$$arch.syso || exit 1; \
 		fi; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -buildvcs=false -ldflags "$$ldflags" -o $$out ./cmd/$(NAME) || exit 1; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -buildvcs=false -ldflags "$$ldflags" -o $$out ./cmd/$(NAME); \
+		status=$$?; rm -f $(WINRES)_$$arch.syso; [ $$status = 0 ] || exit 1; \
 		echo $$out; \
 	done
 

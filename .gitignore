@@ -2,3 +2,4 @@
 /reproduce/
 /build-macos/
 .orca
+/cmd/gold-forever-companion/*.syso

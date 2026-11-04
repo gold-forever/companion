@@ -21,7 +21,9 @@ any program it hasn't seen many times. It doesn't mean the file is harmful. If y
 
 **Antivirus:** a program that copies itself and starts with Windows is also something malware does,
 so an antivirus may flag it. The companion installs for your user only, and its first page says
-exactly what it did and where.
+exactly what it did and where. If Microsoft Defender blocks it ("This program is dangerous…"), open
+**Windows Security → Virus & threat protection → Protection history**, pick the entry and choose
+**Actions → Allow on device**. To make sure the file is ours first, check it with [VERIFY.md](VERIFY.md).
 
 ## macOS
 

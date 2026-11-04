@@ -170,14 +170,3 @@ func start(exe string, args ...string) error {
 	}
 	return cmd.Process.Release()
 }
-
-func openBrowser(url string) error {
-	switch goos {
-	case "windows":
-		return start("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		return start("open", url)
-	default:
-		return start("xdg-open", url)
-	}
-}

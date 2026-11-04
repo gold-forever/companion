@@ -3,31 +3,15 @@ package tray
 import (
 	"bytes"
 	"encoding/binary"
-	"image"
-	"image/color"
 	"image/png"
+
+	"github.com/gold-forever/companion/internal/ui/coin"
 )
 
-// The icon is drawn here rather than shipped as a file, so there is nothing in the repository that
-// can't be read: a gold coin with a darker rim.
 const iconSize = 32
 
 func pngIcon() []byte {
-	img := image.NewNRGBA(image.Rect(0, 0, iconSize, iconSize))
-	gold := color.NRGBA{0xC9, 0xA2, 0x27, 0xFF}
-	rim := color.NRGBA{0x8A, 0x6A, 0x12, 0xFF}
-	const c, r = iconSize/2 - 0.5, iconSize/2 - 1
-	for y := range iconSize {
-		for x := range iconSize {
-			dx, dy := float64(x)-c, float64(y)-c
-			switch d := dx*dx + dy*dy; {
-			case d <= (r-3)*(r-3):
-				img.Set(x, y, gold)
-			case d <= r*r:
-				img.Set(x, y, rim)
-			}
-		}
-	}
+	img := coin.Image(iconSize)
 	var b bytes.Buffer
 	_ = png.Encode(&b, img)
 	return b.Bytes()
