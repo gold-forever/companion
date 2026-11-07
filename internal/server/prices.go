@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 )
 
 // The largest answer of a game to trust: a Forever market is about 100 KB and an answer holds at most
@@ -38,7 +37,11 @@ func (c *Client) Prices(ctx context.Context, game, market, etag string) ([]byte,
 // with etag kept, an answer over limit bytes an error, a 404 a RefusedError, any other status that of
 // answer.
 func (c *Client) conditionalGet(ctx context.Context, path, etag string, limit int64) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(c.BaseURL, "/")+path, nil)
+	url, err := c.endpoint(path)
+	if err != nil {
+		return nil, "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", err
 	}

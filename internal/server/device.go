@@ -123,7 +123,10 @@ func (c *Client) postJSON(ctx context.Context, path string, v any) (*http.Respon
 	if err != nil {
 		return nil, nil, err
 	}
-	url := strings.TrimSuffix(c.BaseURL, "/") + path
+	url, err := c.endpoint(path)
+	if err != nil {
+		return nil, nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, nil, err

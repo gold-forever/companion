@@ -537,3 +537,20 @@ func TestCheckingForAnUpdateShowsANewerReleaseOnly(t *testing.T) {
 func (c *App) refresher(f addondata.Fetcher, s addondata.SharedFetcher) *addondata.Refresher {
 	return c.parts(nil).refresher(f, s, nil)
 }
+
+// Settings from an older companion may name an http site elsewhere: the page says so at start, and
+// the client refuses to send anything there, the token least of all.
+func TestASavedHTTPSiteElsewhereIsNamedOnThePage(t *testing.T) {
+	home := t.TempDir()
+	layout := install.For(install.Env{GOOS: "linux", Home: home, Getenv: func(string) string { return "" }})
+	cfgPath := filepath.Join(layout.Config, "config.json")
+	if err := config.Save(cfgPath, config.Config{Token: validToken, URL: "http://gold-forever.example"}); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newApp(appOptions{site: "https://gold-forever.app", running: layout.Exe, layout: layout, cfgPath: cfgPath, dataDir: layout.Data[0], quit: func() {}})
+
+	if w := c.State().Warning; !strings.Contains(w, "http://gold-forever.example is http") || !strings.Contains(w, cfgPath) {
+		t.Errorf("the page does not say the saved site is refused: %q", w)
+	}
+}

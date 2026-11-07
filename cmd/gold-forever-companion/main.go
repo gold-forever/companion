@@ -79,6 +79,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		fmt.Fprintln(stderr, usageAdvice)
 		return 2
 	}
+	if err := server.CheckSite(*url); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	return uploadOnce(ctx, *file, client(*url, *token), stdout, stderr)
 }
 
@@ -101,6 +105,11 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 		return 1
 	}
 	cfg := settings.Get()
+	site := cmp.Or(cfg.URL, defaultURL)
+	if err := server.CheckSite(site); err != nil {
+		fmt.Fprintf(stderr, "%s names a site the companion will not upload to: %v. %s\n", cfgPath, err, config.RefusedSiteAdvice)
+		return 1
+	}
 	token := cmp.Or(cfg.Token, getenv("GF_TOKEN"))
 	if token == "" {
 		fmt.Fprintf(stderr, "no token: set GF_TOKEN, or put one in %s (make one at /me/tokens)\n", cfgPath)
@@ -117,7 +126,7 @@ func watchAndUpload(ctx context.Context, args []string, getenv func(string) stri
 	_ = records.Log.Prune(time.Now())
 	installs := append(cfg.Folders, find.Candidates(runtime.GOOS, home, getenv, find.RegistryInstall)...)
 	uploads := app.Parts{
-		Server:  client(cmp.Or(cfg.URL, defaultURL), token),
+		Server:  client(site, token),
 		Records: records,
 		Saves:   func() []find.Save { return find.Saves(installs) },
 		IsOff:   cfg.IsOff,
@@ -165,6 +174,10 @@ func linkAccount(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	flags.SetOutput(stderr)
 	url := flags.String("url", defaultURL, "the Gold Forever site")
 	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if err := server.CheckSite(*url); err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	cfgPath, err := config.Path()

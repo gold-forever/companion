@@ -122,6 +122,8 @@ func newApp(o appOptions) *App {
 	if err != nil {
 		warning = setAsideSettings(o.cfgPath, err)
 		settings = config.New(o.cfgPath, config.Config{})
+	} else {
+		warning = refusedSite(o.cfgPath, settings.Get().URL)
 	}
 	records := OpenRecords(o.dataDir)
 	releases := &http.Client{Timeout: downloadFor}

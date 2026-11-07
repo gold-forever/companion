@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -32,7 +31,10 @@ const (
 func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
 	ctx, cancel := context.WithTimeout(ctx, uploadDeadline(len(save)))
 	defer cancel()
-	url := strings.TrimSuffix(c.BaseURL, "/") + "/api/v1/saves?name=" + saveName
+	url, err := c.endpoint("/api/v1/saves?name=" + saveName)
+	if err != nil {
+		return Answer{}, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(save))
 	if err != nil {
 		return Answer{}, err

@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 )
 
 // Latest asks the server for the newest release, without the token. No release named (404) is an
 // empty Release; the player downloads a newer one themselves, as the companion never updates itself.
 func (c *Client) Latest(ctx context.Context) (Release, error) {
 	var r Release
-	url := strings.TrimSuffix(c.BaseURL, "/") + "/api/v1/companion/latest"
+	url, err := c.endpoint("/api/v1/companion/latest")
+	if err != nil {
+		return r, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return r, err

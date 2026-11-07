@@ -11,6 +11,9 @@ import (
 	"github.com/gold-forever/companion/internal/platform/atomicfile"
 )
 
+// RefusedSiteAdvice is how to fix a settings file whose url the companion will not upload to.
+const RefusedSiteAdvice = `Change "url" in that file to an https address, or remove it to use the public site.`
+
 // Config is everything the player sets.
 type Config struct {
 	Token   string   `json:"token,omitempty"`

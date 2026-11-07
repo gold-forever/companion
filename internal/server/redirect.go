@@ -10,10 +10,15 @@ const PublicHost = "gold-forever.app"
 
 // carryToken lets a redirect to the public site keep the token: Go drops Authorization when a
 // redirect changes domain, which would turn every upload from a companion set to the old name into a
-// 401. Only https://gold-forever.app gets it; a redirect anywhere else goes without.
+// 401. Only https://gold-forever.app gets it; a redirect anywhere else goes without. Go keeps it on a
+// same-host redirect whatever the scheme, so a redirect to plain http drops it.
 func carryToken(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return errors.New("stopped after 10 redirects")
+	}
+	if !secure(req.URL) {
+		req.Header.Del("Authorization")
+		return nil
 	}
 	auth := via[0].Header.Get("Authorization")
 	if auth != "" && req.Header.Get("Authorization") == "" && req.URL.Scheme == "https" && req.URL.Hostname() == PublicHost {
