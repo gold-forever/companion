@@ -218,7 +218,7 @@ func TestLuaIsTheContractTable(t *testing.T) {
 
 // LuaJIT is not in the build container; the host runs testdata/check.lua on testdata/Data.lua and
 // testdata/check_markets.lua on testdata/markets.lua, testdata/check_shared.lua on testdata/shared.lua, testdata/check_week.lua on
-// testdata/week.lua and testdata/check_units.lua on testdata/units.lua, which the golden tests keep equal to the writer's output.
+// testdata/week.lua, testdata/check_units.lua on testdata/units.lua and testdata/check_supply.lua on testdata/supply.lua, which the golden tests keep equal to the writer's output.
 func TestDataLoadsInLuaJIT(t *testing.T) {
 	luajit, err := exec.LookPath("luajit")
 	if err != nil {
@@ -230,6 +230,7 @@ func TestDataLoadsInLuaJIT(t *testing.T) {
 		"check_shared.lua":  withSharedAnswer(t),
 		"check_week.lua":    weekAnswer(t),
 		"check_units.lua":   unitsAnswer(t),
+		"check_supply.lua":  supplyAnswer(t),
 	} {
 		path := filepath.Join(t.TempDir(), "Data.lua")
 		if err := os.WriteFile(path, Lua(a), 0o644); err != nil {
@@ -352,6 +353,62 @@ func TestLuaWritesAThinPricesUnitsUnderTheirKeyAndOnlyThere(t *testing.T) {
 	}
 }
 
+func supplyAnswer(t *testing.T) Answer {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("testdata", "supply.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mustParseGame(t, body, "retail")
+}
+
+func TestParseReadsSoldAndListedWhereTheServerSentThem(t *testing.T) {
+	a := supplyAnswer(t)
+
+	want := []Item{
+		{ID: 2589, Value: 1234, MinBuyout: 1100, Players: 1, ScannedAt: 1761140000, Week: 1250, Units: 3, Thin: true, Sold: 42, HasSold: true, Listed: 5133, HasListed: true},
+		{ID: 2592, Value: 50, MinBuyout: 5, Players: 12, ScannedAt: 1761148799},
+		{ID: 2996, Value: 40, MinBuyout: 38, Players: 2, ScannedAt: 1761148000, Listed: 7, HasListed: true},
+		{ID: 3356, Value: 60, MinBuyout: 55, Players: 4, ScannedAt: 1761148000, Sold: 9007199254740991, HasSold: true},
+		{ID: 14047, Value: 0, MinBuyout: 0, Players: 3, ScannedAt: 1761100000, HasSold: true, HasListed: true},
+	}
+	if !slices.Equal(a.Markets[0].Items, want) {
+		t.Fatalf("items = %+v, want %+v", a.Markets[0].Items, want)
+	}
+}
+
+// One odd count must not cost the market its prices: it is read as a figure the server did not send.
+func TestOddSoldAndListedAreReadAsAbsent(t *testing.T) {
+	for _, field := range []string{"sold", "listed"} {
+		for _, n := range []string{`-1`, `2.5`, `2.0`, `1e3`, `"3"`, `null`, `true`, `{}`, `[]`, `9007199254740992`} {
+			body := strings.Replace(answerWith("v", `1`), `"scannedAt":1761140000`, `"scannedAt":1761140000,"`+field+`":`+n, 1)
+			a, err := Parse([]byte(body), "forever", market)
+			if err != nil {
+				t.Errorf("%s %s: refused: %v", field, n, err)
+				continue
+			}
+			if a.Markets[0].Items[0] != (Item{ID: 2589, Value: 1234, MinBuyout: 1100, Players: 1, ScannedAt: 1761140000}) {
+				t.Errorf("%s %s: item = %+v", field, n, a.Markets[0].Items[0])
+			}
+		}
+	}
+}
+
+func TestLuaWritesSoldAndListedUnderTheirKeysAndOnlyWhereSent(t *testing.T) {
+	a := supplyAnswer(t)
+	got := Lua(a)
+	want, err := os.ReadFile(filepath.Join("testdata", "supply.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("Lua differs from testdata/supply.lua:\n%s", got)
+	}
+	if back, ok := readBack(got); !ok || !same(back, a) {
+		t.Fatalf("read back %+v, want %+v", back, a)
+	}
+}
+
 func TestLuaValuesRoundTrip(t *testing.T) {
 	p, _ := Parse(canned(t), "forever", market)
 	back, ok := readBack(Lua(p))
@@ -372,6 +429,7 @@ func FuzzParseAndLua(f *testing.F) {
 	f.Add([]byte(answerWith("market", `"a\"]b"`)), `a"]b`)
 	f.Add([]byte(strings.Replace(answerWith("v", `1`), `"scannedAt":1761140000`, `"scannedAt":1761140000,"week":1250`, 1)), market)
 	f.Add([]byte(strings.Replace(answerWith("v", `1`), `"scannedAt":1761140000`, `"scannedAt":1761140000,"units":3`, 1)), market)
+	f.Add([]byte(strings.Replace(answerWith("v", `1`), `"scannedAt":1761140000`, `"scannedAt":1761140000,"sold":0,"listed":12`, 1)), market)
 	for _, body := range malformed {
 		f.Add([]byte(body), market)
 	}
@@ -443,7 +501,7 @@ func unquote(q string) (string, bool) {
 var (
 	luaHeader = regexp.MustCompile(`(?s)^-- [^\n]*\nGoldForever_Prices = \{\n  v = 1,\n  at = (\d+),\n  markets = \{\n(.*)  \},\n\}\n$`)
 	luaMarket = regexp.MustCompile(`^    \[("(?:[^"\\]|\\.)*")\] = \{$`)
-	luaItem   = regexp.MustCompile(`^      \[(\d+)\] = \{ (\d+), (\d+), (\d+), (\d+)(?:, ([1-9]\d*))?(?:, units = (\d+))? \},$`)
+	luaItem   = regexp.MustCompile(`^      \[(\d+)\] = \{ (\d+), (\d+), (\d+), (\d+)(?:, ([1-9]\d*))?(?:, units = (\d+))?(?:, sold = (\d+))?(?:, listed = (\d+))? \},$`)
 )
 
 // readBack reads a Data.lua of the shape Lua writes back into Prices, or says it is not one.
@@ -473,6 +531,7 @@ func readBack(lua []byte) (Answer, bool) {
 		p.Items = append(p.Items, Item{
 			ID: atoi([]byte(f[1])), Value: atoi([]byte(f[2])), MinBuyout: atoi([]byte(f[3])), Players: atoi([]byte(f[4])),
 			ScannedAt: atoi([]byte(f[5])), Week: atoi([]byte(f[6])), Units: atoi([]byte(f[7])), Thin: f[7] != "",
+			Sold: atoi([]byte(f[8])), HasSold: f[8] != "", Listed: atoi([]byte(f[9])), HasListed: f[9] != "",
 		})
 	}
 	return a, true

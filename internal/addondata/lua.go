@@ -10,7 +10,8 @@ import (
 type limit struct{ data, market int }
 
 // Retail's markets are realm groups of 8–13k items, about 52 bytes each in Lua and 8 more
-// with a week mean (a 13k-item market: 678 KB, 781 KB with one on every item).
+// with a week mean (a 13k-item market: 678 KB, 781 KB with one on every item), and some 25 more
+// with sold and listed (1.1 MB on every item, over the market budget: a warning, not a refusal).
 var limits = map[string]limit{
 	"forever": {data: 1 << 20, market: 200 << 10},
 	"retail":  {data: 4 << 20, market: 1 << 20},
@@ -43,6 +44,12 @@ func marketPart(p Prices) []byte {
 		}
 		if it.Thin {
 			fmt.Fprintf(&b, ", %s = %d", fieldUnits, it.Units)
+		}
+		if it.HasSold {
+			fmt.Fprintf(&b, ", %s = %d", fieldSold, it.Sold)
+		}
+		if it.HasListed {
+			fmt.Fprintf(&b, ", %s = %d", fieldListed, it.Listed)
 		}
 		b.WriteString(" },\n")
 	}

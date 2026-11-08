@@ -17,20 +17,22 @@ package addondata
 //	  },
 //	  markets = {
 //	    [<market key>] = {
-//	      [<item id>] = { value, minBuyout, players, scannedAt [, week] [, units = <int>] },
+//	      [<item id>] = { value, minBuyout, players, scannedAt [, week] [, units = <int>] [, sold = <int>] [, listed = <int>] },
 //	    },
 //	  },
 //	}
 //
 // An item's numbers are integers: week is optional, and units, keyed so that it never takes week's
-// place, is there only for a thin price.
+// place, is there only for a thin price. sold (units gone per 7 days) and listed (units in the market's
+// latest scan) are keyed the same way and written only when the server sent them: 0 is a known none,
+// and sold is left out under a day of scans.
 //
 // A realm or name outside ASCII is written byte by byte as \ddd escapes, which Lua reads back as the
 // same UTF-8. Keys and strings are quoted printable ASCII; every number is an integer Lua holds exactly.
 
 // formatVersion is Data.lua's v. It changes when an addon reading the file as it is would misread it:
 // a field removed, renamed or given another type, or the item figures reordered. A new optional field
-// does not, nor does dropping one an addon reads as absent: shared, characters, week and units were each
+// does not, nor does dropping one an addon reads as absent: shared, characters, week, units, sold and listed were each
 // added at v = 1, and dings was dropped at it.
 const formatVersion = 1
 
@@ -59,4 +61,6 @@ const (
 	fieldName       = "name"
 	fieldMarkets    = "markets"
 	fieldUnits      = "units"
+	fieldSold       = "sold"
+	fieldListed     = "listed"
 )

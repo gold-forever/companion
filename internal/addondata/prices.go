@@ -26,11 +26,15 @@ var marketKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
 // Item is one item's pooled figures: copper, contributors, the newest scan in epoch seconds, and the
 // 7-day mean of daily values in copper, 0 when the server sent none. A thin price, one resting on so
-// few units that one listing can move it, carries the units of its newest scan.
+// few units that one listing can move it, carries the units of its newest scan. Sold is the units gone
+// per 7 days and Listed the units in the market's latest scan; their Has flags tell 0, a known none,
+// from a figure the server did not send.
 type Item struct {
 	ID, Value, MinBuyout, Players, ScannedAt, Week int64
 	Units                                          int64
 	Thin                                           bool
+	Sold, Listed                                   int64
+	HasSold, HasListed                             bool
 }
 
 // Prices is one market's items, sorted by id.
@@ -61,6 +65,8 @@ type rawPrice struct {
 	ScannedAt json.RawMessage `json:"scannedAt"`
 	Week      json.RawMessage `json:"week"`
 	Units     json.RawMessage `json:"units"`
+	Sold      json.RawMessage `json:"sold"`
+	Listed    json.RawMessage `json:"listed"`
 }
 
 // answer holds both shapes: one market's (market and items at the top) and the account's (markets).
@@ -164,10 +170,17 @@ func parseItem(raw rawPrice) (Item, error) {
 		}
 	}
 	it.Week = optional(raw.Week, 1, maxExact)
-	if units, err := integer(raw.Units, 0, maxExact); err == nil {
-		it.Units, it.Thin = units, true
-	}
+	it.Units, it.Thin = count(raw.Units)
+	it.Sold, it.HasSold = count(raw.Sold)
+	it.Listed, it.HasListed = count(raw.Listed)
 	return it, nil
+}
+
+// count reads a count a server may leave out, where 0 is an answer: one absent or out of shape is
+// not sent, so a single odd value cannot refuse a whole market.
+func count(n json.RawMessage) (int64, bool) {
+	v, err := integer(n, 0, maxExact)
+	return v, err == nil
 }
 
 // optional reads a field a server may leave out: one absent or out of shape is 0, none, so a single
