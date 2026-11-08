@@ -17,7 +17,7 @@ package addondata
 //	  },
 //	  markets = {
 //	    [<market key>] = {
-//	      [<item id>] = { value, minBuyout, players, scannedAt [, week] [, units = <int>] [, sold = <int>] [, listed = <int>] },
+//	      [<item id>] = { value, minBuyout, players, scannedAt [, week] [, units = <int>] [,sold=<int>][,listed=<int>] },
 //	    },
 //	  },
 //	}
@@ -25,7 +25,7 @@ package addondata
 // An item's numbers are integers: week is optional, and units, keyed so that it never takes week's
 // place, is there only for a thin price. sold (units gone per 7 days) and listed (units in the market's
 // latest scan) are keyed the same way and written only when the server sent them: 0 is a known none,
-// and sold is left out under a day of scans.
+// and sold is left out under a day of scans. Those two carry no spaces, to save 6 bytes an item.
 //
 // A realm or name outside ASCII is written byte by byte as \ddd escapes, which Lua reads back as the
 // same UTF-8. Keys and strings are quoted printable ASCII; every number is an integer Lua holds exactly.

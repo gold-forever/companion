@@ -433,7 +433,7 @@ func TestAMalformedOrFailedSharedStateKeepsTheLastGoodOne(t *testing.T) {
 func TestASharedStateCountsTowardsTheGamesFileLimit(t *testing.T) {
 	install, saves := tree(t, map[string]int{"_forever_": 16001})
 	state := filepath.Join(t.TempDir(), "prices.json")
-	body, lua := sized(t, 9000)
+	body, lua := sized(t, 20000)
 	if len(lua) > limits["forever"].data {
 		t.Fatalf("fixture: the prices alone are %d bytes, over the limit", len(lua))
 	}

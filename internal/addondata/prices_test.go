@@ -501,7 +501,7 @@ func unquote(q string) (string, bool) {
 var (
 	luaHeader = regexp.MustCompile(`(?s)^-- [^\n]*\nGoldForever_Prices = \{\n  v = 1,\n  at = (\d+),\n  markets = \{\n(.*)  \},\n\}\n$`)
 	luaMarket = regexp.MustCompile(`^    \[("(?:[^"\\]|\\.)*")\] = \{$`)
-	luaItem   = regexp.MustCompile(`^      \[(\d+)\] = \{ (\d+), (\d+), (\d+), (\d+)(?:, ([1-9]\d*))?(?:, units = (\d+))?(?:, sold = (\d+))?(?:, listed = (\d+))? \},$`)
+	luaItem   = regexp.MustCompile(`^      \[(\d+)\] = \{ (\d+), (\d+), (\d+), (\d+)(?:, ([1-9]\d*))?(?:, units = (\d+))?(?:,sold=(\d+))?(?:,listed=(\d+))? \},$`)
 )
 
 // readBack reads a Data.lua of the shape Lua writes back into Prices, or says it is not one.

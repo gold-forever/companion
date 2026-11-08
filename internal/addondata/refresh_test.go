@@ -211,7 +211,7 @@ func TestMarketsEachWithinBudgetButTogetherOverTheFileLimitAreRefused(t *testing
 	install, saves := tree(t, map[string]int{"_forever_": 16001})
 	keys := []string{"forever-EU-normal-horde", "forever-EU-normal-alliance", "forever-NA-normal-horde",
 		"forever-NA-normal-alliance", "forever-EU-hardcore-horde", "forever-NA-hardcore-horde"}
-	body := account(keys, 2000)
+	body := account(keys, 4000)
 	a := mustParseAccount(t, body)
 	if part := len(marketPart(a.Markets[0])); part > limits["forever"].market || len(Lua(a)) <= limits["forever"].data {
 		t.Fatalf("fixture: markets of %d bytes in a %d-byte file", part, len(Lua(a)))
@@ -233,7 +233,7 @@ func TestMarketsEachWithinBudgetButTogetherOverTheFileLimitAreRefused(t *testing
 func TestAMarketOverItsBudgetAmongSeveralIsWarnedOfByName(t *testing.T) {
 	_, saves := tree(t, map[string]int{"_forever_": 16001})
 	var out bytes.Buffer
-	body := strings.Replace(string(account([]string{"forever-EU-normal-horde"}, 3000)), `"markets":[`,
+	body := strings.Replace(string(account([]string{"forever-EU-normal-horde"}, 5000)), `"markets":[`,
 		`"markets":[{"market":"forever-EU-normal-alliance","items":[]},`, 1)
 	r := refresher(&fetcher{body: []byte(body)}, saves, "", filepath.Join(t.TempDir(), "prices.json"))
 	r.Out = &out
@@ -532,7 +532,7 @@ func TestADataFileOverItsLimitIsRefusedAndTheLastGoodOneKept(t *testing.T) {
 	_ = refresher(&fetcher{body: canned(t), etag: `"e1"`}, saves, market, state).Refresh(context.Background())
 	lua := filepath.Join(dataDir(install, "_forever_"), "Data.lua")
 	before, _ := os.ReadFile(lua)
-	body, big := sized(t, 12000)
+	body, big := sized(t, 24000)
 	if len(big) <= limits["forever"].data {
 		t.Fatalf("fixture: %d bytes is not over the limit", len(big))
 	}
@@ -561,7 +561,7 @@ func TestAMarketOverItsBudgetIsWrittenWithAWarning(t *testing.T) {
 	for _, c := range []struct {
 		items int
 		warn  bool
-	}{{2000, false}, {3000, true}} {
+	}{{4000, false}, {5000, true}} {
 		install, saves := tree(t, map[string]int{"_forever_": 16001})
 		body, lua := sized(t, c.items)
 		part := len(marketPart(mustParse(t, body).Markets[0]))
@@ -582,6 +582,43 @@ func TestAMarketOverItsBudgetIsWrittenWithAWarning(t *testing.T) {
 		if warned != c.warn {
 			t.Errorf("%d items (%d bytes for the market): warned %v, want %v; out = %q", c.items, part, warned, c.warn, out.String())
 		}
+	}
+}
+
+// suppliedMarkets is n items of each market with a week mean, sold and listed of the given digits, and
+// units when thin: the shape the limits were measured on.
+func suppliedMarkets(keys []string, n int, firstID, soldTo, listedTo int64, thin bool) Answer {
+	a := Answer{At: 1761148800}
+	for _, key := range keys {
+		p := Prices{Market: key}
+		for i := range int64(n) {
+			it := Item{ID: firstID + i, Value: 123456, MinBuyout: 123456, Players: 10, ScannedAt: 1761140000, Week: 123456,
+				Sold: soldTo, HasSold: true, Listed: listedTo, HasListed: true}
+			if thin {
+				it.Units, it.Thin = 5, true
+			}
+			p.Items = append(p.Items, it)
+		}
+		a.Markets = append(a.Markets, p)
+	}
+	return a
+}
+
+// A warning on every refresh or a refused file would be for nothing: the markets the limits were set
+// for fit them with every field at its widest likely size.
+func TestTheLimitsHoldMarketsWithSoldAndListed(t *testing.T) {
+	forever := []string{"forever-EU-normal-horde", "forever-EU-normal-alliance", "forever-NA-normal-horde", "forever-NA-normal-alliance"}
+	fourMarkets := suppliedMarkets(forever, 3012, 10000, 9999, 99999, false)
+	if size := len(Lua(fourMarkets)); size > limits["forever"].data {
+		t.Errorf("four Forever markets of 3,012 items take %d bytes, over the %d-byte file limit", size, limits["forever"].data)
+	}
+	big := suppliedMarkets(forever[:1], 4000, 10000, 9999, 99999, false)
+	if part := len(marketPart(big.Markets[0])); part > limits["forever"].market {
+		t.Errorf("a Forever market of 4,000 items takes %d bytes, over the %d-byte budget", part, limits["forever"].market)
+	}
+	realmGroup := suppliedMarkets([]string{"retail-EU-Draenor"}, 13000, 100000, 9999, 99999, true)
+	if part := len(marketPart(realmGroup.Markets[0])); part > limits["retail"].market {
+		t.Errorf("a retail market of 13,000 items takes %d bytes, over the %d-byte budget", part, limits["retail"].market)
 	}
 }
 
@@ -680,9 +717,9 @@ func TestRetailHasItsOwnFileLimitAndMarketBudget(t *testing.T) {
 		markets, n    int
 		write, warned bool
 	}{
-		{"three markets in 1.6 MB, each over Forever's budget", 3, 6000, true, false},
-		{"a market over 1 MB", 1, 12000, true, true},
-		{"four such markets, over 4 MB", 4, 12000, false, true},
+		{"three markets in 2.2 MB, each over Forever's budget", 3, 8000, true, false},
+		{"a market over its 1.25 MiB", 1, 24000, true, true},
+		{"four markets over budget, over 4 MiB", 4, 15000, false, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			install, saves := tree(t, map[string]int{"_retail_": 110207})
