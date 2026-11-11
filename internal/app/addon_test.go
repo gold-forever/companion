@@ -15,6 +15,7 @@ import (
 
 	"github.com/gold-forever/companion/internal/account/config"
 	"github.com/gold-forever/companion/internal/addonupdate"
+	"github.com/gold-forever/companion/internal/server"
 )
 
 const (
@@ -411,5 +412,114 @@ func TestTheAddonsStatusSaysWhenItChecked(t *testing.T) {
 	c.checkAddon(t.Context())
 	if s := c.State().Addon; s.Checked == nil || !s.Checked.Equal(at) || s.Error == "" {
 		t.Errorf("a failed check: %+v, want checked at %v", s, at)
+	}
+}
+
+// listingGithub serves the addon's releases, announcing each time the companion asks for the list;
+// while hold is open, the list waits for it to close.
+type listingGithub struct {
+	files  map[string]string
+	listed chan struct{}
+	hold   chan struct{}
+}
+
+func (g *listingGithub) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.String() == addonReleases {
+		g.listed <- struct{}{}
+		if g.hold != nil {
+			<-g.hold
+		}
+	}
+	body, ok := g.files[r.URL.String()]
+	status := http.StatusOK
+	if !ok {
+		status = http.StatusNotFound
+	}
+	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
+}
+
+// keepingTheAddonUpdated runs c's addon loop over g, its addon on or off, and waits out its first check.
+func keepingTheAddonUpdated(t *testing.T, on bool, hold chan struct{}) (*App, *listingGithub) {
+	t.Helper()
+	c, save := fixture(t)
+	addonInstalled(t, save)
+	z := addonZipOf(t)
+	g := &listingGithub{files: map[string]string{addonReleases: addonRelease(sum(z)), addonZip: z}, listed: make(chan struct{}, 16), hold: hold}
+	c.addons = addonupdate.Source{Client: &http.Client{Transport: g}}
+	(&fakeServer{latest: func() (server.Release, error) { return server.Release{Version: "v0.1.0"}, nil }}).connects(c)
+	if on {
+		addonOn(t, c)
+	}
+	ctx, stop := context.WithCancel(t.Context())
+	t.Cleanup(stop)
+	c.owned.Go(func() { c.keepAddonUpdated(ctx) })
+	if on {
+		waitFor(t, g.listed, "the first addon check")
+	}
+	return c, g
+}
+
+// noCheckFor fails when the addon's list is asked for within a moment.
+func noCheckFor(t *testing.T, g *listingGithub, why string) {
+	t.Helper()
+	select {
+	case <-g.listed:
+		t.Errorf("the addon was checked %s", why)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestCheckForUpdatesChecksTheAddonNow(t *testing.T) {
+	c, g := keepingTheAddonUpdated(t, true, nil)
+	deadline := time.After(5 * time.Second)
+
+	// The first check may still be ending; Check for updates finds the loop waiting soon after.
+	for {
+		if err := c.CheckForUpdate(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-g.listed:
+			return
+		case <-deadline:
+			t.Fatal("Check for updates did not check the addon")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+func TestCheckForUpdatesChecksNoAddonWhileKeepingItUpToDateIsOff(t *testing.T) {
+	c, g := keepingTheAddonUpdated(t, false, nil)
+
+	if err := c.CheckForUpdate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	noCheckFor(t, g, "while keeping it up to date is off")
+}
+
+func TestCheckForUpdatesDuringAnAddonCheckDoesNotDoubleIt(t *testing.T) {
+	hold := make(chan struct{})
+	c, g := keepingTheAddonUpdated(t, true, hold)
+
+	for range 3 {
+		if err := c.CheckForUpdate(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(hold)
+
+	noCheckFor(t, g, "again for a Check for updates pressed while it was being checked")
+}
+
+func TestTheSnapshotChannelIsCheckedEveryHalfHourTheOthersEverySixHours(t *testing.T) {
+	for channel, want := range map[addonupdate.Channel]time.Duration{
+		addonupdate.ChannelSnapshot: 30 * time.Minute,
+		addonupdate.ChannelBeta:     6 * time.Hour,
+		addonupdate.ChannelRelease:  6 * time.Hour,
+	} {
+		if got := checkAddonEvery(channel); got != want {
+			t.Errorf("the %s channel is checked every %v, want %v", channel, got, want)
+		}
 	}
 }

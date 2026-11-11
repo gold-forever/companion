@@ -15,10 +15,16 @@ import (
 	"github.com/gold-forever/companion/internal/ui/page"
 )
 
-const (
-	checkAddonEvery = 6 * time.Hour
-	addonWarning    = "The companion will download and install the Gold Forever addon from its GitHub releases whenever a new version is out, replacing the installed one. Turn it on?"
-)
+const addonWarning = "The companion will download and install the Gold Forever addon from its GitHub releases whenever a new version is out, replacing the installed one. Turn it on?"
+
+// checkAddonEvery is how often the channel is checked: a snapshot is built on every push to the
+// addon's main branch, a release or beta only now and then.
+func checkAddonEvery(channel addonupdate.Channel) time.Duration {
+	if channel == addonupdate.ChannelSnapshot {
+		return 30 * time.Minute
+	}
+	return 6 * time.Hour
+}
 
 // ErrConfirmAddonUpdates is keeping the addon up to date turned on before the player confirmed the warning.
 var ErrConfirmAddonUpdates error = refusal(addonWarning)
@@ -80,7 +86,8 @@ type addonWish struct {
 func wishOf(cfg config.Config) addonWish { return addonWish{cfg.AddonUpdates, channelOf(cfg)} }
 
 // keepAddonUpdated puts back what an interrupted install left, then, while the setting is on, checks
-// for a newer addon now and every few hours. Turning it off ends the check and any download under way.
+// for a newer addon now, at the channel's interval and whenever wakeAddon asks. Turning it off ends the
+// check and any download under way.
 func (c *App) keepAddonUpdated(ctx context.Context) {
 	c.recoverAddons()
 	for ctx.Err() == nil {
@@ -92,11 +99,21 @@ func (c *App) keepAddonUpdated(ctx context.Context) {
 			c.checkAddon(run)
 			select {
 			case <-run.Done():
-			case <-time.After(checkAddonEvery):
+			case <-c.addonWake:
+			case <-time.After(checkAddonEvery(wish.channel)):
 			}
 		}
 		<-run.Done()
 		watching.Wait()
+	}
+}
+
+// wakeAddon has the addon loop check now, if it waits between checks: off, or with a check under way,
+// there is nothing to wake.
+func (c *App) wakeAddon() {
+	select {
+	case c.addonWake <- struct{}{}:
+	default:
 	}
 }
 

@@ -74,8 +74,10 @@ func (c *App) checkVersion(ctx context.Context) {
 	}
 }
 
-// CheckForUpdate asks the server whether a newer release exists, for the page's notice and update section.
+// CheckForUpdate asks the server whether a newer release exists, for the page's notice and update
+// section, and has the addon checked now.
 func (c *App) CheckForUpdate(ctx context.Context) error {
+	c.wakeAddon()
 	return c.checkForUpdate(ctx, c.connect(""))
 }
 

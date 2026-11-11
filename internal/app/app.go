@@ -89,6 +89,8 @@ type App struct {
 	olderGrace time.Duration
 	// addons is the addon's releases on GitHub.
 	addons addonupdate.Source
+	// addonWake reaches the addon loop only while it waits between checks.
+	addonWake chan struct{}
 
 	mu      sync.Mutex
 	notice  *page.Notice
@@ -138,6 +140,7 @@ func newApp(o appOptions) *App {
 		openURL:      func(string) {},
 		releases:     releases,
 		addons:       addonupdate.Source{Client: releases},
+		addonWake:    make(chan struct{}),
 		releaseFile:  releaseFile(goos, runtime.GOARCH),
 		runInstaller: install.Run,
 		ask: func(ctx context.Context, message, yes, no string) bool {
