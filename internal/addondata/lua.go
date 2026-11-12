@@ -10,11 +10,12 @@ import (
 type limit struct{ data, market int }
 
 // The limits are sized from the files expected, not from anything the client imposes. An item is about
-// 52 bytes in Lua, 8 more with a week mean and about 21 more with sold and listed, 81–83 with all.
+// 52 bytes in Lua, 8 more with a week mean, about 21 more with sold and listed, 17 more with a day
+// price and 14 with the volatile tag: 98 with all but the tag, 1 item in 10 tagged (13 if all are).
 //
-//	Forever, 3,012 items a market:  244–250 KB a market, 4 markets 0.98–1.00 MB
-//	Forever, 4,000 items a market:  324–332 KB a market
-//	Retail, a 13k-item realm group: 1.24 MB with every field on every item
+//	Forever, 3,012 items a market:  295 KB a market, 4 markets 1.18 MB
+//	Forever, 4,000 items a market:  392 KB a market (443 KB with every item volatile: a warning)
+//	Retail, a 13k-item realm group: 1.28 MB (1.44 MB with every item volatile: a warning)
 var limits = map[string]limit{
 	"forever": {data: 2 << 20, market: 400 << 10},
 	"retail":  {data: 4 << 20, market: 1280 << 10},
@@ -53,6 +54,12 @@ func marketPart(p Prices) []byte {
 		}
 		if it.HasListed {
 			fmt.Fprintf(&b, ",%s=%d", fieldListed, it.Listed)
+		}
+		if it.Volatile {
+			fmt.Fprintf(&b, ",%s=true", fieldVolatile)
+		}
+		if it.HasDayPrice {
+			fmt.Fprintf(&b, ",%s=%d", fieldDayPrice, it.DayPrice)
 		}
 		b.WriteString(" },\n")
 	}
