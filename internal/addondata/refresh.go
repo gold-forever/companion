@@ -27,6 +27,8 @@ var games = []string{"forever", "retail"}
 // Refresher keeps the prices of the account's markets in every Forever and retail flavour the saves
 // are in.
 type Refresher struct {
+	// Fetcher fetches the prices and, when it is a NamesFetcher too, each flavour's names wanted in its
+	// client's locale; one that is not writes none.
 	Fetcher Fetcher
 	Saves   func() []find.Save
 	Market  string // one market instead of the account's in its game (forever-…, retail-…), to try it out
@@ -46,14 +48,16 @@ type Refresher struct {
 // held is what a game's Data.lua files hold: the answer asked for (a market, or "" for the account's
 // markets) under its ETag, and the shared and characters entries written with it. Under sharedKey and
 // charactersKey it is the account's shared state or characters as the server sent them, under their
-// ETag. Dings is the dings entry an older companion wrote: a file holding one is written again without
-// it.
+// ETag, and under namesKey a game's names wanted in a locale. Names is a digest of the names wanted the
+// game's files were written with. Dings is the dings entry an older companion wrote: a file holding one
+// is written again without it.
 type held struct {
 	Ask        string          `json:"ask"`
 	ETag       string          `json:"etag"`
 	Dings      string          `json:"dings,omitempty"`
 	Shared     string          `json:"shared,omitempty"`
 	Characters string          `json:"characters,omitempty"`
+	Names      string          `json:"names,omitempty"`
 	State      json.RawMessage `json:"state,omitempty"`
 }
 
@@ -120,11 +124,16 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 		x.characters, charactersErr = accountState(ctx, r, state, charactersKey, "characters", r.Characters.Characters, ParseCharacters, server.ErrNoCharacters)
 	}
 	errs := []error{sharedErr, charactersErr}
+	asked := map[string]bool{}
 	for _, game := range games {
-		if len(byGame[game]) > 0 {
-			errs = append(errs, r.refreshGame(ctx, game, byGame[game], state, x))
+		flavours := byGame[game]
+		if len(flavours) == 0 {
+			continue
 		}
+		wanted, namesErr := r.namesWanted(ctx, game, flavours, state, asked)
+		errs = append(errs, namesErr, r.refreshGame(ctx, game, flavours, state, x, wanted))
 	}
+	forgetNames(state, asked)
 	if err := r.saveState(state); err != nil {
 		fmt.Fprintf(r.Out, "could not keep the prices' ETag: %v\n", err)
 	}
@@ -134,8 +143,8 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 // noted is a state with something the log says once, when it arrives.
 type noted interface{ note() string }
 
-// accountState fetches the account's state under key (the shared state or characters) with the ETag of
-// the one held. A failed fetch or a state out of shape keeps the one held; a server without it (none, a
+// accountState fetches a state held under key (the account's shared state or characters, or a game's
+// names wanted in a locale) with the ETag of the one held. A failed fetch or a state out of shape keeps the one held; a server without it (none, a
 // 404) has none. nil is none: the files then go without that entry, as an older companion's.
 func accountState[T any](ctx context.Context, r *Refresher, state map[string]held, key, label string,
 	fetch func(context.Context, string) ([]byte, string, error), parse func([]byte) (T, error), none error) (*T, error) {
@@ -174,11 +183,11 @@ func accountState[T any](ctx context.Context, r *Refresher, state map[string]hel
 // entries are current, without an older companion's dings entry, or the answer is in memory to write it
 // again. A failed fetch or an answer out of shape writes nothing, so the last good files stay; the error
 // is the fetch's.
-func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]int, state map[string]held, x extras) error {
+func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[string]flavour, state map[string]held, x extras, wanted map[string]*NamesWanted) error {
 	ask, label := r.askFor(game)
 	chars := x.characters.in(game)
-	h, shared, characters := state[game], sharedPart(x.shared), charactersPart(chars)
-	current := h.Dings == "" && h.Shared == shared && h.Characters == characters
+	h, shared, characters, names := state[game], sharedPart(x.shared), charactersPart(chars), namesDigest(flavours, wanted)
+	current := h.Dings == "" && h.Shared == shared && h.Characters == characters && h.Names == names
 	last, inMemory := r.last[game]
 	inMemory = inMemory && last.ask == h.Ask && last.etag == h.ETag
 	etag := ""
@@ -205,7 +214,7 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 		}
 	}
 	a.Shared, a.Characters = x.shared, chars
-	lua, err := r.render(game, a)
+	luas, err := r.renderEach(game, a, flavours, wanted)
 	if err != nil {
 		r.refuse(game, label, err)
 		return err
@@ -213,10 +222,31 @@ func (r *Refresher) refreshGame(ctx context.Context, game string, flavours map[s
 	if body != nil {
 		r.Report.fetched(game, OutcomeOK, nil)
 	}
-	state[game] = held{Ask: ask, ETag: etag, Shared: shared, Characters: characters}
+	state[game] = held{Ask: ask, ETag: etag, Shared: shared, Characters: characters, Names: names}
 	r.remember(game, written{ask: ask, etag: etag, answer: a})
-	r.writeInto(flavours, game, label, a, lua, state)
+	r.writeInto(flavours, game, label, a, luas, wanted, state)
 	return nil
+}
+
+// renderEach renders a's Data.lua for each flavour, with the names wanted in its client's locale: once
+// per locale.
+func (r *Refresher) renderEach(game string, a Answer, flavours map[string]flavour, wanted map[string]*NamesWanted) (map[string][]byte, error) {
+	byLocale := map[string][]byte{}
+	out := map[string][]byte{}
+	for dir, f := range flavours {
+		lua, ok := byLocale[f.locale]
+		if !ok {
+			b := a
+			b.Names = wanted[f.locale]
+			var err error
+			if lua, err = r.render(game, b); err != nil {
+				return nil, err
+			}
+			byLocale[f.locale] = lua
+		}
+		out[dir] = lua
+	}
+	return out, nil
 }
 
 // askFor is the answer to ask for game, "" for the account's markets, and how the log names it.
@@ -233,18 +263,22 @@ func (r *Refresher) refuse(game, label string, err error) {
 	r.Report.fetched(game, OutcomeError, fmt.Errorf("refused: %w", err))
 }
 
-// writeInto writes lua, rendered from a, into each flavour. A flavour it cannot write into drops game
-// from state, so the next refresh fetches in full.
-func (r *Refresher) writeInto(flavours map[string]int, game, label string, a Answer, lua []byte, state map[string]held) {
-	for dir, iface := range flavours {
-		err := Write(dir, iface, lua)
+// writeInto writes each flavour's lua, rendered from a and its locale's names wanted. A flavour it
+// cannot write into drops game from state, so the next refresh fetches in full.
+func (r *Refresher) writeInto(flavours map[string]flavour, game, label string, a Answer, luas map[string][]byte, wanted map[string]*NamesWanted, state map[string]held) {
+	for dir, f := range flavours {
+		err := Write(dir, f.iface, luas[dir])
 		r.Report.wrote(dir, err)
 		if err != nil {
 			fmt.Fprintf(r.Out, "prices not written into %s: %v\n", dir, err)
 			delete(state, game)
 			continue
 		}
-		fmt.Fprintf(r.Out, "prices for %s written into %s (%d markets, %d items)\n", label, dir, len(a.Markets), items(a))
+		names := ""
+		if n := wanted[f.locale]; n != nil {
+			names = fmt.Sprintf(", %d names wanted in %s", n.count(), n.Locale)
+		}
+		fmt.Fprintf(r.Out, "prices for %s written into %s (%d markets, %d items%s)\n", label, dir, len(a.Markets), items(a), names)
 	}
 }
 

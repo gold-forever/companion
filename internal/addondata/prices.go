@@ -48,12 +48,14 @@ type Prices struct {
 }
 
 // Answer is what the server sent: when it built it, and its markets sorted by key. Shared and
-// Characters, when not nil, are the account's written beside them, Characters those of the answer's game.
+// Characters, when not nil, are the account's written beside them, Characters those of the answer's game;
+// Names, when not nil, the names wanted in the locale of the client the file is written for.
 type Answer struct {
 	At         int64
 	Markets    []Prices
 	Shared     *Shared
 	Characters *Characters
+	Names      *NamesWanted
 }
 
 type rawMarket struct {

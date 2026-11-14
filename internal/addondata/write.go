@@ -3,12 +3,13 @@ package addondata
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gold-forever/companion/internal/saves/find"
 )
 
 // allHaveData says whether every flavour already has a Data.lua, which a 304 would leave as it is.
-func allHaveData(flavours map[string]int) bool {
+func allHaveData(flavours map[string]flavour) bool {
 	for dir := range flavours {
 		if _, err := os.Stat(dataPath(dir)); err != nil {
 			return false
@@ -17,10 +18,17 @@ func allHaveData(flavours map[string]int) bool {
 	return true
 }
 
-// flavoursByGame maps each game to its flavour folders and their interface numbers, read from the
-// saves.
-func flavoursByGame(saves []find.Save) map[string]map[string]int {
-	out := map[string]map[string]int{}
+// flavour is what a flavour folder's saves say of its client: the highest interface number, and the
+// locale of the newest save naming one ("" for none).
+type flavour struct {
+	iface    int
+	locale   string
+	localeAt time.Time
+}
+
+// flavoursByGame maps each game to its flavour folders and what their saves say of the client.
+func flavoursByGame(saves []find.Save) map[string]map[string]flavour {
+	out := map[string]map[string]flavour{}
 	for _, s := range saves {
 		data, err := os.ReadFile(s.Path)
 		if err != nil {
@@ -28,10 +36,17 @@ func flavoursByGame(saves []find.Save) map[string]map[string]int {
 		}
 		game := find.Game(data)
 		if out[game] == nil {
-			out[game] = map[string]int{}
+			out[game] = map[string]flavour{}
 		}
 		dir := filepath.Join(s.Install, s.Flavour)
-		out[game][dir] = max(out[game][dir], find.Interface(data))
+		f := out[game][dir]
+		f.iface = max(f.iface, find.Interface(data))
+		if locale := localeOf(data); locale != "" {
+			if info, err := os.Stat(s.Path); err == nil && (f.locale == "" || info.ModTime().After(f.localeAt)) {
+				f.locale, f.localeAt = locale, info.ModTime()
+			}
+		}
+		out[game][dir] = f
 	}
 	return out
 }

@@ -16,6 +16,8 @@ type limit struct{ data, market int }
 //	Forever, 3,012 items a market:  295 KB a market, 4 markets 1.18 MB
 //	Forever, 4,000 items a market:  392 KB a market (443 KB with every item volatile: a warning)
 //	Retail, a 13k-item realm group: 1.28 MB (1.44 MB with every item volatile: a warning)
+//
+// A full list of names wanted (5 kinds of 2,000 IDs) adds 53 KB with Forever's IDs, 70 KB at 6 digits each.
 var limits = map[string]limit{
 	"forever": {data: 2 << 20, market: 400 << 10},
 	"retail":  {data: 4 << 20, market: 1280 << 10},
@@ -29,6 +31,7 @@ func Lua(a Answer) []byte {
 	fmt.Fprintf(&b, "  %s = %d,\n", fieldAt, a.At)
 	b.WriteString(sharedPart(a.Shared))
 	b.WriteString(charactersPart(a.Characters))
+	b.WriteString(namesPart(a.Names))
 	fmt.Fprintf(&b, "  %s = {\n", fieldMarkets)
 	for _, p := range a.Markets {
 		b.Write(marketPart(p))

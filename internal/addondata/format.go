@@ -15,6 +15,10 @@ package addondata
 //	  characters = {              -- optional: the account's characters in this file's game
 //	    { realm = <string>, name = <string> }, ...
 //	  },
+//	  namesWanted = {             -- optional: the IDs whose names in this client's locale the server lacks
+//	    locale = <string>,        -- the client's GetLocale(), read from the flavour's newest save
+//	    items = {<int>,...}, recipes = {...}, quests = {...}, factions = {...}, maps = {...},
+//	  },
 //	  markets = {
 //	    [<market key>] = {
 //	      [<item id>] = { value, minBuyout, players, scannedAt [, week] [, units = <int>] [,sold=<int>][,listed=<int>]
@@ -30,13 +34,17 @@ package addondata
 // when true, and dayPrice, the copper of today's hourly votes, only when the server sent one. Those four
 // carry no spaces, to save 3 bytes a field.
 //
+// namesWanted lists, per kind, at most 2,000 IDs, those to ask first first (gf#397); a kind with none is
+// {}. Each flavour's file carries the list of its own client's locale, and none when its saves name no
+// locale or the server lists none for it.
+//
 // A realm or name outside ASCII is written byte by byte as \ddd escapes, which Lua reads back as the
 // same UTF-8. Keys and strings are quoted printable ASCII; every number is an integer Lua holds exactly.
 
 // formatVersion is Data.lua's v. It changes when an addon reading the file as it is would misread it:
 // a field removed, renamed or given another type, or the item figures reordered. A new optional field
-// does not, nor does dropping one an addon reads as absent: shared, characters, week, units, sold, listed, volatile and dayPrice were each
-// added at v = 1, and dings was dropped at it.
+// does not, nor does dropping one an addon reads as absent: shared, characters, namesWanted, week,
+// units, sold, listed, volatile and dayPrice were each added at v = 1, and dings was dropped at it.
 const formatVersion = 1
 
 // The addon's folder, which only the companion writes, and its files.
@@ -68,4 +76,12 @@ const (
 	fieldListed     = "listed"
 	fieldVolatile   = "volatile"
 	fieldDayPrice   = "dayPrice"
+	// The names wanted table and its fields.
+	fieldNamesWanted = "namesWanted"
+	fieldLocale      = "locale"
+	fieldItems       = "items"
+	fieldRecipes     = "recipes"
+	fieldQuests      = "quests"
+	fieldFactions    = "factions"
+	fieldMaps        = "maps"
 )
