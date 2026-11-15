@@ -28,6 +28,7 @@ func (c *App) State() page.State {
 		Sharing:   link.SharingLine,
 		Warning:   c.pageWarning(),
 		Status:    c.status.String(),
+		Data:      c.dataLine(),
 		Account:   c.Account(),
 		FirstRun:  !cfg.Welcomed,
 		Installed: c.installed(),

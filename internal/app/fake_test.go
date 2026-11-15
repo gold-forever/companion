@@ -18,6 +18,8 @@ type fakeServer struct {
 	characters func() ([]byte, string, error)
 	account    func(token string) (server.Account, error)
 	latest     func() (server.Release, error)
+	// events plays the event stream; nil holds one open that never says anything.
+	events func(ctx context.Context, lastID string, on func(server.Event)) error
 }
 
 // connects makes c ask f, with whatever token c asks with.
@@ -68,4 +70,12 @@ func (f fakeConnection) Latest(context.Context) (server.Release, error) {
 		return server.Release{}, errNotServed
 	}
 	return f.latest()
+}
+
+func (f fakeConnection) Events(ctx context.Context, lastID string, on func(server.Event)) error {
+	if f.events == nil {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return f.events(ctx, lastID, on)
 }

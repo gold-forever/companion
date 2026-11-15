@@ -46,6 +46,17 @@ type Report struct {
 	mu      sync.Mutex
 	fetches map[string]fetch  // by game
 	failed  map[string]string // a flavour folder's latest write error
+	updated time.Time         // the latest fetch that found the game's data current
+}
+
+// Updated is when the latest fetch of any game wrote its data or found it unchanged; zero before one.
+func (r *Report) Updated() time.Time {
+	if r == nil {
+		return time.Time{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.updated
 }
 
 type fetch struct {
@@ -68,6 +79,9 @@ func (r *Report) fetched(game, outcome string, err error) {
 		r.fetches = map[string]fetch{}
 	}
 	r.fetches[game] = f
+	if outcome != OutcomeError {
+		r.updated = f.at
+	}
 }
 
 // wrote records a flavour's write; err nil clears its failure.

@@ -415,6 +415,33 @@ func TestRunRefreshesAtStartHourlyAndAfterAnImportedUpload(t *testing.T) {
 	<-done
 }
 
+func TestRunFoldsThePokesOfItsGapIntoOneRefreshAfterIt(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	f := &fetcher{body: canned(t), etag: `"e1"`}
+	r := refresher(f, saves, market, filepath.Join(t.TempDir(), "prices.json"))
+	r.Gap = 5 * time.Second
+	clk := newClock()
+	poked, poke := Trigger()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { r.Run(ctx, time.Hour, clk.after, poked); close(done) }()
+
+	if d := clk.next(t); d != 5*time.Second || len(f.asked) != 1 {
+		t.Fatalf("at start: asked %d times, then waits %s; want the gap", len(f.asked), d)
+	}
+	poke()
+	poke()
+	clk.tick <- time.Time{}
+	if d := clk.next(t); d != time.Hour-5*time.Second { // the pokes are ready at once: Run asks meanwhile
+		t.Fatalf("after the gap: waits %s; want the rest of the hour", d)
+	}
+	if d := clk.next(t); d != 5*time.Second || len(f.asked) != 2 {
+		t.Fatalf("two pokes in the gap: asked %d times, then waits %s; want one more ask", len(f.asked), d)
+	}
+	cancel()
+	<-done
+}
+
 func TestRunAfterItsContextEndedNeitherAsksNorWrites(t *testing.T) {
 	_, saves := tree(t, map[string]int{"_forever_": 16001})
 	f := &fetcher{body: canned(t), etag: `"e1"`}

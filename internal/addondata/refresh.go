@@ -41,6 +41,8 @@ type Refresher struct {
 	// Characters fetches the account's characters, each game's written beside its prices; nil writes
 	// none.
 	Characters CharactersFetcher
+	// Gap is the least time between two refreshes: pokes within it fold into one at its end.
+	Gap time.Duration
 
 	last map[string]written // by game: the answer its files were last written from in this run
 }
@@ -73,8 +75,9 @@ type written struct {
 	answer    Answer
 }
 
-// Run refreshes at once, then every interval and after each imported upload, until ctx ends. A server
-// that fails is asked again sooner, waiting as uploads do; after is the clock (time.After).
+// Run refreshes at once, then every interval and after each poke of imported, never twice within Gap,
+// until ctx ends. A server that fails is asked again sooner, waiting as uploads do; after is the clock
+// (time.After).
 func (r *Refresher) Run(ctx context.Context, every time.Duration, after func(time.Duration) <-chan time.Time, imported <-chan struct{}) {
 	var backoff time.Duration
 	for ctx.Err() == nil { // select picks among ready cases at random: a poke can win over the stop
@@ -88,6 +91,14 @@ func (r *Refresher) Run(ctx context.Context, every time.Duration, after func(tim
 			wait = min(backoff, every)
 		default:
 			backoff = 0
+		}
+		if gap := min(r.Gap, wait); gap > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-after(gap):
+				wait -= gap
+			}
 		}
 		select {
 		case <-ctx.Done():

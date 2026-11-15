@@ -221,6 +221,14 @@ func TestThePageHasAPlaceForWhatEveryUploadShares(t *testing.T) {
 	}
 }
 
+func TestThePageHasAPlaceForHowFreshTheGameDataIs(t *testing.T) {
+	page := serve(&fakeApp{}, "GET", "/", "", nil).Body.String()
+	script := serve(&fakeApp{}, "GET", "/app.js", "", nil).Body.String()
+	if !strings.Contains(page, `id="data"`) || !strings.Contains(script, `$("data").textContent = s.data`) {
+		t.Errorf("the page does not show the state's data line under the status")
+	}
+}
+
 func TestThePageSaysWhichAccountTheSavesGoToOnceItIsKnown(t *testing.T) {
 	var got map[string]any
 	_ = json.Unmarshal(serve(&fakeApp{}, "GET", "/api/state", "", nil).Body.Bytes(), &got)

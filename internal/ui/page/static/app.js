@@ -34,6 +34,8 @@ function button(text, onclick) {
 
 function showState(s) {
   $("status").textContent = s.status || (s.linked ? "Watching for new saves." : "Not linked yet.");
+  $("data").hidden = !s.data;
+  $("data").textContent = s.data || "";
   showBanner(s.notice, s.update || {});
   $("warning").hidden = !s.warning;
   $("warning").textContent = s.warning || "";

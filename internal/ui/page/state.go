@@ -13,6 +13,7 @@ type State struct {
 	Linked    bool        `json:"linked"`
 	Sharing   string      `json:"sharing"` // what every upload shares, shown where the player links
 	Status    string      `json:"status"`
+	Data      string      `json:"data,omitempty"`    // when the game's data was last updated, and the event stream's state; none before the first
 	Account   string      `json:"account,omitempty"` // whom the token uploads to: the public name, else the BattleTag; none until known
 	FirstRun  bool        `json:"firstRun"`
 	Installed []string    `json:"installed"` // what installing did, one line each, for the first-run panel

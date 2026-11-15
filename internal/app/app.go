@@ -28,8 +28,11 @@ import (
 // The timings and the files the app keeps in the data folder.
 const (
 	pollEvery = 2 * time.Second
-	// The prices' freshness without an upload of one's own: most refreshes cost a 304.
-	refreshPricesEvery = time.Hour
+	// The prices' freshness while the event stream is down or quiet: most refreshes cost a 304.
+	refreshPricesEvery = 5 * time.Minute
+	// rewriteGap is the least time between two refreshes of the game's data, so a burst of events
+	// rewrites Data.lua once.
+	rewriteGap = 5 * time.Second
 	// Where the ETag of the prices in the game is kept, in the data folder.
 	pricesState = "prices.json"
 	keepCopies  = 10
@@ -66,6 +69,7 @@ type App struct {
 	owned  sync.WaitGroup
 	status *lastLine
 	prices *addondata.Report // how each price fetch and write went, kept across the loop's restarts
+	stream *streamState      // the event stream's state, for the page and the tray
 	// connect is the server at the settings' site, asked with token ("" for what needs none).
 	connect func(token string) connection
 	// linker links by code: it shows the code, waits for the approval and saves the token with save.
@@ -135,6 +139,7 @@ func newApp(o appOptions) *App {
 		backups: records.Backups, log: records.Log, refused: records.Refused,
 		status:       &lastLine{},
 		prices:       &addondata.Report{Now: time.Now},
+		stream:       &streamState{},
 		warning:      warning,
 		games:        map[string]gameSeen{},
 		openURL:      func(string) {},
@@ -166,6 +171,6 @@ func newApp(o appOptions) *App {
 func (c *App) parts(server Server) Parts {
 	return Parts{
 		Server: server, Records: Records{Backups: c.backups, Log: c.log, Refused: c.refused}, Saves: c.saves, IsOff: c.isOff,
-		Market: c.settings.Get().Market, DataDir: c.dataDir, Out: c.status, Report: c.prices,
+		Market: c.settings.Get().Market, DataDir: c.dataDir, Out: c.status, Report: c.prices, Stream: c.stream,
 	}
 }

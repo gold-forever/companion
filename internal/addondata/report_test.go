@@ -104,3 +104,25 @@ func TestTheReportListsAFlavourBeforeItsFirstFetch(t *testing.T) {
 		t.Fatalf("Files = %+v; want the retail flavour with no file and no fetch yet", files)
 	}
 }
+
+func TestTheReportSaysWhenTheGameDataWasLastFoundCurrentThroughAFailure(t *testing.T) {
+	_, saves := tree(t, map[string]int{"_forever_": 16001})
+	now := t0
+	f := &fetcher{body: cannedMarkets(t), etag: `"a1"`}
+	r := refresher(f, saves, "", filepath.Join(t.TempDir(), "prices.json"))
+	report := withReport(r, &now)
+	if !report.Updated().IsZero() {
+		t.Fatalf("Updated before any fetch = %s", report.Updated())
+	}
+	_ = r.Refresh(context.Background())
+	now = t0.Add(5 * time.Minute)
+	_ = r.Refresh(context.Background()) // a 304: still current
+	now = t0.Add(10 * time.Minute)
+	f.err = errors.New("down")
+
+	_ = r.Refresh(context.Background())
+
+	if got := report.Updated(); !got.Equal(t0.Add(5 * time.Minute)) {
+		t.Fatalf("Updated = %s, want the 304 at %s", got, t0.Add(5*time.Minute))
+	}
+}

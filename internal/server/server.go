@@ -28,6 +28,9 @@ type Client struct {
 	// HTTP is the client used; nil means one with a two-minute timeout, and for an upload one whose
 	// deadline grows with the save (uploadDeadline).
 	HTTP *http.Client
+	// StreamIdle is how long the event stream may stay silent before it is taken for dropped; 0 means
+	// streamIdle, a little over two of the server's keepalives.
+	StreamIdle time.Duration
 	// Now and Sleep pace the wait for a link; nil means the real clock.
 	Now   func() time.Time
 	Sleep func(ctx context.Context, d time.Duration) error
