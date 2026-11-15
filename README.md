@@ -18,7 +18,8 @@ If you'd rather not run it, you can still upload in the game with `/gf export` a
 
 ## Prices in the game
 
-Every hour, and right after each of your uploads, the companion fetches the prices of your
+Within seconds of a change on the site (it listens to the site's event stream), every 5 minutes otherwise,
+and right after each of your uploads, the companion fetches the prices of your
 characters' markets (each realm and faction you play, Forever and retail) and writes them into a
 small addon, `GoldForever_Data`, in your game folder. The Gold Forever addon (0.15.0 or newer) shows
 them in item tooltips.

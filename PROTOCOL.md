@@ -183,7 +183,8 @@ how the app gets one.
 
 ## Prices into the game
 
-At start, every hour, and right after one of its own uploads answers `imported`, one request per
+At start, when the event stream (below) says a market's prices were rebuilt, every 5 minutes otherwise
+(the fallback when the stream is down), and right after one of its own uploads answers `imported`, one request per
 game a save was found for (Forever, interface 16000–16999: `game=forever`; retail, interface 110000
 and up: `game=retail`) for the markets of your account's characters in that game:
 
@@ -223,7 +224,7 @@ A failing game leaves the other's prices written.
   with a warning. Retail's markets are realm groups of 8–13k items.
 - 304, no body: the prices are unchanged; nothing is written.
 - 401 (a wrong or revoked token), 403 (a suspended account, or a token without `prices:read`), 404
-  and 400 write nothing; the next try is in an hour.
+  and 400 write nothing; the next try is at the next poll (5 minutes).
 - 5xx or no answer writes nothing and is tried again after 1, 2, 4 … up to 30 minutes, as uploads
   are (a server still loading its prices after a start answers 503 with `Retry-After: 15`); 429 after
   `Retry-After`.
@@ -235,6 +236,17 @@ the interface number its save names, and `Data.lua`, one table of integers under
 server sent them; none of these changes `v`),
 each through a temporary file renamed into place. The server never sends Lua, so a compromised server
 could send wrong prices but could never run code in your game.
+
+## The site's event stream (gf#405, gf#406)
+
+`GET /api/v1/companion/events` with the token, answered `text/event-stream` (Server-Sent Events). The events are
+signals only; the companion fetches the data over the calls in this document:
+- `hello` on connect; `shared` when the account's lists or profiles changed (it fetches the shared state);
+  `prices` with `{"market":"…"}` when a market it carries was rebuilt (it fetches that game's prices);
+  `names` when the names-wanted list changed (it fetches it).
+- Each event has a growing `id:`; on reconnect the companion sends `Last-Event-ID`. A `: keepalive` comment
+  arrives every 25 seconds. A dropped stream is retried with a backoff; meanwhile the 5-minute poll carries on.
+- Rewrites of `Data.lua` are debounced to at most one every few seconds.
 
 ## Shopping lists and sale profiles
 
