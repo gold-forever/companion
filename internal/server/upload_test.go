@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -40,8 +42,11 @@ func TestUploadSendsTheSaveAsItIsWithTheToken(t *testing.T) {
 	if answer.Status != "imported" || answer.Problems != 2 || answer.Saves != 7 {
 		t.Errorf("answer = %+v", answer)
 	}
-	if string(*sent) != "GoldForeverDB = {}" {
-		t.Errorf("body = %q", *sent)
+	if seen.Header.Get("Content-Encoding") != "gzip" {
+		t.Errorf("content-encoding = %q", seen.Header.Get("Content-Encoding"))
+	}
+	if got := gunzip(t, *sent); got != "GoldForeverDB = {}" {
+		t.Errorf("body = %q", got)
 	}
 	checks := map[string]string{
 		"method":        seen.Method,
@@ -63,6 +68,60 @@ func TestUploadSendsTheSaveAsItIsWithTheToken(t *testing.T) {
 		if checks[k] != w {
 			t.Errorf("%s = %q, want %q", k, checks[k], w)
 		}
+	}
+}
+
+func gunzip(t *testing.T, body []byte) string {
+	t.Helper()
+	r, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("not gzip: %v", err)
+	}
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("gunzip: %v", err)
+	}
+	return string(raw)
+}
+
+// A save compresses about tenfold, so a slow uplink sends it in a tenth of the time (gf#410).
+func TestALargeSaveIsSentCompressed(t *testing.T) {
+	c, _, sent := server(t, 200, `{"status":"imported","saves":1}`, nil)
+	save := []byte(strings.Repeat(`["Player-4184-0A1B2C3D"] = { ["money"] = 1234567, },`+"\n", 100000))
+
+	if _, err := c.Upload(context.Background(), save); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	if len(*sent)*5 > len(save) {
+		t.Errorf("sent %d bytes of a %d-byte save", len(*sent), len(save))
+	}
+}
+
+// A server from before gzip uploads refuses a compressed body with 415; it gets the save again as it is.
+func TestAServerThatRefusesGzipGetsTheSaveUncompressed(t *testing.T) {
+	var encodings []string
+	var last []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		encodings = append(encodings, r.Header.Get("Content-Encoding"))
+		last, _ = io.ReadAll(r.Body)
+		if r.Header.Get("Content-Encoding") != "" {
+			w.WriteHeader(http.StatusUnsupportedMediaType)
+			_, _ = io.WriteString(w, `{"status":"unsupported media type","reason":"send the body uncompressed"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	t.Cleanup(srv.Close)
+	c := &Client{BaseURL: srv.URL, Token: "gf_secret", Version: "0.0.1", OS: "linux"}
+
+	answer, err := c.Upload(context.Background(), []byte("GoldForeverDB = {}"))
+
+	if err != nil || answer.Status != "imported" {
+		t.Fatalf("answer = %+v, err = %v", answer, err)
+	}
+	if strings.Join(encodings, ",") != "gzip," || string(last) != "GoldForeverDB = {}" {
+		t.Errorf("encodings = %q, last body = %q", encodings, last)
 	}
 }
 

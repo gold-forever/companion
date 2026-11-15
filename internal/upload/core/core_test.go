@@ -1,6 +1,7 @@
 package core
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -44,7 +45,12 @@ type fakeServer struct {
 func (s *fakeServer) handler(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	body, _ := io.ReadAll(r.Body)
+	// As the server does: a save sent gzip is the save it inflates to.
+	var save io.Reader = r.Body
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		save, _ = gzip.NewReader(r.Body)
+	}
+	body, _ := io.ReadAll(save)
 	s.bodies = append(s.bodies, string(body))
 	s.requests = append(s.requests, r.Method+" "+r.URL.RequestURI())
 	var h strings.Builder

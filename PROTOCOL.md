@@ -25,9 +25,10 @@ that uses it.
 POST /api/v1/saves?name=GoldForever.lua
 Authorization: Bearer gf_...
 Content-Type: application/octet-stream
+Content-Encoding: gzip
 User-Agent: gold-forever-companion/<version> (<os>)
 
-<the bytes of GoldForever.lua, exactly as the game wrote them>
+<the bytes of GoldForever.lua, exactly as the game wrote them, gzip>
 ```
 
 ```sh
@@ -40,6 +41,9 @@ curl -H "Authorization: Bearer $GF_TOKEN" -H 'Content-Type: application/octet-st
 - **Limits:** 10 MiB for a WoW: Forever save and 32 MiB for a retail one, told apart by the save's own
   `interface` number. Sending the same file twice is harmless, because the server recognises it by its
   content hash and answers `already imported`.
+- **Compressed:** the companion sends the save gzip (`Content-Encoding: gzip`), about a tenth of its
+  size, so a slow uplink finishes before a proxy's timeout. The limits are the inflated size. A server
+  from before gzip uploads answers 415; the companion then sends the save again uncompressed.
 
 | Answer | Body | What a client does |
 |---|---|---|
@@ -50,7 +54,8 @@ curl -H "Authorization: Bearer $GF_TOKEN" -H 'Content-Type: application/octet-st
 | 401 | `{"status":"unauthorized"}` | Stops; the token is wrong or revoked |
 | 403 | `{"status":"…"}` (account suspended, or a token without upload rights) | Keeps the save; tries again in 30 minutes |
 | 413 | `{"status":"too large","reason":"a forever save may be at most 10 MB"}` (no `reason` past the 32 MiB transport limit) | Shows it, with the reason; sends the same save again at the next start and once a day, until it goes through or a newer save replaces it |
-| 415 | `{"status":"send the file as application/octet-stream"}` | A client bug; doesn't resend |
+| 408 | `{"status":"cut short","reason":"the body ended after … bytes; send it again"}` (a timeout on the way) | Tries again later, as for any other status |
+| 415 | `{"status":"send the file as application/octet-stream"}` | A client bug; doesn't resend. To a gzip upload, a server from before gzip: sends it again uncompressed |
 | 422 | `{"status":"rejected","reason":"…"}` (not readable as a save) | Waits for the next save |
 | 429 | `Retry-After: <seconds>`, `{"status":"rate limited","reason":"too many uploads from this account; try again in 40 s"}` (the limit is per account, across all its tokens) | Waits that long, then tries again |
 | 429 | `Retry-After: 10`–`30`, `{"status":"busy","reason":"too many uploads at once; try again shortly"}` (the import queue is full) | Waits that long, then tries again |

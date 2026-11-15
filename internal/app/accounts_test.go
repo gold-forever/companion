@@ -1,6 +1,7 @@
 package app
 
 import (
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
@@ -51,7 +52,12 @@ type uploads struct {
 }
 
 func (u *uploads) handler(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
+	// As the server does: a save sent gzip is the save it inflates to.
+	var save io.Reader = r.Body
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		save, _ = gzip.NewReader(r.Body)
+	}
+	body, _ := io.ReadAll(save)
 	u.mu.Lock()
 	u.bodies = append(u.bodies, string(body))
 	n, status := len(u.bodies), u.answers[0]

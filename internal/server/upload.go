@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,20 +28,44 @@ const (
 	statusAlreadyImported = "already imported"
 )
 
-// Upload sends one save, byte for byte, as the game wrote it.
+// Upload sends one save, byte for byte as the game wrote it, gzip on the way: a save shrinks about
+// tenfold, so a slow uplink sends it before a proxy's timeout (gf#410). A server from before gzip
+// refuses it with 415, and gets it again uncompressed.
 func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
 	ctx, cancel := context.WithTimeout(ctx, uploadDeadline(len(save)))
 	defer cancel()
+	a, err := c.send(ctx, gzipped(save), "gzip")
+	var refused *RefusedError
+	if errors.As(err, &refused) && refused.Status == http.StatusUnsupportedMediaType {
+		return c.send(ctx, save, "")
+	}
+	return a, err
+}
+
+// gzipped is save compressed; writing to memory cannot fail.
+func gzipped(save []byte) []byte {
+	var out bytes.Buffer
+	w := gzip.NewWriter(&out)
+	_, _ = w.Write(save)
+	_ = w.Close()
+	return out.Bytes()
+}
+
+// send posts payload, sent with the Content-Encoding encoding names (none when empty).
+func (c *Client) send(ctx context.Context, payload []byte, encoding string) (Answer, error) {
 	url, err := c.endpoint("/api/v1/saves?name=" + saveName)
 	if err != nil {
 		return Answer{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(save))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return Answer{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/octet-stream")
+	if encoding != "" {
+		req.Header.Set("Content-Encoding", encoding)
+	}
 	req.Header.Set("User-Agent", c.userAgent())
 	res, err := c.uploadClient().Do(req)
 	if err != nil {

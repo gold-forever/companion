@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"io"
@@ -36,8 +35,10 @@ func TestAnUploadFollowsTheSitesMoveWithItsToken(t *testing.T) {
 	save := []byte("\r\nGoldForeverDB = {\r\n}\r\n")
 	var gotAuth string
 	var gotSave []byte
+	var gotEncoding string
 	moved := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
+		gotEncoding = r.Header.Get("Content-Encoding")
 		gotSave, _ = io.ReadAll(r.Body)
 		io.WriteString(w, `{"status":"imported","saves":1}`)
 	}))
@@ -57,8 +58,8 @@ func TestAnUploadFollowsTheSitesMoveWithItsToken(t *testing.T) {
 	if gotAuth != "Bearer gf_t" {
 		t.Errorf("the token did not follow the move to gold-forever.app: %q", gotAuth)
 	}
-	if !bytes.Equal(gotSave, save) {
-		t.Errorf("the save changed on the way: %q", gotSave)
+	if gotEncoding != "gzip" || gunzip(t, gotSave) != string(save) {
+		t.Errorf("the save changed on the way: %s %q", gotEncoding, gotSave)
 	}
 }
 
