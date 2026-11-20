@@ -2,7 +2,7 @@ module github.com/gold-forever/companion
 
 go 1.27
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	fyne.io/systray v1.12.2
