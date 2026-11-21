@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -32,12 +34,19 @@ const (
 // tenfold, so a slow uplink sends it before a proxy's timeout (gf#410). A server from before gzip
 // refuses it with 415, and gets it again uncompressed.
 func (c *Client) Upload(ctx context.Context, save []byte) (Answer, error) {
+	return c.UploadWithFolders(ctx, save, nil)
+}
+
+// UploadWithFolders is Upload carrying the realm folders beside the save in RealmFoldersHeader. Past
+// EncodeRealmFolders's caps it carries none: the save still goes.
+func (c *Client) UploadWithFolders(ctx context.Context, save []byte, folders [][2]string) (Answer, error) {
 	ctx, cancel := context.WithTimeout(ctx, uploadDeadline(len(save)))
 	defer cancel()
-	a, err := c.send(ctx, gzipped(save), "gzip")
+	realms, _ := EncodeRealmFolders(folders)
+	a, err := c.send(ctx, gzipped(save), "gzip", realms)
 	var refused *RefusedError
 	if errors.As(err, &refused) && refused.Status == http.StatusUnsupportedMediaType {
-		return c.send(ctx, save, "")
+		return c.send(ctx, save, "", realms)
 	}
 	return a, err
 }
@@ -51,8 +60,9 @@ func gzipped(save []byte) []byte {
 	return out.Bytes()
 }
 
-// send posts payload, sent with the Content-Encoding encoding names (none when empty).
-func (c *Client) send(ctx context.Context, payload []byte, encoding string) (Answer, error) {
+// send posts payload, sent with the Content-Encoding encoding names and RealmFoldersHeader's value
+// realms (each left out when empty).
+func (c *Client) send(ctx context.Context, payload []byte, encoding, realms string) (Answer, error) {
 	url, err := c.endpoint("/api/v1/saves?name=" + saveName)
 	if err != nil {
 		return Answer{}, err
@@ -65,6 +75,9 @@ func (c *Client) send(ctx context.Context, payload []byte, encoding string) (Ans
 	req.Header.Set("Content-Type", "application/octet-stream")
 	if encoding != "" {
 		req.Header.Set("Content-Encoding", encoding)
+	}
+	if realms != "" {
+		req.Header.Set(RealmFoldersHeader, realms)
 	}
 	req.Header.Set("User-Agent", c.userAgent())
 	res, err := c.uploadClient().Do(req)
@@ -129,4 +142,68 @@ func (c *Client) uploadClient() *http.Client {
 		return c.httpClient()
 	}
 	return &http.Client{Transport: uploadTransport, CheckRedirect: carryToken}
+}
+
+// RealmFoldersHeader carries the realm and character folders the game keeps beside a save: since
+// WoW: Forever 1.60.1 the save no longer says which realm its characters are on.
+const RealmFoldersHeader = "X-GF-Realm-Folders"
+
+// The most realm folder pairs, and encoded bytes, an upload carries; past either it carries none.
+const (
+	maxRealmFolders      = 300
+	maxRealmFoldersBytes = 8 << 10
+)
+
+// ErrTooManyRealmFolders is EncodeRealmFolders's answer past its caps.
+var ErrTooManyRealmFolders = fmt.Errorf("more than %d realm folders or %d bytes", maxRealmFolders, maxRealmFoldersBytes)
+
+// EncodeRealmFolders is RealmFoldersHeader's value: [realm, character] pairs as a JSON array, sorted
+// and each once, percent-encoded. It is "" for no pairs.
+func EncodeRealmFolders(folders [][2]string) (string, error) {
+	pairs := slices.Clone(folders)
+	slices.SortFunc(pairs, func(a, b [2]string) int {
+		if c := strings.Compare(a[0], b[0]); c != 0 {
+			return c
+		}
+		return strings.Compare(a[1], b[1])
+	})
+	pairs = slices.Compact(pairs)
+	if len(pairs) == 0 {
+		return "", nil
+	}
+	if len(pairs) > maxRealmFolders {
+		return "", ErrTooManyRealmFolders
+	}
+	var js bytes.Buffer
+	enc := json.NewEncoder(&js)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(pairs); err != nil {
+		return "", err
+	}
+	value := percentEncode(bytes.TrimSpace(js.Bytes()))
+	if len(value) > maxRealmFoldersBytes {
+		return "", ErrTooManyRealmFolders
+	}
+	return value, nil
+}
+
+// percentEncode escapes every byte but RFC 3986's unreserved ones, so any percent-decoder reads it
+// back the same: no "+" for a space, nothing a header cannot carry.
+func percentEncode(b []byte) string {
+	const hex = "0123456789ABCDEF"
+	var out strings.Builder
+	for _, c := range b {
+		if isUnreserved(c) {
+			out.WriteByte(c)
+			continue
+		}
+		out.WriteByte('%')
+		out.WriteByte(hex[c>>4])
+		out.WriteByte(hex[c&15])
+	}
+	return out.String()
+}
+
+func isUnreserved(c byte) bool {
+	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~'
 }

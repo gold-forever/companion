@@ -157,3 +157,32 @@ func Game(save []byte) string {
 		return "unknown"
 	}
 }
+
+// RealmFolders lists the realm and character folders the game keeps beside a save, in its account
+// folder: <account>/<Realm>/<Character>, as [realm, character] pairs in folder order. Folder names
+// only; the account folder's own name is not among them.
+func RealmFolders(s Save) [][2]string {
+	account := filepath.Dir(filepath.Dir(s.Path))
+	var out [][2]string
+	for _, realm := range subfolders(account) {
+		if realm == "SavedVariables" {
+			continue
+		}
+		for _, character := range subfolders(filepath.Join(account, realm)) {
+			out = append(out, [2]string{realm, character})
+		}
+	}
+	return out
+}
+
+// subfolders names the folders in dir, sorted, but those starting with ".".
+func subfolders(dir string) []string {
+	entries, _ := os.ReadDir(dir)
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}

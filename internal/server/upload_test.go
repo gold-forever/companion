@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -322,5 +325,138 @@ func TestTheWaitStopsGrowingAtThirtyMinutes(t *testing.T) {
 	}
 	if waits[0] != time.Minute || waits[5] != 30*time.Minute || waits[7] != 30*time.Minute {
 		t.Fatalf("waits = %v", waits)
+	}
+}
+
+// decodeRealmFolders reads RealmFoldersHeader's value as the server does: percent-decoded, then JSON.
+func decodeRealmFolders(t *testing.T, value string) [][2]string {
+	t.Helper()
+	js, err := url.PathUnescape(value)
+	if err != nil {
+		t.Fatalf("not percent-encoded: %v", err)
+	}
+	var pairs [][2]string
+	if err := json.Unmarshal([]byte(js), &pairs); err != nil {
+		t.Fatalf("not a JSON array of pairs: %v (%s)", err, js)
+	}
+	return pairs
+}
+
+func TestRealmFoldersEncodeAsPercentEncodedJSONPairs(t *testing.T) {
+	folders := [][2]string{{"Kel'Thuzad", "Thrallmär"}, {"CAMWOW EU4 Realm 7 PvE", "Testchar"}}
+
+	value, err := EncodeRealmFolders(folders)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "%5B%5B%22CAMWOW%20EU4%20Realm%207%20PvE%22%2C%22Testchar%22%5D%2C%5B%22Kel%27Thuzad%22%2C%22Thrallm%C3%A4r%22%5D%5D"
+	if value != want {
+		t.Fatalf("value = %s, want %s", value, want)
+	}
+	got := decodeRealmFolders(t, value)
+	if !reflect.DeepEqual(got, [][2]string{{"CAMWOW EU4 Realm 7 PvE", "Testchar"}, {"Kel'Thuzad", "Thrallmär"}}) {
+		t.Fatalf("round trip = %q", got)
+	}
+}
+
+func TestRealmFoldersAreSortedAndEachSentOnce(t *testing.T) {
+	folders := [][2]string{{"B", "Zed"}, {"A", "Yan"}, {"B", "Abe"}, {"A", "Yan"}, {"B", "Zed"}}
+
+	value, _ := EncodeRealmFolders(folders)
+
+	want := [][2]string{{"A", "Yan"}, {"B", "Abe"}, {"B", "Zed"}}
+	if got := decodeRealmFolders(t, value); !reflect.DeepEqual(got, want) {
+		t.Fatalf("pairs = %q, want %q", got, want)
+	}
+}
+
+// folders is n distinct pairs on realm "R": two-letter names after prefix, so 300 of them fit in 8 KB
+// with an empty prefix.
+func folders(n int, prefix string) [][2]string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	out := make([][2]string, n)
+	for i := range out {
+		out[i] = [2]string{"R", prefix + string(letters[i/len(letters)]) + string(letters[i%len(letters)])}
+	}
+	return out
+}
+
+func TestRealmFoldersPastTheirCapsAreNone(t *testing.T) {
+	if _, err := EncodeRealmFolders(folders(300, "")); err != nil {
+		t.Fatalf("300 pairs: %v", err)
+	}
+	if v, err := EncodeRealmFolders(folders(301, "")); !errors.Is(err, ErrTooManyRealmFolders) || v != "" {
+		t.Fatalf("301 pairs = %q, %v", v, err)
+	}
+	// Repeats count once: 301 pairs of which two are the same are 300.
+	if _, err := EncodeRealmFolders(append(folders(300, ""), [2]string{"R", "aa"})); err != nil {
+		t.Fatalf("300 distinct pairs: %v", err)
+	}
+	long := strings.Repeat("ä", 40) // 240 bytes encoded: 30 such pairs are 8013 bytes, 31 are 8286
+	if v, err := EncodeRealmFolders(folders(31, long)); !errors.Is(err, ErrTooManyRealmFolders) || v != "" {
+		t.Fatalf("over 8 KB = %d bytes, %v", len(v), err)
+	}
+	if v, err := EncodeRealmFolders(folders(30, long)); err != nil || len(v) > 8<<10 {
+		t.Fatalf("under 8 KB = %d bytes, %v", len(v), err)
+	}
+}
+
+func TestNoRealmFoldersAreNoValue(t *testing.T) {
+	if v, err := EncodeRealmFolders(nil); v != "" || err != nil {
+		t.Fatalf("no pairs = %q, %v", v, err)
+	}
+}
+
+func TestAnUploadCarriesTheRealmFoldersBesideTheSave(t *testing.T) {
+	c, seen, _ := server(t, 200, `{"status":"imported","saves":1}`, nil)
+
+	if _, err := c.UploadWithFolders(context.Background(), []byte("x"), [][2]string{{"Kel'Thuzad", "Thrallmär"}}); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	got := decodeRealmFolders(t, seen.Header.Get("X-GF-Realm-Folders"))
+	if !reflect.DeepEqual(got, [][2]string{{"Kel'Thuzad", "Thrallmär"}}) {
+		t.Fatalf("header pairs = %q", got)
+	}
+}
+
+func TestAnUploadWithoutRealmFoldersOrPastTheCapsHasNoHeaderAndStillGoes(t *testing.T) {
+	for name, pairs := range map[string][][2]string{"none": nil, "past the caps": folders(301, "")} {
+		c, seen, sent := server(t, 200, `{"status":"imported","saves":1}`, nil)
+
+		if _, err := c.UploadWithFolders(context.Background(), []byte("x"), pairs); err != nil {
+			t.Fatalf("%s: upload: %v", name, err)
+		}
+
+		if _, ok := seen.Header["X-Gf-Realm-Folders"]; ok {
+			t.Errorf("%s: header sent: %q", name, seen.Header.Get("X-GF-Realm-Folders"))
+		}
+		if len(*sent) == 0 {
+			t.Errorf("%s: no save sent", name)
+		}
+	}
+}
+
+// A server from before gzip gets the save again uncompressed, and the realm folders with it.
+func TestTheUncompressedRetryCarriesTheRealmFoldersToo(t *testing.T) {
+	var headers []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = append(headers, r.Header.Get(RealmFoldersHeader))
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			w.WriteHeader(http.StatusUnsupportedMediaType)
+			return
+		}
+		_, _ = io.WriteString(w, `{"status":"imported","saves":1}`)
+	}))
+	t.Cleanup(srv.Close)
+	c := &Client{BaseURL: srv.URL, Token: "gf_t", Version: "0.0.1", OS: "linux"}
+
+	if _, err := c.UploadWithFolders(context.Background(), []byte("x"), [][2]string{{"R", "C"}}); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	if len(headers) != 2 || headers[0] == "" || headers[1] != headers[0] {
+		t.Fatalf("headers = %q", headers)
 	}
 }
