@@ -210,6 +210,13 @@ type UploadSaveParams struct {
 
 	// UserAgent The companion names itself `gold-forever-companion/<version> (<os>)`, so the server can tell its requests apart and show the version on the token.
 	UserAgent UserAgent `json:"User-Agent,omitempty"`
+
+	// XGFRealmFolders The realm and character folders the game keeps beside the save, in
+	// `WTF/Account/<account>/<Realm>/<Character>/`: since WoW: Forever 1.60.1 a save no longer says
+	// which realm its characters are on. A JSON object naming each realm once, keys sorted, with its
+	// characters sorted and each once, UTF-8 and percent-encoded. At most 6144 bytes encoded; past
+	// that, and with no such folders, the header is left out. The account folder's name is never in it.
+	XGFRealmFolders string `json:"X-GF-Realm-Folders,omitempty"`
 }
 
 // GetSharedStateParams defines parameters for GetSharedState.

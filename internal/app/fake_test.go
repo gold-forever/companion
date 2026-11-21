@@ -32,7 +32,7 @@ type fakeConnection struct {
 	token string
 }
 
-func (f fakeConnection) Upload(ctx context.Context, save []byte) (server.Answer, error) {
+func (f fakeConnection) UploadWithFolders(ctx context.Context, save []byte, _ [][2]string) (server.Answer, error) {
 	if f.upload == nil {
 		<-ctx.Done()
 		return server.Answer{}, ctx.Err()

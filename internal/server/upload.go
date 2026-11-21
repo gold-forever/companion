@@ -148,36 +148,32 @@ func (c *Client) uploadClient() *http.Client {
 // WoW: Forever 1.60.1 the save no longer says which realm its characters are on.
 const RealmFoldersHeader = "X-GF-Realm-Folders"
 
-// The most realm folder pairs, and encoded bytes, an upload carries; past either it carries none.
-const (
-	maxRealmFolders      = 300
-	maxRealmFoldersBytes = 8 << 10
-)
+// The most encoded bytes RealmFoldersHeader carries: the server bounds all of a request's headers
+// together, to about 8 KB. Past it an upload carries none.
+const maxRealmFoldersBytes = 6 << 10
 
-// ErrTooManyRealmFolders is EncodeRealmFolders's answer past its caps.
-var ErrTooManyRealmFolders = fmt.Errorf("more than %d realm folders or %d bytes", maxRealmFolders, maxRealmFoldersBytes)
+// ErrTooManyRealmFolders is EncodeRealmFolders's answer past maxRealmFoldersBytes.
+var ErrTooManyRealmFolders = fmt.Errorf("the realm folders are over %d bytes encoded", maxRealmFoldersBytes)
 
-// EncodeRealmFolders is RealmFoldersHeader's value: [realm, character] pairs as a JSON array, sorted
-// and each once, percent-encoded. It is "" for no pairs.
+// EncodeRealmFolders is RealmFoldersHeader's value from [realm, character] pairs: a JSON object naming
+// each realm once, keys sorted, with its characters sorted and each once, percent-encoded. It is ""
+// for no pairs.
 func EncodeRealmFolders(folders [][2]string) (string, error) {
-	pairs := slices.Clone(folders)
-	slices.SortFunc(pairs, func(a, b [2]string) int {
-		if c := strings.Compare(a[0], b[0]); c != 0 {
-			return c
-		}
-		return strings.Compare(a[1], b[1])
-	})
-	pairs = slices.Compact(pairs)
-	if len(pairs) == 0 {
+	if len(folders) == 0 {
 		return "", nil
 	}
-	if len(pairs) > maxRealmFolders {
-		return "", ErrTooManyRealmFolders
+	realms := map[string][]string{}
+	for _, f := range folders {
+		realms[f[0]] = append(realms[f[0]], f[1])
+	}
+	for realm, characters := range realms {
+		slices.Sort(characters)
+		realms[realm] = slices.Compact(characters)
 	}
 	var js bytes.Buffer
-	enc := json.NewEncoder(&js)
+	enc := json.NewEncoder(&js) // a map's keys come out sorted
 	enc.SetEscapeHTML(false)
-	if err := enc.Encode(pairs); err != nil {
+	if err := enc.Encode(realms); err != nil {
 		return "", err
 	}
 	value := percentEncode(bytes.TrimSpace(js.Bytes()))

@@ -20,9 +20,9 @@ import (
 	"github.com/gold-forever/companion/internal/upload/sendlog"
 )
 
-// Uploader sends one save; server.Client is the real one.
+// Uploader sends one save with the realm folders beside it; server.Client is the real one.
 type Uploader interface {
-	Upload(ctx context.Context, save []byte) (server.Answer, error)
+	UploadWithFolders(ctx context.Context, save []byte, folders [][2]string) (server.Answer, error)
 }
 
 // Core holds what one loop needs. Saves is asked on every step, so a WoW folder added or a new
@@ -121,7 +121,7 @@ func (c *Core) send(ctx context.Context, now time.Time, p backup.Copy) (stop boo
 // upload sends a copy's data and acts on the answer, as send reports.
 func (c *Core) upload(ctx context.Context, now time.Time, p backup.Copy, data []byte) (stop bool, err error) {
 	label := find.At(p.Source).Label()
-	answer, err := c.Uploader.Upload(ctx, data)
+	answer, err := c.Uploader.UploadWithFolders(ctx, data, c.realmFolders(now, p.Source, label))
 	var limited *server.RateLimitedError
 	var refused *server.RefusedError
 	var forbidden *server.ForbiddenError
@@ -202,6 +202,17 @@ func withReason(what, reason string) string {
 		return what
 	}
 	return what + ": " + reason
+}
+
+// realmFolders lists the realm and character folders beside the save at source, or none, said so,
+// when they are too many to send.
+func (c *Core) realmFolders(now time.Time, source, label string) [][2]string {
+	folders := find.RealmFolders(find.At(source))
+	if _, err := server.EncodeRealmFolders(folders); err != nil {
+		c.say(now, "%s: %v; uploading without them", label, err)
+		return nil
+	}
+	return folders
 }
 
 func (c *Core) say(now time.Time, format string, args ...any) {
