@@ -199,39 +199,3 @@ func TestSavesFindsEachAccountFolderOfOneLoginOrOfSeveralLoginsOnOneInstall(t *t
 		t.Fatalf("saves = %q, want %q", got, want)
 	}
 }
-
-func TestRealmFoldersAreTheRealmAndCharacterFoldersBesideTheSave(t *testing.T) {
-	root := t.TempDir()
-	path := install(t, root, "_forever_", "ACCOUNT1")
-	account := filepath.Dir(filepath.Dir(path))
-	for _, dir := range []string{
-		"CAMWOW EU4 Realm 7 PvE/Testchar", "CAMWOW EU4 Realm 7 PvE/Alt", "Kel'Thuzad/Thrallmär",
-		// Not characters: the addon's own folder, hidden folders, and a realm without characters.
-		"SavedVariables/Inner", ".cache/X", "Kel'Thuzad/.hidden", "Empty Realm",
-	} {
-		if err := os.MkdirAll(filepath.Join(account, dir), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// A file is not a character folder.
-	if err := os.WriteFile(filepath.Join(account, "Kel'Thuzad", "bindings-cache.wtf"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	got := RealmFolders(At(path))
-
-	want := [][2]string{
-		{"CAMWOW EU4 Realm 7 PvE", "Alt"}, {"CAMWOW EU4 Realm 7 PvE", "Testchar"}, {"Kel'Thuzad", "Thrallmär"},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("realm folders = %q, want %q", got, want)
-	}
-}
-
-func TestASaveWithNoRealmFoldersBesideItHasNone(t *testing.T) {
-	path := install(t, t.TempDir(), "_forever_", "ACCOUNT1")
-
-	if got := RealmFolders(At(path)); len(got) != 0 {
-		t.Fatalf("realm folders = %q, want none", got)
-	}
-}

@@ -27,7 +27,6 @@ Authorization: Bearer gf_...
 Content-Type: application/octet-stream
 Content-Encoding: gzip
 User-Agent: gold-forever-companion/<version> (<os>)
-X-GF-Realm-Folders: %7B%22Kel%27Thuzad%22%3A%5B%22Thrallm%C3%A4r%22%5D%7D
 
 <the bytes of GoldForever.lua, exactly as the game wrote them, gzip>
 ```
@@ -38,16 +37,7 @@ curl -H "Authorization: Bearer $GF_TOKEN" -H 'Content-Type: application/octet-st
 ```
 
 - **What the server reads:** the file itself. `name` only labels the upload in your list. Nothing
-  else about your disk is sent: no path, no WoW account folder name, no computer name, only the realm
-  and character folder names below.
-- **Realm folders:** since WoW: Forever 1.60.1 a save no longer says which realm its characters are
-  on, but the game still keeps a folder per character beside it, in
-  `WTF/Account/<account>/<Realm>/<Character>/`. `X-GF-Realm-Folders` carries those names: a JSON object
-  naming each realm once, keys sorted, with its characters sorted and each once
-  (`{"Kel'Thuzad":["Thrallmär"]}`), UTF-8 and percent-encoded. `SavedVariables` and folders starting
-  with `.` are not characters. With no such folders there is no header. The server bounds all of a
-  request's headers together to about 8 KB, so past 6144 bytes encoded there is none either: the save
-  still goes, and the companion says so in its log. A server that does not know the header ignores it.
+  about your disk is sent: no path, no WoW account folder name, no computer name.
 - **Limits:** 10 MiB for a WoW: Forever save and 32 MiB for a retail one, told apart by the save's own
   `interface` number. Sending the same file twice is harmless, because the server recognises it by its
   content hash and answers `already imported`.

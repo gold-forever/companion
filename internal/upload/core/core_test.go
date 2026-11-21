@@ -4,11 +4,9 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -512,82 +510,5 @@ func TestARefusalOfASaveThatHasChangedSinceIsDroppedUnsent(t *testing.T) {
 
 	if f.uploads() != 1 || f.core.Refused.Holds(f.save) {
 		t.Fatalf("uploads = %d, held = %v; want the stale refusal dropped and nothing sent", f.uploads(), f.core.Refused.Holds(f.save))
-	}
-}
-
-// characters makes the realm/character folders the game keeps beside the save.
-func (f *fixture) characters(t *testing.T, folders ...string) {
-	t.Helper()
-	account := filepath.Dir(filepath.Dir(f.save))
-	for _, dir := range folders {
-		if err := os.MkdirAll(filepath.Join(account, filepath.FromSlash(dir)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-// realmFolders is the realm folders header of the n-th request, decoded.
-func (f *fixture) realmFolders(t *testing.T, n int) string {
-	t.Helper()
-	for line := range strings.SplitSeq(f.srv.headers[n], "\n") {
-		if value, ok := strings.CutPrefix(line, "X-Gf-Realm-Folders: "); ok {
-			js, err := url.PathUnescape(value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return js
-		}
-	}
-	return ""
-}
-
-func TestAnUploadCarriesTheRealmAndCharacterFoldersBesideItsSave(t *testing.T) {
-	f := setup(t, http.StatusOK)
-	f.characters(t, "Kel'Thuzad/Thrallmär", "CAMWOW EU4 Realm 7 PvE/Testchar", "CAMWOW EU4 Realm 7 PvE/Alt")
-
-	f.settle(t)
-
-	if f.uploads() != 1 {
-		t.Fatalf("uploads = %d", f.uploads())
-	}
-	if got, want := f.realmFolders(t, 0), `{"CAMWOW EU4 Realm 7 PvE":["Alt","Testchar"],"Kel'Thuzad":["Thrallmär"]}`; got != want {
-		t.Fatalf("realm folders = %s, want %s", got, want)
-	}
-	if strings.Contains(f.srv.headers[0], account) {
-		t.Fatalf("the account folder's name is sent:\n%s", f.srv.headers[0])
-	}
-}
-
-func TestRealmFoldersOver6KBAreLeftOutAndTheLogSaysSo(t *testing.T) {
-	f := setup(t, http.StatusOK)
-	var out strings.Builder
-	f.core.Out = &out
-	long := strings.Repeat("ä", 40)
-	var folders []string
-	for i := range 30 {
-		folders = append(folders, fmt.Sprintf("Realm/%s%02d", long, i))
-	}
-	f.characters(t, folders...)
-
-	f.settle(t)
-
-	if f.uploads() != 1 || f.srv.bodies[0] != saveText("1") {
-		t.Fatalf("the save must still go: uploads = %d", f.uploads())
-	}
-	if got := f.realmFolders(t, 0); got != "" {
-		t.Fatalf("realm folders sent: %d bytes", len(got))
-	}
-	if !strings.Contains(out.String(), "realm folders are over 6144 bytes") || !strings.Contains(out.String(), "without them") {
-		t.Fatalf("the log does not say so:\n%s", out.String())
-	}
-}
-
-func TestASaveWithNoRealmFoldersIsUploadedWithoutTheHeader(t *testing.T) {
-	f := setup(t, http.StatusOK)
-
-	f.settle(t)
-
-	if f.uploads() != 1 || strings.Contains(f.srv.headers[0], "X-Gf-Realm-Folders") {
-		t.Fatalf("uploads = %d, headers:\n%s", f.uploads(), f.srv.headers[0])
 	}
 }
